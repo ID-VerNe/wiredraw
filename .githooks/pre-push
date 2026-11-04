@@ -1,0 +1,20 @@
+#!/bin/sh
+# push 前跑最便宜的一档门禁（static 分片）。
+# 跳过：SKIP_GATES=1 git push   —— 会打印留痕，别静默绕过。
+set -e
+
+if [ "${SKIP_GATES:-0}" = "1" ]; then
+  echo "[pre-push] SKIP_GATES=1，已跳过 static 门禁（本次 push 未经门禁校验）" >&2
+  exit 0
+fi
+
+echo "[pre-push] 跑 static 门禁……"
+if ! python scripts/run_gates.py ci --shard static; then
+  echo "" >&2
+  echo "[pre-push] 门禁红了，拒绝推送。" >&2
+  echo "           确实要跳过：SKIP_GATES=1 git push" >&2
+  exit 1
+fi
+
+echo "[pre-push] static 门禁全绿"
+exit 0

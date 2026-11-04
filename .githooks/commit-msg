@@ -1,0 +1,57 @@
+#!/bin/sh
+# 拦 commit message 格式与 Co-Authored-By。
+# 规则见 AGENTS.md §5 / doc/PR_GUIDE.md「标题与 commit」。
+set -e
+
+MSG_FILE="$1"
+FIRST_LINE=$(head -n 1 "$MSG_FILE")
+
+# 放行：merge / revert / 空行开头的纯注释提交
+case "$FIRST_LINE" in
+  "Merge "*|"Revert "*|"revert:"*)
+    exit 0
+    ;;
+esac
+
+# 禁止 Co-Authored-By（含中文冒号变体）
+if grep -qiE '^[[:space:]]*co-authored-by[[:space:]]*:' "$MSG_FILE"; then
+  echo "[commit-msg] 拒绝：commit message 里不许出现 Co-Authored-By" >&2
+  exit 1
+fi
+
+# 首行格式：type(scope): 摘要（issue #NN）
+#   type ∈ feat|fix|docs|style|refactor|perf|test|chore
+if printf '%s' "$FIRST_LINE" | grep -qiE '^(feat|fix|docs|style|refactor|perf|test|chore)(\([a-z0-9._-]+\))?: .+'; then
+  :
+else
+  echo "[commit-msg] 拒绝：首行格式不对。" >&2
+  echo "             应为  type(scope): 中文摘要（issue #NN）" >&2
+  echo "             type ∈ feat|fix|docs|style|refactor|perf|test|chore" >&2
+  echo "             实际首行：$FIRST_LINE" >&2
+  exit 1
+fi
+
+# 非 bootstrap 提交必须带 issue 号
+case "$FIRST_LINE" in
+  *"issue #"*|*"#"[0-9]*) : ;;
+  *)
+    if [ "${ALLOW_NO_ISSUE:-0}" != "1" ]; then
+      echo "[commit-msg] 提醒：首行没带 issue 号。" >&2
+      echo "             doc/PR_GUIDE.md 要求分支 / 标题 / commit 三处都带 issue 号。" >&2
+      echo "             确实不需要（如 bootstrap、仓库卫生）时：" >&2
+      echo "             ALLOW_NO_ISSUE=1 git commit ..." >&2
+      exit 1
+    fi
+    ;;
+esac
+
+# 首行长度上限 72 字符（中文按字符数近似：用 python 数，取不到就跳过）
+if command -v python >/dev/null 2>&1; then
+  LEN=$(python -c "import sys;print(len(sys.argv[1]))" "$FIRST_LINE" 2>/dev/null || echo 0)
+  if [ "$LEN" -gt 72 ] 2>/dev/null; then
+    echo "[commit-msg] 拒绝：首行 $LEN 字符，上限 72。" >&2
+    exit 1
+  fi
+fi
+
+exit 0

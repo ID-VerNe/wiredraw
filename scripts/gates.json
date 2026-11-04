@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "note": "门禁清单的唯一事实来源。每条命令恰好属于 ci / manual / support 之一；ci 的顺序就是本机全量执行顺序，ci 条目上的 shard 决定 CI 走哪个分片。改完清单跑 `python scripts/check_gates_manifest.py --write` 重写 AGENTS.md 的生成段，否则元门禁会红。",
+  "shards": [
+    {
+      "name": "static",
+      "why": "不碰设备、不碰工具链的最便宜一档：清单一致性、仓库卫生、文档链接、Python 语法。红灯最先可见，pre-push 也只跑这一档"
+    }
+  ],
+  "ci": [
+    {
+      "name": "check_gates_manifest.py",
+      "cmd": ["python", "scripts/check_gates_manifest.py"],
+      "shard": "static",
+      "why": "元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红"
+    },
+    {
+      "name": "check_no_vendored.py",
+      "cmd": ["python", "scripts/check_no_vendored.py"],
+      "shard": "static",
+      "why": "15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（142 MB 抓包就是这样挡在外面的）"
+    },
+    {
+      "name": "check_doc_links.py",
+      "cmd": ["python", "scripts/check_doc_links.py"],
+      "shard": "static",
+      "why": "所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了"
+    },
+    {
+      "name": "py_compile",
+      "cmd": ["python", "-m", "compileall", "-q", "scripts", "tools"],
+      "shard": "static",
+      "why": "scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高"
+    }
+  ],
+  "manual": [
+    {
+      "name": "android-build",
+      "cmd": ["bash", "tools/android-mtp-probe/build.sh"],
+      "why": "MTP 探针 APK 必须能构建出来（aapt2 → javac → d8 → zipalign → apksigner）。需要 Android SDK 与 JDK，CI 不跑，改动 tools/android-mtp-probe/ 时必须本机手跑"
+    }
+  ],
+  "support": []
+}

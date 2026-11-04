@@ -25,9 +25,12 @@
 # ---- 构建产物 ----
 /tools/android-mtp-probe/build/
 
-# ---- 2026-11-04 工作区里的第三方源码（libgphoto2 / sonyalphapy 轮子） ----
-/2026-11-04/a7c-usb-feasibility/work/*
-!/2026-11-04/a7c-usb-feasibility/work/*.md
+# ---- 2026-11-04 早期工作区：里面的产出已整理进 docs/history/，剩下的是第三方源码 ----
+# （libgphoto2 的 gphoto_ptp*.c 与 sonyalphapy 轮子，只作本地参考）
+/2026-11-04/
+
+# ---- 临时目录（worktree 约定放在仓库外，万一放里面也别入库） ----
+/.tmp/
 
 # ---- 系统杂项 ----
 .DS_Store

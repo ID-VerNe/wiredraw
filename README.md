@@ -65,15 +65,40 @@ IED 从来没用过 `GetObjectHandles` —— 它只需要 `0xFFFFC001`，所以
 ## 仓库结构
 
 ```
+README.md                            对外门面（就是本文件）
+AGENTS.md                            ★ 协作须知：五步流程、红线、已证实结论、环境坑
 RESEARCH-android-usb-raw-a7c.md      主报告（12 节，含全部实测与踩坑记录）
+doc/
+  ISSUE_GUIDE.md                     怎么发 issue（四要素、needs-repro、回签）
+  PR_GUIDE.md                        怎么开 PR（分段、基线验证、合并评审、对账）
+scripts/
+  gates.json                         门禁清单，唯一事实来源
+  run_gates.py                       门禁执行器（本机与 CI 跑同一份）
+  check_gates_manifest.py            元门禁：清单 ↔ AGENTS.md 生成段零漂移
+  check_no_vendored.py               第三方参考库 / 大文件不许入库
+  check_doc_links.py                 文档相对链接必须可达
 tools/
   android-mtp-probe/                 ★ MTP 探针 APK 工程（手搓构建，无 Gradle）
   sony-ptpip/                        PTP/IP 直连相机探针 + 抓包解析器
   pe/                                Lja_PTP_IP.dll 静态分析工具
 captures/                            抓包派生的可读流水（原始 pcapng 未入库）
 out/                                 手机侧报告与截图（ARW 样本未入库）
-2026-11-04/                          早期可行性核查与仓库审计的产出
+docs/history/                        早期可行性核查与仓库审计的存档
 ```
+
+## 怎么协作
+
+本仓库按 [AGENTS.md](AGENTS.md) 的五步流程走：**issue → plan → worktree → PR → 对账回签**。
+改动前先读 [AGENTS.md](AGENTS.md) §0 与 §2（红线）。
+
+```bash
+python scripts/run_gates.py --list      # 看门禁清单
+python scripts/run_gates.py ci          # 跑全量门禁（改完就跑）
+python scripts/run_gates.py manual      # Android 构建档（需要 SDK + JDK）
+```
+
+门禁清单在 `scripts/gates.json`，改完跑 `python scripts/check_gates_manifest.py --write`
+同步 `AGENTS.md` 的生成段。`git config core.hooksPath .githooks` 装一次钩子。
 
 ### 主要工具
 

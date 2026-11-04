@@ -1,0 +1,31 @@
+name: ci
+
+# 跑的是仓库里同一份清单（scripts/gates.json），顺序与本机一致。
+# manual 档（Android APK 构建）需要 Android SDK + JDK，不在 CI 里跑，改动
+# tools/android-mtp-probe/ 时必须本机手跑 `python scripts/run_gates.py manual`。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # check_no_vendored.py 要读 git ls-files，需要完整历史以外的东西即可；
+          # 但 fetch-depth=0 能让 file 大小检查更稳，成本也低
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 门禁清单
+        run: python scripts/run_gates.py --list
+
+      - name: 跑门禁
+        run: python scripts/run_gates.py ci
