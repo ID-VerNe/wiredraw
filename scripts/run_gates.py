@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -24,6 +26,41 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "gates.json"
+
+
+def resolve_bash() -> str:
+    """在 Windows 上找**真正的** bash，别让子进程落到 WSL 的 bash.exe。
+
+    Windows 的 `bash` 在 PATH 里常先命中 `C:\\Windows\\System32\\bash.exe`，
+    那是 WSL 的入口：它看到的是另一个文件系统，`tools/**.sh` 里的 SDK 路径全都不存在，
+    于是 manual 档会以「命令跑不起来」的形式假红（而不是真跑一遍构建）。
+    优先级：显式覆盖 > PATH 里的非 System32 候选 > Git for Windows 常见安装位置。
+    """
+    override = os.environ.get("WIREDRAW_BASH")
+    if override:
+        return override
+
+    found = shutil.which("bash")
+    if found and "system32" not in found.replace("/", "\\").lower():
+        return found
+
+    if os.name == "nt":
+        for cand in (
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ):
+            if os.path.isfile(cand):
+                return cand
+
+    return found or "bash"
+
+
+def resolve_cmd(cmd: list[str]) -> list[str]:
+    """把 cmd 里的 shell 换成解析过的绝对路径；其余命令原样返回。"""
+    if cmd and cmd[0] in ("bash", "sh"):
+        return [resolve_bash()] + cmd[1:]
+    return cmd
 
 
 def die(msg: str):
@@ -67,9 +104,10 @@ def print_list(data: dict) -> None:
 
 def run_entry(entry: dict) -> tuple[bool, float, str]:
     started = time.time()
+    cmd = resolve_cmd(entry["cmd"])
     try:
         proc = subprocess.run(
-            entry["cmd"],
+            cmd,
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -80,6 +118,9 @@ def run_entry(entry: dict) -> tuple[bool, float, str]:
         return False, time.time() - started, f"命令不存在：{e}"
     elapsed = time.time() - started
     out = (proc.stdout or "") + (proc.stderr or "")
+    if cmd != entry["cmd"]:
+        # 只在真的改写了解释器时透出一行，方便排查「为什么和清单里写的不一样」
+        out = f"(解释器解析为 {cmd[0]})\n{out}"
     return proc.returncode == 0, elapsed, out.strip()
 
 

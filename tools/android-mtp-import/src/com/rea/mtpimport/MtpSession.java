@@ -1,0 +1,123 @@
+package com.rea.mtpimport;
+
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbManager;
+import android.mtp.MtpDevice;
+import android.mtp.MtpDeviceInfo;
+import android.mtp.MtpStorageInfo;
+
+import java.util.Locale;
+
+/**
+ * MTP 会话生命周期。这段逻辑是从已验证的探针里抽出来的
+ * （tools/android-mtp-probe/.../Main.java:147-190），坑必须原样保留：
+ *
+ * 1. 相机空闲会挂起 USB：`getStorageIds()` 返回空、`open()` 卡 10 秒。
+ *    这不是模式问题，重试 8 次 / 每次 3 秒；仍拿不到就得让用户拔插线。
+ * 2. 会话结束约 1 分钟后相机会再次挂起，所以**扫描与传输共用同一个会话**，
+ *    不要中途 close 再 open。
+ */
+public final class MtpSession {
+
+    /** 索尼的 USB Vendor ID。 */
+    public static final int SONY_VID = 0x054C;
+
+    private static final int STORAGE_RETRIES = 8;
+    private static final long STORAGE_RETRY_MS = 3000;
+
+    private final UsbDeviceConnection conn;
+    private final MtpDevice mtp;
+
+    private MtpSession(UsbDeviceConnection conn, MtpDevice mtp) {
+        this.conn = conn;
+        this.mtp = mtp;
+    }
+
+    /** 在已连接的 USB 设备里挑一台索尼机身；没有就返回 null。 */
+    public static UsbDevice findSony(UsbManager um, Log log) {
+        UsbDevice found = null;
+        for (UsbDevice d : um.getDeviceList().values()) {
+            log.line(String.format(Locale.US, "USB 设备 %s VID=0x%04X PID=0x%04X class=%d/%d/%d",
+                    d.getDeviceName(), d.getVendorId(), d.getProductId(),
+                    d.getDeviceClass(), d.getDeviceSubclass(), d.getDeviceProtocol()));
+            if (d.getVendorId() == SONY_VID) found = d;
+        }
+        return found;
+    }
+
+    /**
+     * 建立会话。失败返回 null（调用点负责提示「检查 USB 模式 / 拔插线」），
+     * 不抛异常——相机那头的问题基本都是「再试一次」能解决的。
+     */
+    public static MtpSession open(UsbManager um, UsbDevice dev, Log log) {
+        UsbDeviceConnection conn = um.openDevice(dev);
+        if (conn == null) {
+            log.line("openDevice() 返回 null：USB 权限没拿到，或设备被系统抢占");
+            return null;
+        }
+        MtpDevice mtp = new MtpDevice(dev);
+        if (!mtp.open(conn)) {
+            log.line("MtpDevice.open() 失败：相机可能不是 MTP 模式，或被别的 App 占用");
+            conn.close();
+            return null;
+        }
+        MtpSession s = new MtpSession(conn, mtp);
+        log.line("会话已建立：" + s.describe());
+        return s;
+    }
+
+    public MtpDevice device() {
+        return mtp;
+    }
+
+    private String describe() {
+        try {
+            MtpDeviceInfo di = mtp.getDeviceInfo();
+            if (di == null) return "(getDeviceInfo 为空)";
+            return di.getManufacturer() + " / " + di.getModel() + " / ver=" + di.getVersion();
+        } catch (Throwable t) {
+            return "(getDeviceInfo 异常: " + t + ")";
+        }
+    }
+
+    /**
+     * 拿存储 ID，带唤醒重试。空数组表示彻底失败，调用点应提示用户拔插 USB 线。
+     */
+    public int[] storageIds(Log log) {
+        for (int attempt = 1; attempt <= STORAGE_RETRIES; attempt++) {
+            int[] sids = mtp.getStorageIds();
+            if (sids != null && sids.length > 0) return sids;
+            log.line("第 " + attempt + "/" + STORAGE_RETRIES
+                    + " 次 getStorageIds() 为空 —— 相机可能休眠了，"
+                    + "按一下相机按键唤醒；" + (STORAGE_RETRY_MS / 1000) + " 秒后重试");
+            try {
+                Thread.sleep(STORAGE_RETRY_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return new int[0];
+    }
+
+    public String describeStorage(int sid) {
+        MtpStorageInfo si = mtp.getStorageInfo(sid);
+        if (si == null) return "storage 0x" + Integer.toHexString(sid);
+        return String.format(Locale.US, "%s  容量 %.1f GB / 可用 %.1f GB",
+                si.getDescription(),
+                si.getMaxCapacity() / 1073741824.0, si.getFreeSpace() / 1073741824.0);
+    }
+
+    public void close() {
+        try {
+            mtp.close();
+        } catch (Throwable ignored) {
+            // 已断开时 close 抛异常无所谓
+        }
+        try {
+            conn.close();
+        } catch (Throwable ignored) {
+        }
+    }
+}

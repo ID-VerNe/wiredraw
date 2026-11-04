@@ -69,7 +69,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 3 | `static` | `check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
 | 4 | `static` | `py_compile` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 
-共 4 个 CI 门禁，分 1 个分片（static 4）；manual 1、support 1 见 `scripts/gates.json`。
+共 4 个 CI 门禁，分 1 个分片（static 4）；manual 2、support 1 见 `scripts/gates.json`。
 <!-- gates:ci:end -->
 
 ### 0.2 证据与验证纪律
@@ -199,6 +199,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移 |
 | `tools/android-mtp-probe/README.md` | MTP 探针的用法、实测结果与三个坑 |
+| `tools/android-mtp-import/README.md` | 导片工具骨架：类职责、实现状态表、为什么不做真续传、真机待验清单 |
 | `tools/sony-ptpip/README.md` | PTP/IP 抓包与探针的操作手册 |
 | `tools/sony-ptpip/FINDINGS-a7c-ptpip-session.md` | 抓包会话逐条分析 + 直连探针实测 |
 | `tools/pe/FINDINGS-Lja_PTP_IP.md` | `Lja_PTP_IP.dll` 静态分析结论 |

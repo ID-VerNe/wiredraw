@@ -24,6 +24,7 @@
 
 # ---- 构建产物 ----
 /tools/android-mtp-probe/build/
+/tools/android-mtp-import/build/
 
 # ---- 2026-11-04 早期工作区：里面的产出已整理进 docs/history/，剩下的是第三方源码 ----
 # （libgphoto2 的 gphoto_ptp*.c 与 sonyalphapy 轮子，只作本地参考）
