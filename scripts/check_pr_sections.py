@@ -59,15 +59,20 @@ CLOSING = re.compile(r"\b(Closes|Refs)\s+#(\d+)", re.I)
 GATE_SECTION = "门禁改动"
 
 # GitHub 的自动关闭关键词（PR 正文里出现就真的会关掉对应 issue）。
-# 与 CLOSING 的区别：CLOSING 判的是「本 PR 打算怎么关联 issue」，只认 Closes/Refs；
-# 这里判的是「合并这个动作会不会产生关单副作用」，要覆盖 close/closed、
-# fix/fixes/fixed、resolve/resolves/resolved 全套动词。
+# 与 CLOSING 的区别：CLOSING 判的是「本 PR 打算怎么关联 issue」，只认 Closes/Refs
+# 且要求本仓库的标准写法；这里判的是「合并这个动作会不会产生关单副作用」，
+# 要覆盖 close/closed、fix/fixes/fixed、resolve/resolves/resolved 全套动词，
+# 还要覆盖 GitHub 允许的冒号写法（`Closes: #N`）与任意大小写（re.I）。
+#
+# 关键词与编号之间只允许半角空白 + 一个可选冒号，不用 `\s`：`\s` 含换行，
+# 意图层拿的是整份净化后文本，跨行匹配会把「上一行以关键词结尾、下一行以编号开头」
+# 误判成关闭。逐行扫描本来不跨行，所以必须在这里钉死。
 #
 # 关键落差：门禁把围栏 / 行内代码 / HTML 注释里的关键词剔除后再判意图，
 # GitHub **不剔除**。PR #4 正文第 54、231 行在行内代码里举了 `Closes` #3 的例子，
 # 门禁判绿、GitHub 在 merge 后 3 秒关掉了 issue #3，绕过「回签通过才关单」。
 GITHUB_CLOSING = re.compile(
-    r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+#(\d+)\b", re.I
+    r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)[ \t]*:?[ \t]*#(\d+)\b", re.I
 )
 REF_ONLY = re.compile(r"\bRefs\s+#(\d+)", re.I)
 
@@ -496,9 +501,11 @@ def self_test() -> int:
     # merge 后 3 秒把 issue 关了。样本里的编号用字符串拼接，避免本文件自己
     # 出现裸的具体编号（贴进 PR 正文的输出会再次被本门禁扫）。
     concrete = "Closes #" + "7"
+    colon_word = "Closes: #" + "7"
     fix_word = "Fixes #" + "7"
     refs_word = "Refs #" + "7"
     side_effect_inline = SAMPLE_GATE + "\n举例：`" + concrete + "` 只是说明。\n"
+    side_effect_colon = SAMPLE_GATE + "\n举例：`" + colon_word + "` 只是说明。\n"
     side_effect_placeholder = SAMPLE_GATE + "\n举例：`Closes #NN` 只是说明。\n"
     side_effect_fix = SAMPLE_GATE + "\n举例：`" + fix_word + "` 只是说明。\n"
     side_effect_fence = SAMPLE_GATE + "\n```\n" + concrete + "\n```\n"
@@ -543,8 +550,9 @@ def self_test() -> int:
         ("列表项里的围栏内的 `Closes` 不算数", list_fence_closing, [], 1),
         ("列表项里的围栏内的 `## 门禁改动` 不算数", list_fence_gate, ["scripts/gates.json"], 1),
         ("合法正文把命令写在列表项围栏里不该被吞", legal_list_fence, [], 0),
-        # 关单副作用：期望红的四条在「只查净化后文本」的实现下都应为绿（即用例先红）。
+        # 关单副作用：期望红的用例在「只查净化后文本」的实现下都应为绿（即用例先红）。
         ("行内代码里举例的具体编号 closing 会误关单", side_effect_inline, [], 1),
+        ("冒号写法的具体编号 closing 也会误关单", side_effect_colon, [], 1),
         ("举例用 #NN 占位不会误关单", side_effect_placeholder, [], 0),
         ("纯 closing 关键词无副作用", SAMPLE_FULL, [], 0),
         ("Fixes 这类关闭动词也会误关单", side_effect_fix, [], 1),
