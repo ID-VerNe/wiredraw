@@ -83,34 +83,44 @@ def normalize_eol(text: str) -> str:
 
 
 def strip_markup(text: str) -> str:
-    """剔除围栏代码块与 HTML 注释，只留下「在页面上真会渲染出来」的行。
+    """剔除围栏代码块、缩进代码块与 HTML 注释，只留「在页面上真会渲染出来」的行。
 
-    三类都必须按 CommonMark 处理，用一条正则只能覆盖其中一类：
+    判定必须按 CommonMark 走，四类都要照顾到，用一条正则只能覆盖其中一类：
 
     1. **围栏代码块**：开围栏最多缩进 3 空格 + 3 个以上 ` 或 ~；闭围栏同字符、
        不短于开围栏、其后只允许空白；到文末未闭合则余下全部算代码。
-    2. **HTML 注释**：`<!--` 就是注释块开始；**到文末都没等到 `-->` 时余下全部不可见**
+    2. **HTML 注释**：`<!--` 即注释块开始；**到文末都没等到 `-->` 时余下全部不可见**
        （这是一份正文最彻底的「隐身」方式，页面上一个字都没有）。
-    3. 注释在同一行闭合时，`-->` 后面的内容仍然**不在行首**，不能当标题匹配 ——
-       用 `\x00` 顶在它前面，让 `^ {0,3}##` 认不出来。直接丢掉整行会误伤
+       一行里可能有**多个** `<!--`，必须循环处理 —— 只处理第一个的话，
+       `<!-- x --> <!--` 这种写法能把未闭合注释藏到第二个位置，绕开检查。
+    3. 注释在同一行闭合时，`-->` 之后的内容仍然**不在行首**，不能当标题 ——
+       用 `\\x00` 顶在它前面，让 `^ {0,3}##` 认不出来。直接丢掉整行会误伤
        `Refs #3 <!-- 备注 -->` 这种写法。
+    4. **行内代码**（`...`）与**缩进代码块**（空行后 4 空格 / 制表符起始）里的
+       `<!--` 是字面量，不是注释起点。反过来判会把合法正文吃掉（过严）。
     """
     kept: list[str] = []
     lines = normalize_eol(text).split("\n")
-    i = 0
     n = len(lines)
+    i = 0
     in_comment = False
+    prev_blank = True  # 文首按空行算
+    prev_indented = False
+
     while i < n:
         line = lines[i]
 
+        # 1) 本来就在注释块里：丢到 `-->` 为止（没有就丢到文末）
         if in_comment:
             j = line.find("-->")
             if j < 0:
                 i += 1
+                prev_blank = False
                 continue
             line = "\x00" + line[j + 3 :]
             in_comment = False
 
+        # 2) 围栏代码块整段跳过
         m = FENCE_OPEN.match(line)
         if m:
             ch = m.group(1)[0]
@@ -120,28 +130,38 @@ def strip_markup(text: str) -> str:
             while i < n and not close.match(lines[i]):
                 i += 1
             i += 1  # 跳过闭围栏（若已到文末，i 越界，循环自然结束）
+            prev_blank = False
+            prev_indented = False
             continue
 
-        # 行内代码（`...`）里的内容是字面量，`<!--` 写在这里**不是**注释起点。
-        # 这条不是理论边界：正文里引用「未闭合的 `<!--`」这种字面量很常见，
-        # 不先去掉行内代码，扫描器会把自己正文剩下的部分整段吞掉（实跑踩到过）。
+        # 3) 行内代码是字面量。不先剔，正文里引用「未闭合的 `<!--`」会把自己吞掉。
         line = INLINE_CODE.sub("", line)
 
-        k = line.find("<!--")
-        if k >= 0:
+        # 4) 缩进代码块（空行之后、或紧接上一行缩进）里的 `<!--` 不是注释
+        if INDENTED_CODE.match(line) and (prev_blank or prev_indented):
+            kept.append(line)
+            prev_blank = False
+            prev_indented = True
+            i += 1
+            continue
+
+        # 5) 同一行可能有多个注释：闭合一个就继续找下一个
+        while True:
+            k = line.find("<!--")
+            if k < 0:
+                break
             rest = line[k + 4 :]
             j = rest.find("-->")
             if j < 0:
                 in_comment = True
-                head = line[:k]
-                if not head.strip():
-                    i += 1
-                    continue
-                line = head
-            else:
-                line = line[:k] + "\x00" + rest[j + 3 :]
+                line = line[:k]
+                break
+            line = line[:k] + "\x00" + rest[j + 3 :]
 
-        kept.append(line)
+        if line.strip():
+            kept.append(line)
+        prev_blank = not line.strip()
+        prev_indented = False
         i += 1
 
     return "\n".join(kept)
@@ -369,6 +389,13 @@ def self_test() -> int:
     inline_code_comment = SAMPLE_FULL.replace(
         "## 影响面", "写法是 `<!--` 但不闭合，这是字面量\n\n## 影响面"
     )
+    # 同一行第二个未闭合注释：第 6 轮评审的阻塞项。
+    second_comment = "<!-- x --> <!--\n" + SAMPLE_GATE
+    two_closed_comments = "<!-- a --> <!-- b -->\n" + SAMPLE_GATE
+    # 过严面：空行后的缩进代码块里写 `<!--`，页面上是代码不是注释。
+    indented_comment = SAMPLE_FULL.replace(
+        "## 影响面", "示例代码：\n\n    <!-- 这是代码\n\n## 影响面"
+    )
 
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
@@ -402,6 +429,9 @@ def self_test() -> int:
         ("4 空格缩进代码块里的 `Closes` 不算数", indented_closing, [], 1),
         ("行尾注释不影响真正的 `Closes`", trailing_comment, [], 0),
         ("行内代码里的 `<!--` 不算注释起点", inline_code_comment, [], 0),
+        ("同一行第二个 `<!--` 未闭合也吃掉后文", second_comment, ["scripts/gates.json"], 1),
+        ("同一行两个都闭合则不影响后面", two_closed_comments, ["scripts/gates.json"], 0),
+        ("空行后缩进代码块里的 `<!--` 不是注释", indented_comment, [], 0),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
