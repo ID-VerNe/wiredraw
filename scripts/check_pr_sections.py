@@ -55,9 +55,17 @@ HEADING = re.compile(r"^##\s+(.+?)\s*$", re.M)
 CLOSING = re.compile(r"\b(Closes|Refs)\s+#(\d+)", re.I)
 GATE_SECTION = "门禁改动"
 
+# 围栏代码块整段剔除后再找标题与关键词。不剔的话，正文里贴一段示例
+# （比如别处的 PR 模板、回签模板）就能满足段检查，门禁等于可绕过。
+FENCE = re.compile(r"^(```|~~~).*?^\1[ \t]*$", re.S | re.M)
+
+
+def strip_fences(text: str) -> str:
+    return FENCE.sub("", text)
+
 
 def headings(body: str) -> list[str]:
-    return [m.group(1).strip() for m in HEADING.finditer(body)]
+    return [m.group(1).strip() for m in HEADING.finditer(strip_fences(body))]
 
 
 def has_section(body: str, names: tuple[str, ...]) -> bool:
@@ -80,7 +88,7 @@ def check_body(body: str, files: list[str]) -> list[str]:
         if not has_section(body, names):
             problems.append(f"缺必填段：`## {label}`")
 
-    if not CLOSING.search(body):
+    if not CLOSING.search(strip_fences(body)):
         problems.append("缺关闭关键词：`Closes #NN` 或 `Refs #NN`（行为类必须 `Refs`）")
 
     hits = gate_hits(files)
@@ -232,12 +240,20 @@ Refs #3
 
 
 def self_test() -> int:
+    # 围栏代码块里的标题 / 关键词不算数：否则贴一段模板就能满足检查。
+    fenced_gate = SAMPLE_FULL.replace(
+        "## 影响面", "```markdown\n## 门禁改动\n\n`scripts/gates.json`\n```\n\n## 影响面"
+    )
+    fenced_closing = SAMPLE_FULL.replace("Closes #3", "```\nCloses #3\n```")
+
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
         ("段齐必绿", SAMPLE_FULL, [], 0),
         ("命中门禁链但缺 `## 门禁改动` 必红", SAMPLE_FULL, ["scripts/gates.json"], 1),
         ("命中门禁链且写了 `## 门禁改动` 必绿", SAMPLE_GATE, ["scripts/gates.json"], 0),
         ("只改文档不触发门禁链要求", SAMPLE_FULL, ["doc/PR_GUIDE.md"], 0),
+        ("围栏里的 `## 门禁改动` 不算数", fenced_gate, ["scripts/gates.json"], 1),
+        ("围栏里的 `Closes` 不算数", fenced_closing, [], 1),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
@@ -307,8 +323,17 @@ def main() -> int:
         if not p.is_file():
             print(f"[红] 找不到 {p}", file=sys.stderr)
             return 2
+        if args.files is None:
+            # 不给 --files 就等于「没有改动文件」，门禁链判定会静默跳过、
+            # 整份正文直接绿。必须让调用方显式声明「无改动文件」（`--files` 后不跟参数）。
+            print(
+                "[红] --body-file 模式必须显式给 --files（无改动文件就写 `--files` 后不跟参数）；"
+                "否则「命中门禁链才要 `## 门禁改动`」会静默跳过",
+                file=sys.stderr,
+            )
+            return 2
         body = p.read_text(encoding="utf-8", errors="replace")
-        files = list(args.files or [])
+        files = list(args.files)
         source = f"--body-file {args.body_file}"
     elif args.pr:
         body, files = from_gh(args.pr)

@@ -97,6 +97,10 @@ python scripts/review_prompt.py --pr <PR 号>
 - `scripts/check_pr_sections.py` 在 `support` 档（`scripts/gates.json`），
   校验正文分段与 `Closes`/`Refs`，CI 在 `pull_request` 事件上跑。
   **它只查结构，不查内容真假**——内容真假只有评审者能判。
+- 围栏代码块里的标题与关键词**不算数**（先剔除代码块再匹配）：正文里常贴模板和原始输出，
+  不剔除的话贴一段 `## 门禁改动` 示例就能满足检查，门禁等于可绕过。
+- 本地用 `--body-file` 自查时**必须显式带 `--files`**（确实没有改动文件就写 `--files` 不跟参数）。
+  省略它等于宣称「没有改动文件」，门禁链判定会静默跳过、整份正文直接绿。
 - 无 PR 上下文时（本地日常 `run_gates.py support`）它输出 `SKIP` 并退出 0，
   这是设计而非缺陷：把需要 PR 上下文的东西塞进 `ci` 档会把最便宜的一档弄脆。
 - 但**有 PR 上下文却取不全**时必须红（退出 2）：事件载荷缺 `base.sha`/`head.sha`、
