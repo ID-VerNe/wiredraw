@@ -68,6 +68,7 @@ GATE_SECTION = "门禁改动"
 # 一条 `^(```|~~~).*?^\1$` 的正则会漏掉缩进围栏与「开 3 闭 4」，等于把洞留在原地。
 FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 INDENTED_CODE = re.compile(r"^( {4,}|\t)")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
 
 
 def normalize_eol(text: str) -> str:
@@ -120,6 +121,11 @@ def strip_markup(text: str) -> str:
                 i += 1
             i += 1  # 跳过闭围栏（若已到文末，i 越界，循环自然结束）
             continue
+
+        # 行内代码（`...`）里的内容是字面量，`<!--` 写在这里**不是**注释起点。
+        # 这条不是理论边界：正文里引用「未闭合的 `<!--`」这种字面量很常见，
+        # 不先去掉行内代码，扫描器会把自己正文剩下的部分整段吞掉（实跑踩到过）。
+        line = INLINE_CODE.sub("", line)
 
         k = line.find("<!--")
         if k >= 0:
@@ -360,6 +366,9 @@ def self_test() -> int:
     )
     indented_closing = SAMPLE_FULL.replace("Closes #3", "    Closes #3")
     trailing_comment = SAMPLE_FULL.replace("Closes #3", "Closes #3 <!-- 备注 -->")
+    inline_code_comment = SAMPLE_FULL.replace(
+        "## 影响面", "写法是 `<!--` 但不闭合，这是字面量\n\n## 影响面"
+    )
 
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
@@ -392,6 +401,7 @@ def self_test() -> int:
         ("注释同行闭合后、`##` 紧跟其后不算标题", comment_then_heading, ["scripts/gates.json"], 1),
         ("4 空格缩进代码块里的 `Closes` 不算数", indented_closing, [], 1),
         ("行尾注释不影响真正的 `Closes`", trailing_comment, [], 0),
+        ("行内代码里的 `<!--` 不算注释起点", inline_code_comment, [], 0),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
