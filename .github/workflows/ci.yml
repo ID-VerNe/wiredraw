@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # 默认类型是 opened/synchronize/reopened，**不含 edited**。support 档检查的正是
+    # PR 正文，少了 edited 就能「先推绿、后改正文」绕过门禁，绿会一直停在旧正文上。
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 jobs:
@@ -29,3 +32,9 @@ jobs:
 
       - name: 跑门禁
         run: python scripts/run_gates.py ci
+
+      # support 档：需要 PR 上下文（读 GITHUB_EVENT_PATH 里的正文与改动文件），
+      # 本地没有 PR 时脚本自己 SKIP，所以不放进 ci 档。
+      - name: PR 正文分段（support 档）
+        if: github.event_name == 'pull_request'
+        run: python scripts/run_gates.py support

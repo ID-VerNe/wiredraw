@@ -22,9 +22,12 @@
    不在主工作区切分支；分支 / PR 标题 / commit **三处都带 issue 号**。
 4. **开 PR**：正文分段齐全（问题 / 改动 / 测试 / 基线验证 / 门禁改动 / 影响面 / 验收对照）；
    `Closes` 只给纯文档与纯重构，**行为类用 `Refs`**。
-   **合并审批权归全新上下文的 subagent**：提交者写完全部文档、门禁转绿后派一个只拿到
-   PR 编号与仓库路径的评审会话，它出 `APPROVE` 就直接合并（merge commit，不 squash、不 rebase），
-   不需要维护者逐 PR 人工点头。提交者不能给自己评审。
+   **合并审批权归全新上下文的 subagent**：提交者写完全部文档、门禁转绿后，
+   用 `python scripts/review_prompt.py --pr <号>` 生成派发文案（**不要手写**，它默认不带 PR 正文，
+   「不投喂结论」靠结构保证），原样交给只拿到 PR 编号、仓库路径与分支/标题/改动文件清单的评审会话；
+   它出 `APPROVE` 就直接合并（merge commit，不 squash、不 rebase），
+   不需要维护者逐 PR 人工点头。提交者不能给自己评审。契约见
+   [`doc/REVIEW_DISPATCH.md`](doc/REVIEW_DISPATCH.md)。
 5. **合并后对账与回签**：修复者逐项核对「自述 vs 实际」（`git status`、文件存在性、门禁原始输出），
    给行为类 issue 贴 `needs-live-verify`；由发现者或**全新上下文**的会话按 PR_GUIDE 的模板回签，
    **回签通过才关 issue**。修复者不能给自己回签。
@@ -43,6 +46,7 @@ python scripts/run_gates.py ci              # 全量（最便宜的一档，本�
 python scripts/run_gates.py ci --fail-fast  # 见到红就停
 python scripts/run_gates.py ci --shard static
 python scripts/run_gates.py manual          # 真机/工具链档（Android 构建）
+python scripts/run_gates.py support         # 需要 PR 上下文的一档；本地无 PR 时 SKIP
 ```
 
 - **新增门禁只改清单**，然后跑 `python scripts/check_gates_manifest.py --write` 重写下面这段；
@@ -62,7 +66,7 @@ python scripts/run_gates.py manual          # 真机/工具链档（Android 构�
 | 3 | `static` | `check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
 | 4 | `static` | `py_compile` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 
-共 4 个 CI 门禁，分 1 个分片（static 4）；manual 1、support 0 见 `scripts/gates.json`。
+共 4 个 CI 门禁，分 1 个分片（static 4）；manual 1、support 1 见 `scripts/gates.json`。
 <!-- gates:ci:end -->
 
 ### 0.2 证据与验证纪律
@@ -132,6 +136,7 @@ python scripts/run_gates.py manual          # 真机/工具链档（Android 构�
 |---|---|
 | 门禁清单 / 执行器 | `scripts/gates.json` + `scripts/run_gates.py`（**不要在别处再写一份命令数组**） |
 | 迭代流程细则 | `doc/ISSUE_GUIDE.md` / `doc/PR_GUIDE.md` |
+| 合并评审（派发 + 评审清单） | `doc/REVIEW_DISPATCH.md`（派发文案用 `scripts/review_prompt.py` 生成，**不要手写**） |
 | MTP 枚举与下载 | `tools/android-mtp-probe/src/com/rea/mtpprobe/Main.java` |
 | APK 构建流程 | `tools/android-mtp-probe/build.sh`（**keystore 必须在工程根目录**，见 §4） |
 | PTP/IP 连相机 | `tools/sony-ptpip/probe.py` |
@@ -185,6 +190,9 @@ python scripts/run_gates.py manual          # 真机/工具链档（Android 构�
 | `RESEARCH-android-usb-raw-a7c.md` | **主报告**，12 节，全部实测与踩坑记录 |
 | `doc/ISSUE_GUIDE.md` | 怎么发 issue：正文四要素、复现命令与 `needs-repro`、关闭方式、模板 |
 | `doc/PR_GUIDE.md` | 怎么开 PR：拆分命名、正文分段、基线验证、门禁改动、合并条件、对账与回签 |
+| `doc/REVIEW_DISPATCH.md` | 合并评审契约：派发方式、评审者必做清单、结论格式、常见误判 |
+| `scripts/review_prompt.py` | 生成合并评审的派发文案（默认不含 PR 正文，`--self-test` 自检） |
+| `scripts/check_pr_sections.py` | PR 正文分段结构校验（`support` 档，CI 在 `pull_request` 上跑） |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移 |
 | `tools/android-mtp-probe/README.md` | MTP 探针的用法、实测结果与三个坑 |
