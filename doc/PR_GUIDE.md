@@ -23,6 +23,26 @@
 - 同一 PR 既改文档又改行为：按行为类走。
 - 多分节 issue 的每个 PR 都用 `Refs #NN`，全部分节合并后统一回签、一次关闭。
 
+### 硬规则：正文里举例一律写 `#NN` 占位
+
+**GitHub 的自动关闭解析器与门禁是两套规则，不要混为一谈：**
+
+| | `scripts/check_pr_sections.py`（门禁） | GitHub 合并动作 |
+|---|---|---|
+| 判定对象 | 净化后的可见文本（围栏 / 行内代码 / HTML 注释 / 缩进代码块全剔除） | **PR 原始全文**，一个字符都不剔 |
+| 认哪些词 | `Closes` / `Refs` | `close` / `closed` / `fix` / `fixes` / `fixed` / `resolve` / `resolves` / `resolved` 后跟 `#<数字>` |
+| 后果 | 判红，改正文即可 | merge 瞬间**真的关掉那个 issue** |
+
+- 正文里凡是要提到关闭关键词的**举例、模板、原始输出、规则说明**，编号一律写 `#NN` 占位
+  （`Closes #NN`），或把关键词与编号拆开写成 `` `Closes` #N ``。
+  带**具体数字编号**的 closing 短语，哪怕写在行内代码或围栏里，GitHub 照样关单。
+- `support` 档的 `closing_side_effects()` 逐行扫原始全文：凡带具体编号、又不在
+  「本 PR 明确声明要关」集合里的 closing 关键词一律判红，并报出行号。
+- **别为了贴「基线验证」的原始输出，把带具体编号的 closing 原句抄进正文**——那正是本门禁
+  要拦的反例。贴命令与退出码，或把输出里的编号替换成 `#NN` 并注明替换过。
+- 真实发生：PR #4 正文用 `Refs` 关联目标 issue，但第 54 / 231 行在行内代码里各举了一次
+  带具体编号的 closing 例子，merge 后 3 秒目标 issue 被自动关闭，变成「先关单、后回签」。
+
 ## 拆分与命名规范
 
 | 维度 | 标识 | 语义 | 回答的问题 |
@@ -121,6 +141,9 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
 4. 门禁红了先归因：用 pristine HEAD 的 worktree 对照跑一遍，分清代码问题与环境抖动，再动手。
 5. 确认分支基于最新 `main`：`git fetch origin main` 后无落后。
 6. push 前确认 `git status` 干净。
+7. 正文里没有**带具体编号的 closing 关键词**：举例一律 `#NN` 占位。
+   `python scripts/check_pr_sections.py --body-file <正文文件> --files <改动文件...>`
+   能在本机提前复现 `support` 档的结论；省略 `--files` 等于宣称没有改动文件，门禁链会静默跳过。
 
 ## 合并条件（全部满足才合）
 
@@ -129,6 +152,17 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
    在 worktree 里 `git merge origin/main` 解决，重跑门禁后再推。
 3. 适用时有 `## 基线验证` 段。
 4. **合并评审结论为 `APPROVE`**：由全新上下文的 subagent 出具，见下节。
+5. **合完立刻核对目标 issue 没被意外关闭**：贴合并前后时间线，确认关单发生在回签之后，
+   而不是 merge 后几秒：
+
+   ```bash
+   gh pr view <N> --json mergedAt -q .mergedAt
+   gh api repos/ID-VerNe/wiredraw/issues/<N>/timeline --paginate \
+     -q '.[] | select(.event=="closed") | .created_at'
+   ```
+
+   行为类 PR 若发现 `closed` 紧跟 `mergedAt`，说明正文里混进了带具体编号的 closing 关键词，
+   先补回签再重开 issue 并在回签里说明，不要当作正常关闭放行。
 
 合并方式跟随仓库现状：**merge commit**（`gh pr merge <n> --merge`），不 squash、不 rebase。
 

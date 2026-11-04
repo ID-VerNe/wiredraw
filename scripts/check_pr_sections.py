@@ -58,6 +58,19 @@ HEADING = re.compile(r"^ {0,3}##[ \t]+(.+?)[ \t]*$", re.M)
 CLOSING = re.compile(r"\b(Closes|Refs)\s+#(\d+)", re.I)
 GATE_SECTION = "门禁改动"
 
+# GitHub 的自动关闭关键词（PR 正文里出现就真的会关掉对应 issue）。
+# 与 CLOSING 的区别：CLOSING 判的是「本 PR 打算怎么关联 issue」，只认 Closes/Refs；
+# 这里判的是「合并这个动作会不会产生关单副作用」，要覆盖 close/closed、
+# fix/fixes/fixed、resolve/resolves/resolved 全套动词。
+#
+# 关键落差：门禁把围栏 / 行内代码 / HTML 注释里的关键词剔除后再判意图，
+# GitHub **不剔除**。PR #4 正文第 54、231 行在行内代码里举了 `Closes` #3 的例子，
+# 门禁判绿、GitHub 在 merge 后 3 秒关掉了 issue #3，绕过「回签通过才关单」。
+GITHUB_CLOSING = re.compile(
+    r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+#(\d+)\b", re.I
+)
+REF_ONLY = re.compile(r"\bRefs\s+#(\d+)", re.I)
+
 # 围栏代码块与 HTML 注释整段剔除后再找标题与关键词。不剔的话，正文里贴一段示例
 # （PR 模板、回签模板、原始输出）就能满足段检查，门禁等于可绕过。
 #
@@ -214,18 +227,59 @@ def gate_hits(files: list[str]) -> list[str]:
     return [f for f in files if any(f.startswith(t) or f == t for t in GATE_TRIGGERS)]
 
 
+def closing_side_effects(body: str, visible: str) -> list[str]:
+    """查「合并这个动作会不会真的关掉 issue」，而不只是「正文有没有写关键词」。
+
+    两层规则不同，不能合并：
+    - 意图层用 `visible`（围栏 / 注释 / 行内代码都剔除过）判断本 PR 声明要关谁；
+    - 副作用层扫**原始全文**，因为这些被剔除的位置 GitHub 照样解析。
+
+    报错给出行号，让提交者能直接定位到那句举例。
+    """
+    problems: list[str] = []
+    intended = {m.group(1) for m in GITHUB_CLOSING.finditer(visible)}
+    refs = {m.group(1) for m in REF_ONLY.finditer(visible)}
+
+    if intended and refs:
+        problems.append(
+            "关闭方式冲突：可见正文里同时出现 closing 关键词与 `Refs`，"
+            "按 doc/PR_GUIDE.md「关闭方式」二选一（行为类只该用 `Refs`）"
+        )
+    if len(intended) > 1:
+        problems.append(
+            "多目标关闭：可见正文里出现多个不同的 closing issue 号，"
+            "一 issue 一 PR，多出来的那个该换成 `Refs`"
+        )
+
+    for lineno, line in enumerate(normalize_eol(body).split("\n"), 1):
+        for m in GITHUB_CLOSING.finditer(line):
+            n = m.group(1)
+            if n in intended:
+                continue
+            problems.append(
+                f"第 {lineno} 行：`{m.group(0)}` 会真的关掉 issue #{n} —— "
+                "GitHub 不区分 prose / 代码围栏 / 行内代码。举例请写 `Closes #NN` 占位，"
+                "或把关键词与编号拆开写成 `` `Closes` #N ``；"
+                "若确为本 PR 要关的 issue，就让它单独出现在正文中"
+            )
+    return problems
+
+
 def check_body(body: str, files: list[str]) -> list[str]:
     problems: list[str] = []
+    visible = strip_indented(strip_markup(body))
 
     for label, names in REQUIRED:
         if not has_section(body, names):
             problems.append(f"缺必填段：`## {label}`")
 
-    if not CLOSING.search(strip_indented(strip_markup(body))):
+    if not CLOSING.search(visible):
         problems.append(
             "缺关闭关键词：需要 `Closes #NN`（纯文档 / 纯重构）或 `Refs #NN`（行为类），"
             "见 doc/PR_GUIDE.md「关闭方式：Closes 还是 Refs」"
         )
+
+    problems.extend(closing_side_effects(body, visible))
 
     hits = gate_hits(files)
     if hits and not has_section(body, (GATE_SECTION,)):
@@ -437,6 +491,19 @@ def self_test() -> int:
         "- 跑一下：\n\n  ```bash\n  python scripts/run_gates.py ci\n  ```\n  [绿] 全部可达",
     )
 
+    # 关单副作用（issue #5）：门禁把围栏 / 行内代码里的关键词剔除后再判意图，
+    # 但 GitHub 的自动关闭解析器**不剔除**。PR #4 就在行内代码里举了个例子，
+    # merge 后 3 秒把 issue 关了。样本里的编号用字符串拼接，避免本文件自己
+    # 出现裸的具体编号（贴进 PR 正文的输出会再次被本门禁扫）。
+    concrete = "Closes #" + "7"
+    fix_word = "Fixes #" + "7"
+    refs_word = "Refs #" + "7"
+    side_effect_inline = SAMPLE_GATE + "\n举例：`" + concrete + "` 只是说明。\n"
+    side_effect_placeholder = SAMPLE_GATE + "\n举例：`Closes #NN` 只是说明。\n"
+    side_effect_fix = SAMPLE_GATE + "\n举例：`" + fix_word + "` 只是说明。\n"
+    side_effect_fence = SAMPLE_GATE + "\n```\n" + concrete + "\n```\n"
+    intent_conflict = SAMPLE_FULL + "\n" + refs_word + "\n"
+
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
         ("段齐必绿", SAMPLE_FULL, [], 0),
@@ -476,6 +543,13 @@ def self_test() -> int:
         ("列表项里的围栏内的 `Closes` 不算数", list_fence_closing, [], 1),
         ("列表项里的围栏内的 `## 门禁改动` 不算数", list_fence_gate, ["scripts/gates.json"], 1),
         ("合法正文把命令写在列表项围栏里不该被吞", legal_list_fence, [], 0),
+        # 关单副作用：期望红的四条在「只查净化后文本」的实现下都应为绿（即用例先红）。
+        ("行内代码里举例的具体编号 closing 会误关单", side_effect_inline, [], 1),
+        ("举例用 #NN 占位不会误关单", side_effect_placeholder, [], 0),
+        ("纯 closing 关键词无副作用", SAMPLE_FULL, [], 0),
+        ("Fixes 这类关闭动词也会误关单", side_effect_fix, [], 1),
+        ("围栏里的具体编号 closing 也会误关单", side_effect_fence, [], 1),
+        ("可见文本里混用 Closes 与 Refs 是意图冲突", intent_conflict, [], 1),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
