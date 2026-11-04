@@ -1,0 +1,16 @@
+.workbuddy | no commits | 
+alpha-fairy | no commits | 
+alpharemote | 2026-11-02 | Do not expect a new exposure when closing a bulb exposure | 8dffccf
+Camera-Remote-API | 2014-08-22 | Update README.md | f9d068c
+furble | 2026-09-13 | Enable watchdog on M5StickS3. | 0cac22a
+kz-remote-api | 2019-10-04 | Add RemoteApiLogger.cs into Desktop.csproj | 2b4b312
+locana | 2017-11-15 | Update ZXing.Net: 0.15.0 -> 0.16.2 | f7c2489
+ofxSonyRemoteCamera | 2013-09-29 | modify app view | 21c94f8
+RemoteCam | 2026-11-04 | Say RemoteCam, not Egret, when the camera is lost | 42b9130
+RemoteCamera | 2015-01-02 | Merge pull request #1 from antono/patch-1 | b39954f
+sony_camera_api | 2021-04-02 | Add readme file explaining logging camera capabilities. (#71) | c397080
+sony_camera_ble_remote | 2023-04-09 | Update Record.xml | 3bdfeba
+sony-camera-api | 2013-12-16 | Python implementations of the liveview functionality | 49d6f60
+sony-remote | 2015-06-30 | rename | 2d9d7ff
+SonyCameraRemoteAPI | 2014-04-15 | Update README.md | d6b400f
+sonypy | 2013-12-23 | Add a rough quick start (probably doesn't work yet) | 8bc291f

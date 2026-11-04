@@ -1,0 +1,36 @@
+# ---- 15 个第三方参考仓库：仅本地留存，不随本项目分发 ----
+/alpha-fairy/
+/alpharemote/
+/Camera-Remote-API/
+/furble/
+/kz-remote-api/
+/locana/
+/ofxSonyRemoteCamera/
+/RemoteCam/
+/RemoteCamera/
+/sony_camera_api/
+/sony_camera_ble_remote/
+/sony-camera-api/
+/SonyCameraRemoteAPI/
+/sonypy/
+/sony-remote/
+
+# ---- 大文件：原始抓包 142 MB，超出 GitHub 单文件 100 MB 限制 ----
+# 需要时用 tools/sony-ptpip/README.md 重新抓
+/captures/*.pcapng
+
+# ---- 校验用 RAW 样本：各 24 MB，可随时从相机重新导出 ----
+/out/*.ARW
+
+# ---- 构建产物 ----
+/tools/android-mtp-probe/build/
+
+# ---- 2026-11-04 工作区里的第三方源码（libgphoto2 / sonyalphapy 轮子） ----
+/2026-11-04/a7c-usb-feasibility/work/*
+!/2026-11-04/a7c-usb-feasibility/work/*.md
+
+# ---- 系统杂项 ----
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
