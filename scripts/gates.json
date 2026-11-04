@@ -40,5 +40,11 @@
       "why": "MTP 探针 APK 必须能构建出来（aapt2 → javac → d8 → zipalign → apksigner）。需要 Android SDK 与 JDK，CI 不跑，改动 tools/android-mtp-probe/ 时必须本机手跑"
     }
   ],
-  "support": []
+  "support": [
+    {
+      "name": "check_pr_sections.py",
+      "cmd": ["python", "scripts/check_pr_sections.py"],
+      "why": "PR 正文的必填分段（问题/改动/测试/影响面）、Closes|Refs 关键词、以及命中门禁链时的门禁改动段。只查结构不查内容真假；需要 GitHub 上下文，无 PR 时 SKIP 并退出 0，所以不进 ci 档"
+    }
+  ]
 }

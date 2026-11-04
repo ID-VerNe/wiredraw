@@ -29,3 +29,9 @@ jobs:
 
       - name: 跑门禁
         run: python scripts/run_gates.py ci
+
+      # support 档：需要 PR 上下文（读 GITHUB_EVENT_PATH 里的正文与改动文件），
+      # 本地没有 PR 时脚本自己 SKIP，所以不放进 ci 档。
+      - name: PR 正文分段（support 档）
+        if: github.event_name == 'pull_request'
+        run: python scripts/run_gates.py support
