@@ -38,6 +38,11 @@
       "name": "android-build",
       "cmd": ["bash", "tools/android-mtp-probe/build.sh"],
       "why": "MTP 探针 APK 必须能构建出来（aapt2 → javac → d8 → zipalign → apksigner）。需要 Android SDK 与 JDK，CI 不跑，改动 tools/android-mtp-probe/ 时必须本机手跑"
+    },
+    {
+      "name": "android-import",
+      "cmd": ["bash", "tools/android-mtp-import/check.sh"],
+      "why": "导片工具：先跑五个纯 JDK 类的 JVM 自检（Catalog/Selection/ImportPlan/TransferProgress/Journal，不需要真机），再构建 APK 并验签。需要 Android SDK 与 JDK，CI 跑不了，改动 tools/android-mtp-import/ 时必须本机手跑；SKIP_BUILD=1 可只跑自检"
     }
   ],
   "support": [
