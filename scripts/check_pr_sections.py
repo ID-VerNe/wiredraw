@@ -67,7 +67,7 @@ GATE_SECTION = "门禁改动"
 #   - 到文末仍未闭合：余下全部按代码块处理（不能让尾部内容照算）。
 # 一条 `^(```|~~~).*?^\1$` 的正则会漏掉缩进围栏与「开 3 闭 4」，等于把洞留在原地。
 FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+INDENTED_CODE = re.compile(r"^( {4,}|\t)")
 
 
 def normalize_eol(text: str) -> str:
@@ -81,29 +81,76 @@ def normalize_eol(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def strip_fences(text: str) -> str:
+def strip_markup(text: str) -> str:
+    """剔除围栏代码块与 HTML 注释，只留下「在页面上真会渲染出来」的行。
+
+    三类都必须按 CommonMark 处理，用一条正则只能覆盖其中一类：
+
+    1. **围栏代码块**：开围栏最多缩进 3 空格 + 3 个以上 ` 或 ~；闭围栏同字符、
+       不短于开围栏、其后只允许空白；到文末未闭合则余下全部算代码。
+    2. **HTML 注释**：`<!--` 就是注释块开始；**到文末都没等到 `-->` 时余下全部不可见**
+       （这是一份正文最彻底的「隐身」方式，页面上一个字都没有）。
+    3. 注释在同一行闭合时，`-->` 后面的内容仍然**不在行首**，不能当标题匹配 ——
+       用 `\x00` 顶在它前面，让 `^ {0,3}##` 认不出来。直接丢掉整行会误伤
+       `Refs #3 <!-- 备注 -->` 这种写法。
+    """
     kept: list[str] = []
     lines = normalize_eol(text).split("\n")
     i = 0
     n = len(lines)
+    in_comment = False
     while i < n:
-        m = FENCE_OPEN.match(lines[i])
-        if not m:
-            kept.append(lines[i])
+        line = lines[i]
+
+        if in_comment:
+            j = line.find("-->")
+            if j < 0:
+                i += 1
+                continue
+            line = "\x00" + line[j + 3 :]
+            in_comment = False
+
+        m = FENCE_OPEN.match(line)
+        if m:
+            ch = m.group(1)[0]
+            size = len(m.group(1))
+            close = re.compile(r"^ {0,3}" + re.escape(ch) + "{" + str(size) + r",}[ \t]*$")
             i += 1
+            while i < n and not close.match(lines[i]):
+                i += 1
+            i += 1  # 跳过闭围栏（若已到文末，i 越界，循环自然结束）
             continue
-        ch = m.group(1)[0]
-        size = len(m.group(1))
-        close = re.compile(r"^ {0,3}" + re.escape(ch) + "{" + str(size) + r",}[ \t]*$")
+
+        k = line.find("<!--")
+        if k >= 0:
+            rest = line[k + 4 :]
+            j = rest.find("-->")
+            if j < 0:
+                in_comment = True
+                head = line[:k]
+                if not head.strip():
+                    i += 1
+                    continue
+                line = head
+            else:
+                line = line[:k] + "\x00" + rest[j + 3 :]
+
+        kept.append(line)
         i += 1
-        while i < n and not close.match(lines[i]):
-            i += 1
-        i += 1  # 跳过闭围栏（若已到文末，i 越界，循环自然结束）
-    return HTML_COMMENT.sub("", "\n".join(kept))
+
+    return "\n".join(kept)
+
+
+def strip_indented(text: str) -> str:
+    """去掉 4 空格 / 制表符起始的行：那是缩进代码块，页面上的内容是代码不是关键词。
+
+    只用于 `Closes` / `Refs` 的匹配 —— 标题正则本身已经是 `{0,3}`，不必再切一遍。
+    """
+    return "\n".join(ln for ln in text.split("\n") if not INDENTED_CODE.match(ln))
 
 
 def headings(body: str) -> list[str]:
-    return [m.group(1).strip() for m in HEADING.finditer(strip_fences(body))]
+    return [m.group(1).strip() for m in HEADING.finditer(strip_markup(body))]
 
 
 def has_section(body: str, names: tuple[str, ...]) -> bool:
@@ -126,7 +173,7 @@ def check_body(body: str, files: list[str]) -> list[str]:
         if not has_section(body, names):
             problems.append(f"缺必填段：`## {label}`")
 
-    if not CLOSING.search(strip_fences(body)):
+    if not CLOSING.search(strip_indented(strip_markup(body))):
         problems.append("缺关闭关键词：`Closes #NN` 或 `Refs #NN`（行为类必须 `Refs`）")
 
     hits = gate_hits(files)
@@ -305,6 +352,14 @@ def self_test() -> int:
 
     # 行尾与标题边界：三条输入路径（--body-file / --pr / 事件载荷）拿到的换行不一样，
     # 结论必须一样。下面四条都来自真实误判（CI 在 CRLF 正文上整段吞掉）。
+    # 注释与缩进代码块：未闭合的 `<!--` 会让整份正文在页面上不可见，
+    # 而 4 空格缩进的 `Closes` 在页面上是代码不是关键词。
+    unclosed_comment = "<!-- 忘写结尾的注释\n" + SAMPLE_GATE
+    comment_then_heading = SAMPLE_FULL.replace(
+        "## 影响面", "<!-- x -->## 门禁改动\n\n## 影响面"
+    )
+    indented_closing = SAMPLE_FULL.replace("Closes #3", "    Closes #3")
+    trailing_comment = SAMPLE_FULL.replace("Closes #3", "Closes #3 <!-- 备注 -->")
 
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
@@ -333,6 +388,10 @@ def self_test() -> int:
         ("缩进 2 空格的 `##` 仍算标题", SAMPLE_FULL.replace("## 影响面", "  ## 影响面"), [], 0),
         ("`##` 后接全角空格不算标题",
          SAMPLE_FULL.replace("## 影响面", "##\u3000影响面"), [], 1),
+        ("未闭合的 `<!--` 让整份正文失效", unclosed_comment, ["scripts/gates.json"], 1),
+        ("注释同行闭合后、`##` 紧跟其后不算标题", comment_then_heading, ["scripts/gates.json"], 1),
+        ("4 空格缩进代码块里的 `Closes` 不算数", indented_closing, [], 1),
+        ("行尾注释不影响真正的 `Closes`", trailing_comment, [], 0),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
