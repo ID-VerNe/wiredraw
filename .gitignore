@@ -36,8 +36,8 @@
 # ---- 本地记忆与交接文档不入库 ----
 # `.workbuddy/` 是本地过程记忆、`.handoffs/` 是会话交接；它们每天新增，对协作者无可复用价值，
 # 且交接里含会话上下文。和 `/2026-11-04/` 一样只留本地（issue #12）。
-.workbuddy/
-.handoffs/
+/.workbuddy/
+/.handoffs/
 
 # ---- 系统杂项 ----
 .DS_Store
