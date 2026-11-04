@@ -149,7 +149,10 @@ def check_index(text: str, exists) -> list[str]:
     problems: list[str] = []
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     m = INDEX_SECTION.search(normalized)
-    section = m.group(1) if m else ""
+    if m is None:
+        # 找不到段落就静默返回空 = 校验凭空消失，必须红（与 from_event() 取不全上下文同理）。
+        return ["AGENTS.md → 找不到 `## 6. 文档索引` 段，索引表反向校验无法执行"]
+    section = m.group(1)
     for raw in INDEX_ROW.findall(section):
         p = raw.strip()
         if not p or p.startswith(SKIP_PREFIX) or p.startswith("#"):
@@ -200,6 +203,8 @@ def self_test() -> int:
         ("索引表合法路径必绿", "AGENTS.md",
          index_head + "| `doc/PR_GUIDE.md` | x |\n" + index_tail,
          {"doc/PR_GUIDE.md": "# h"}, False, True),
+        ("缺 §6 段落必红（不许静默跳过）", "AGENTS.md",
+         "## 5. 别的东西\n\n| `doc/不存在.md` | x |\n", {}, True, True),
         ("混合围栏不误报", "doc/PR_GUIDE.md",
          "```\n[x](./nope4.md)\n~~~\n", {}, False, False),
         ("未闭合围栏不误报", "doc/PR_GUIDE.md",
@@ -257,6 +262,8 @@ def main() -> int:
     if agents.is_file():
         problems.extend(check_index(agents.read_text(encoding="utf-8", errors="replace"),
                                     disk_exists))
+    else:
+        problems.append("AGENTS.md 不存在，索引表反向校验无法执行")
 
     if problems:
         for p in problems:
