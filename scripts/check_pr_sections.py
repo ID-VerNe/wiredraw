@@ -82,6 +82,28 @@ def normalize_eol(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+QUOTE_PREFIX = re.compile(r"^ {0,3}>[ \t]?")
+LIST_PREFIX = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])[ \t]+")
+
+
+def strip_containers(line: str) -> str:
+    """剥掉行首的引用块 / 列表项前缀，让容器里的围栏也能被认出来。
+
+    围栏前面多一个 `> ` 或 `- `，`^ {0,3}``` 就匹配不上了：代码块里的 `Closes`
+    被当成真关键词（过松），或者那个「闭围栏」被当成新的开围栏、一路吞到文末（过严）。
+    两种都实测过。
+
+    副作用是容器里的标题也会被当成顶层标题 —— 这是**有意的**：引用块里的
+    `> ## 影响面` 在 GitHub 上照样渲染成一个可见的二级标题，算它存在是对的。
+    """
+    prev = None
+    while prev != line:
+        prev = line
+        line = QUOTE_PREFIX.sub("", line, count=1)
+        line = LIST_PREFIX.sub("", line, count=1)
+    return line
+
+
 def strip_markup(text: str) -> str:
     """剔除围栏代码块、缩进代码块与 HTML 注释，只留「在页面上真会渲染出来」的行。
 
@@ -108,7 +130,7 @@ def strip_markup(text: str) -> str:
     prev_indented = False
 
     while i < n:
-        line = lines[i]
+        line = strip_containers(lines[i])
 
         # 1) 本来就在注释块里：丢到 `-->` 为止（没有就丢到文末）
         if in_comment:
@@ -127,7 +149,7 @@ def strip_markup(text: str) -> str:
             size = len(m.group(1))
             close = re.compile(r"^ {0,3}" + re.escape(ch) + "{" + str(size) + r",}[ \t]*$")
             i += 1
-            while i < n and not close.match(lines[i]):
+            while i < n and not close.match(strip_containers(lines[i])):
                 i += 1
             i += 1  # 跳过闭围栏（若已到文末，i 越界，循环自然结束）
             prev_blank = False
@@ -200,7 +222,10 @@ def check_body(body: str, files: list[str]) -> list[str]:
             problems.append(f"缺必填段：`## {label}`")
 
     if not CLOSING.search(strip_indented(strip_markup(body))):
-        problems.append("缺关闭关键词：`Closes #NN` 或 `Refs #NN`（行为类必须 `Refs`）")
+        problems.append(
+            "缺关闭关键词：需要 `Closes #NN`（纯文档 / 纯重构）或 `Refs #NN`（行为类），"
+            "见 doc/PR_GUIDE.md「关闭方式：Closes 还是 Refs」"
+        )
 
     hits = gate_hits(files)
     if hits and not has_section(body, (GATE_SECTION,)):
@@ -396,6 +421,21 @@ def self_test() -> int:
     indented_comment = SAMPLE_FULL.replace(
         "## 影响面", "示例代码：\n\n    <!-- 这是代码\n\n## 影响面"
     )
+    # 容器里的围栏：围栏前面多一个 `> ` 或 `- `，原来的行首正则就匹配不上。
+    quote_fence_closing = SAMPLE_FULL.replace(
+        "Closes #3", "> 模板：\n>\n> ```\n> Closes #3\n> ```"
+    )
+    list_fence_closing = SAMPLE_FULL.replace(
+        "Closes #3", "示例：\n\n- ```\n  Closes #3\n  ```"
+    )
+    list_fence_gate = SAMPLE_FULL.replace(
+        "## 影响面", "- ```\n  ## 门禁改动\n  ```\n\n## 影响面"
+    )
+    # 过严面：合法正文把命令写成列表项里的围栏，不能被吞掉。
+    legal_list_fence = SAMPLE_FULL.replace(
+        "```\n[绿] 全部可达\n```",
+        "- 跑一下：\n\n  ```bash\n  python scripts/run_gates.py ci\n  ```\n  [绿] 全部可达",
+    )
 
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
@@ -432,6 +472,10 @@ def self_test() -> int:
         ("同一行第二个 `<!--` 未闭合也吃掉后文", second_comment, ["scripts/gates.json"], 1),
         ("同一行两个都闭合则不影响后面", two_closed_comments, ["scripts/gates.json"], 0),
         ("空行后缩进代码块里的 `<!--` 不是注释", indented_comment, [], 0),
+        ("引用块里的围栏内的 `Closes` 不算数", quote_fence_closing, [], 1),
+        ("列表项里的围栏内的 `Closes` 不算数", list_fence_closing, [], 1),
+        ("列表项里的围栏内的 `## 门禁改动` 不算数", list_fence_gate, ["scripts/gates.json"], 1),
+        ("合法正文把命令写在列表项围栏里不该被吞", legal_list_fence, [], 0),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
