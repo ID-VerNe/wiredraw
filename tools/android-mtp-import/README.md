@@ -33,12 +33,18 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / 存取   [纯 JDK]
 ├─ ImportService     编排：线程、暂停、取消、逐文件调 transfer            [纯 JDK]
-└─ ResumableTransfer 传输契约 + NotImplemented 占位                     [纯 JDK]
+├─ ResumableTransfer 传输契约 + NotImplemented 占位                     [纯 JDK]
+├─ ImportListener    回调接口（全 default）                              [纯 JDK]
+└─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
 ```
 
-标 `[纯 JDK]` 的七个文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
-`test/SelfTest.java`（`check.sh` 会强制编译这一批并在自检里跑），也是本骨架唯一
-能被门禁守住的部分。`check.sh` 里的 `PURE=(...)` 就是这条边界的执行者。
+标 `[纯 JDK]` 的**九个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+`test/SelfTest.java`。
+
+这条边界是**编译期强制**的：`check.sh` 编译这批文件时**不给** `-classpath android.jar`，
+所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
+`PURE=(...)` 清单还有第 0 步漂移检查兜底——拿 `grep -L '^import android'` 的实际结果
+与清单比对，漏列一个文件就判红（否则新加的纯逻辑类会悄悄脱离这条保护）。
 
 ## 为什么不做真续传
 
