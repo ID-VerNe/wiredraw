@@ -51,7 +51,10 @@ REQUIRED = [
     ("影响面", ("影响面",)),
 ]
 
-HEADING = re.compile(r"^##\s+(.+?)\s*$", re.M)
+# ATX 标题，按 CommonMark：最多缩进 3 个空格，`##` 后必须是**半角**空格或制表符。
+# 两点都不能省：`  ## 影响面` 在 GitHub 上是标题（用 `^##` 会误红）；
+# `##　影响面`（全角空格）不是标题（用 `\s+` 会误绿）。
+HEADING = re.compile(r"^ {0,3}##[ \t]+(.+?)[ \t]*$", re.M)
 CLOSING = re.compile(r"\b(Closes|Refs)\s+#(\d+)", re.I)
 GATE_SECTION = "门禁改动"
 
@@ -67,9 +70,20 @@ FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
+def normalize_eol(text: str) -> str:
+    """统一行尾为 LF。
+
+    PR 正文的换行来自提交者的本地环境：`gh pr view --json body` 与 GitHub 事件载荷
+    会把 CRLF 原样带回来（JSON 里的 `\r\n` 是转义字符，不解成行尾），而
+    `Path.read_text()` 的 universal-newline 会把它翻成 LF。不归一化的话，同一份正文
+    会在 `--body-file` 下绿、在 `--pr` / CI 下红——正是本仓库禁止的「因环境抖动改变结论」。
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def strip_fences(text: str) -> str:
     kept: list[str] = []
-    lines = text.split("\n")
+    lines = normalize_eol(text).split("\n")
     i = 0
     n = len(lines)
     while i < n:
@@ -289,6 +303,9 @@ def self_test() -> int:
     html_comment = SAMPLE_FULL.replace("## 影响面", "<!--\n## 门禁改动\n-->\n\n## 影响面")
     unclosed_fence = SAMPLE_FULL + "```\n## 门禁改动\n"
 
+    # 行尾与标题边界：三条输入路径（--body-file / --pr / 事件载荷）拿到的换行不一样，
+    # 结论必须一样。下面四条都来自真实误判（CI 在 CRLF 正文上整段吞掉）。
+
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
         ("段齐必绿", SAMPLE_FULL, [], 0),
@@ -301,6 +318,21 @@ def self_test() -> int:
         ("开 3 个闭 4 个算闭合：围栏内那段不算、围栏后真的有段则绿", long_close_fence, ["scripts/gates.json"], 0),
         ("HTML 注释里的 `## 门禁改动` 不算数", html_comment, ["scripts/gates.json"], 1),
         ("未闭合的围栏吃到文末", unclosed_fence, ["scripts/gates.json"], 1),
+        # CRLF：同一份正文换个行尾必须同一个结论。`gh pr view --json body` 与 CI 事件
+        # 载荷都会把 `\r\n` 原样带回来，而 `--body-file` 的 universal-newline 会翻成 LF。
+        ("CRLF 正文段齐必绿", SAMPLE_GATE.replace("\n", "\r\n"), ["scripts/gates.json"], 0),
+        ("CRLF 正文里围栏内的 `## 门禁改动` 仍不算数",
+         fenced_gate.replace("\n", "\r\n"), ["scripts/gates.json"], 1),
+        ("CRLF 正文里围栏内的 `Closes` 仍不算数",
+         fenced_closing.replace("\n", "\r\n"), [], 1),
+        # 同样按**期望绿**断言：CRLF 下若不归一化，闭围栏的 `[ \t]*$` 认不出行尾的 `\r`，
+        # 围栏会一路吃到文末，把后面的真段一起吞掉 —— 那样「期望红」的用例也会红，
+        # 分辨不出是行尾没归一化还是内容确实被藏起来。
+        ("CRLF 正文里开 3 闭 4 也算闭合", long_close_fence.replace("\n", "\r\n"), ["scripts/gates.json"], 0),
+        # 标题边界：缩进 0–3 空格的 `##` 在 GitHub 上是标题；全角空格分隔的不是。
+        ("缩进 2 空格的 `##` 仍算标题", SAMPLE_FULL.replace("## 影响面", "  ## 影响面"), [], 0),
+        ("`##` 后接全角空格不算标题",
+         SAMPLE_FULL.replace("## 影响面", "##\u3000影响面"), [], 1),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
