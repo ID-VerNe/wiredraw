@@ -24,7 +24,7 @@
    `Closes` 只给纯文档与纯重构，**行为类用 `Refs`**。
    **合并审批权归全新上下文的 subagent**：提交者写完全部文档、门禁转绿后，
    用 `python scripts/review_prompt.py --pr <号>` 生成派发文案（**不要手写**，它默认不带 PR 正文，
-   「不投喂结论」靠结构保证），原样交给只拿到 PR 编号与仓库路径的评审会话；
+   「不投喂结论」靠结构保证），原样交给只拿到 PR 编号、仓库路径与分支/标题/改动文件清单的评审会话；
    它出 `APPROVE` 就直接合并（merge commit，不 squash、不 rebase），
    不需要维护者逐 PR 人工点头。提交者不能给自己评审。契约见
    [`doc/REVIEW_DISPATCH.md`](doc/REVIEW_DISPATCH.md)。

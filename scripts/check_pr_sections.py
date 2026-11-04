@@ -55,13 +55,37 @@ HEADING = re.compile(r"^##\s+(.+?)\s*$", re.M)
 CLOSING = re.compile(r"\b(Closes|Refs)\s+#(\d+)", re.I)
 GATE_SECTION = "门禁改动"
 
-# 围栏代码块整段剔除后再找标题与关键词。不剔的话，正文里贴一段示例
-# （比如别处的 PR 模板、回签模板）就能满足段检查，门禁等于可绕过。
-FENCE = re.compile(r"^(```|~~~).*?^\1[ \t]*$", re.S | re.M)
+# 围栏代码块与 HTML 注释整段剔除后再找标题与关键词。不剔的话，正文里贴一段示例
+# （PR 模板、回签模板、原始输出）就能满足段检查，门禁等于可绕过。
+#
+# 按 CommonMark 的规则逐行扫，而不是用一条正则：
+#   - 开围栏：最多缩进 3 个空格 + 3 个以上 ` 或 ~；
+#   - 闭围栏：同样最多 3 空格、同一字符、**不短于**开围栏长度，其后只允许空白；
+#   - 到文末仍未闭合：余下全部按代码块处理（不能让尾部内容照算）。
+# 一条 `^(```|~~~).*?^\1$` 的正则会漏掉缩进围栏与「开 3 闭 4」，等于把洞留在原地。
+FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
 def strip_fences(text: str) -> str:
-    return FENCE.sub("", text)
+    kept: list[str] = []
+    lines = text.split("\n")
+    i = 0
+    n = len(lines)
+    while i < n:
+        m = FENCE_OPEN.match(lines[i])
+        if not m:
+            kept.append(lines[i])
+            i += 1
+            continue
+        ch = m.group(1)[0]
+        size = len(m.group(1))
+        close = re.compile(r"^ {0,3}" + re.escape(ch) + "{" + str(size) + r",}[ \t]*$")
+        i += 1
+        while i < n and not close.match(lines[i]):
+            i += 1
+        i += 1  # 跳过闭围栏（若已到文末，i 越界，循环自然结束）
+    return HTML_COMMENT.sub("", "\n".join(kept))
 
 
 def headings(body: str) -> list[str]:
@@ -105,14 +129,19 @@ def check_body(body: str, files: list[str]) -> list[str]:
 
 
 def from_gh(pr: int) -> tuple[str, list[str]]:
-    proc = subprocess.run(
-        ["gh", "pr", "view", str(pr), "--json", "body,files"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        proc = subprocess.run(
+            ["gh", "pr", "view", str(pr), "--json", "body,files"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError:
+        # 没有 gh 时按文档退 2，不要甩 traceback。
+        print("[红] 找不到 `gh` 命令，`--pr` 模式需要它读 PR 正文。", file=sys.stderr)
+        raise SystemExit(2)
     if proc.returncode != 0:
         print(f"[红] gh 返回 {proc.returncode}：{(proc.stderr or proc.stdout).strip()}", file=sys.stderr)
         raise SystemExit(2)
@@ -241,10 +270,24 @@ Refs #3
 
 def self_test() -> int:
     # 围栏代码块里的标题 / 关键词不算数：否则贴一段模板就能满足检查。
+    # 下面五种写法在 GitHub 上都会被渲染成代码或不可见内容，都必须不算数。
     fenced_gate = SAMPLE_FULL.replace(
         "## 影响面", "```markdown\n## 门禁改动\n\n`scripts/gates.json`\n```\n\n## 影响面"
     )
     fenced_closing = SAMPLE_FULL.replace("Closes #3", "```\nCloses #3\n```")
+    indented_fence = SAMPLE_FULL.replace(
+        "## 影响面", "  ```markdown\n## 门禁改动\n  ```\n\n## 影响面"
+    )
+    # 「开 3 闭 4」这条必须用**期望绿**来测：如果写成期望红，闭围栏识别失败时
+    # 围栏会一路吃到文末、把 `## 影响面` 也吞掉，于是「缺影响面」的红和「门禁段被藏起来」
+    # 的红长得一样，用例就失去了判别力（变异验证时真踩到了）。所以样本里在围栏
+    # **之后**再放一段真的 `## 门禁改动`，只有「闭围栏被正确识别」才会绿。
+    long_close_fence = SAMPLE_FULL.replace(
+        "## 影响面",
+        "```markdown\n## 门禁改动\n````\n\n## 门禁改动\n\n真的这一段。\n\n## 影响面",
+    )
+    html_comment = SAMPLE_FULL.replace("## 影响面", "<!--\n## 门禁改动\n-->\n\n## 影响面")
+    unclosed_fence = SAMPLE_FULL + "```\n## 门禁改动\n"
 
     cases = [
         ("缺段必红", SAMPLE_MISSING, [], 1),
@@ -254,6 +297,10 @@ def self_test() -> int:
         ("只改文档不触发门禁链要求", SAMPLE_FULL, ["doc/PR_GUIDE.md"], 0),
         ("围栏里的 `## 门禁改动` 不算数", fenced_gate, ["scripts/gates.json"], 1),
         ("围栏里的 `Closes` 不算数", fenced_closing, [], 1),
+        ("缩进 2 空格的围栏也算围栏", indented_fence, ["scripts/gates.json"], 1),
+        ("开 3 个闭 4 个算闭合：围栏内那段不算、围栏后真的有段则绿", long_close_fence, ["scripts/gates.json"], 0),
+        ("HTML 注释里的 `## 门禁改动` 不算数", html_comment, ["scripts/gates.json"], 1),
+        ("未闭合的围栏吃到文末", unclosed_fence, ["scripts/gates.json"], 1),
     ]
     checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
