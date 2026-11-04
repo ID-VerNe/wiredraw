@@ -153,7 +153,13 @@ def check_index(text: str, exists) -> list[str]:
         # 找不到段落就静默返回空 = 校验凭空消失，必须红（与 from_event() 取不全上下文同理）。
         return ["AGENTS.md → 找不到 `## 6. 文档索引` 段，索引表反向校验无法执行"]
     section = m.group(1)
-    for raw in INDEX_ROW.findall(section):
+    rows = INDEX_ROW.findall(section)
+    if not rows:
+        # 段落找到了、却一行可解析的都没有 ＝ 表格首列没按约定写反引号路径，
+        # 校验同样会凭空消失，必须红（issue #8）。不能静默返回空。
+        return ["AGENTS.md §6 文档索引 → 表格首列格式不符合约定"
+                "（未找到反引号路径行），索引表反向校验无法执行"]
+    for raw in rows:
         p = raw.strip()
         if not p or p.startswith(SKIP_PREFIX) or p.startswith("#"):
             continue
@@ -205,6 +211,11 @@ def self_test() -> int:
          {"doc/PR_GUIDE.md": "# h"}, False, True),
         ("缺 §6 段落必红（不许静默跳过）", "AGENTS.md",
          "## 5. 别的东西\n\n| `doc/不存在.md` | x |\n", {}, True, True),
+        # 防 issue #8 复发：§6 段落在、但表格首列不用反引号时 INDEX_ROW 命中 0 行，
+        # 旧实现直接返回空列表 → 门禁静默绿。这里路径本身存在，只有「格式不合约定」能让它红。
+        ("§6 段在但首列无反引号必红（防 #8 静默失效）", "AGENTS.md",
+         index_head + "| doc/PR_GUIDE.md | x |\n" + index_tail,
+         {"doc/PR_GUIDE.md": "# h"}, True, True),
         ("混合围栏不误报", "doc/PR_GUIDE.md",
          "```\n[x](./nope4.md)\n~~~\n", {}, False, False),
         ("未闭合围栏不误报", "doc/PR_GUIDE.md",
