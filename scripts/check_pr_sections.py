@@ -16,6 +16,9 @@
 无 PR 上下文时 SKIP 是设计：这条需要 GitHub 上下文，放进 `ci` 档会让本地每次
 `run_gates.py ci` 都得带 `--pr`，把最便宜的一档弄脆。
 
+但 **有 PR 上下文却取不全**（事件载荷缺 base/head、`git diff` 跑不通）时**必须红**：
+那种情况下 `files` 会是空的、门禁链判定恒为否，同一份正文会因环境抖动从红变绿。
+
 退出码：0 绿或 SKIP / 1 红 / 2 环境问题。
 """
 from __future__ import annotations
@@ -26,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -109,33 +113,54 @@ def from_gh(pr: int) -> tuple[str, list[str]]:
     return data.get("body") or "", files
 
 
+class EnvProblem(Exception):
+    """有 PR 上下文但取不全。**必须红（退出 2），不许降级成绿。**
+
+    「取不到改动文件 → `files` 为空 → 门禁链判定恒为否 → 输出绿」是最恶劣的失败形态：
+    同一份正文会因为环境抖动从红变绿，正好是本仓库「把 SKIP 当 PASS」那条误判。
+    """
+
+
 def from_event() -> tuple[str, list[str]] | None:
-    """CI 里从 GitHub 的事件载荷取 PR 正文与改动文件。取不到返回 None。"""
+    """CI 里从 GitHub 的事件载荷取 PR 正文与改动文件。
+
+    没有 PR 上下文（非 pull_request 事件）返回 None → 上层 SKIP。
+    有 PR 上下文但 base/head 缺失、或 `git diff` 跑不通 → 抛 `EnvProblem` → 上层红。
+    """
     path = os.environ.get("GITHUB_EVENT_PATH")
     if not path or not Path(path).is_file():
         return None
     try:
         event = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    except (OSError, json.JSONDecodeError) as e:
+        raise EnvProblem(f"读不到事件载荷 {path}：{e}") from e
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
         return None
+
     body = pr.get("body") or ""
-    files: list[str] = []
     base = (pr.get("base") or {}).get("sha")
     head = (pr.get("head") or {}).get("sha")
-    if base and head:
-        proc = subprocess.run(
-            ["git", "diff", "--name-only", f"{base}...{head}"],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+    if not (base and head):
+        raise EnvProblem(
+            "事件载荷里缺 pull_request.base.sha / head.sha，取不到改动文件；"
+            "此时无法判断是否命中门禁链，不能报绿"
         )
-        if proc.returncode == 0:
-            files = [x.strip() for x in proc.stdout.splitlines() if x.strip()]
+
+    proc = subprocess.run(
+        ["git", "diff", "--name-only", f"{base}...{head}"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if proc.returncode != 0:
+        raise EnvProblem(
+            f"git diff {base}...{head} 失败（{proc.returncode}）："
+            f"{(proc.stderr or proc.stdout).strip()[:200]}"
+        )
+    files = [x.strip() for x in proc.stdout.splitlines() if x.strip()]
     return body, files
 
 
@@ -214,21 +239,52 @@ def self_test() -> int:
         ("命中门禁链且写了 `## 门禁改动` 必绿", SAMPLE_GATE, ["scripts/gates.json"], 0),
         ("只改文档不触发门禁链要求", SAMPLE_FULL, ["doc/PR_GUIDE.md"], 0),
     ]
-    bad = 0
+    checks: list[tuple[str, bool, str]] = []
     for name, body, files, expected in cases:
         got = 1 if check_body(body, files) else 0
-        ok = got == expected
+        detail = "\n        ".join(check_body(body, files))
+        checks.append((f"{name}（期望退出 {expected}，实际 {got}）", got == expected, detail))
+
+    # 事件载荷用例：这条钉住「取不到改动文件时不许报绿」。
+    # 原来的实现是 files 留空 + 照常输出绿，同一份正文会因环境抖动从红变绿。
+    with tempfile.TemporaryDirectory() as tmp:
+        ev = Path(tmp) / "event.json"
+
+        def probe(payload: dict) -> str:
+            ev.write_text(json.dumps(payload), encoding="utf-8")
+            saved = os.environ.get("GITHUB_EVENT_PATH")
+            os.environ["GITHUB_EVENT_PATH"] = str(ev)
+            try:
+                return "ok" if from_event() is not None else "none"
+            except EnvProblem:
+                return "red"
+            finally:
+                if saved is None:
+                    os.environ.pop("GITHUB_EVENT_PATH", None)
+                else:
+                    os.environ["GITHUB_EVENT_PATH"] = saved
+
+        got = probe({"pull_request": {"body": SAMPLE_FULL}})
+        checks.append(
+            ("事件载荷缺 base/head 时必须红（不许降级成绿）", got == "red", f"实际 {got}")
+        )
+
+        got = probe({"ref": "refs/heads/main"})
+        checks.append(("非 PR 事件仍是 SKIP（返回 None）", got == "none", f"实际 {got}"))
+
+    bad = 0
+    for name, ok, detail in checks:
         flag = "PASS" if ok else "FAIL"
-        print(f"[{flag}] {name}（期望退出 {expected}，实际 {got}）")
+        print(f"[{flag}] {name}")
         if not ok:
             bad += 1
-            for p in check_body(body, files):
-                print(f"        {p}")
+            if detail:
+                print(f"        {detail}")
 
     if bad:
         print(f"== 自检红 {bad} 项 ==", file=sys.stderr)
         return 2
-    print(f"== 自检全绿：{len(cases)} 项 ==")
+    print(f"== 自检全绿：{len(checks)} 项 ==")
     return 0
 
 
@@ -258,7 +314,12 @@ def main() -> int:
         body, files = from_gh(args.pr)
         source = f"PR #{args.pr}"
     else:
-        ctx = from_event()
+        try:
+            ctx = from_event()
+        except EnvProblem as e:
+            print(f"[红] {e}", file=sys.stderr)
+            print("     取不到上下文时不能报绿——否则同一份正文会因环境抖动从红变绿。", file=sys.stderr)
+            return 2
         if ctx is None:
             print("[SKIP] 没有 PR 上下文（非 pull_request 事件且未给 --pr / --body-file）。")
             return 0

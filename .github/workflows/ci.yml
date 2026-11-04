@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # 默认类型是 opened/synchronize/reopened，**不含 edited**。support 档检查的正是
+    # PR 正文，少了 edited 就能「先推绿、后改正文」绕过门禁，绿会一直停在旧正文上。
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 jobs:

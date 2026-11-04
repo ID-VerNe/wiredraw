@@ -32,8 +32,22 @@ GATE_TRIGGERS = (
 )
 
 
+_UTF8_READY = False
+
+
 def out(text: str = "") -> None:
-    """统一走 UTF-8 输出，避免 Windows 控制台把中文派发文案吐成乱码。"""
+    """统一走 UTF-8 输出，避免 Windows 控制台把中文派发文案吐成乱码。
+
+    真的去 reconfigure，而不是「注释里宣称 UTF-8、实现里直接 print」——
+    后者在 GBK 代码页下照样乱码。
+    """
+    global _UTF8_READY
+    if not _UTF8_READY:
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+        _UTF8_READY = True
     print(text)
 
 
