@@ -15,6 +15,10 @@
 
 # git 钩子与构建脚本必须 LF
 .githooks/*  text eol=lf
+# gradlew 没有扩展名，`* text=auto` 管不到它：Windows 上 core.autocrlf=true 会把工作区
+# 检出成 CRLF，于是 `bash tools/android-mtp-import/gradlew` 直接报 `$'\r': command not found`，
+# manual 门禁（android-import 档）在 Windows 上跑不起来。按路径钉死，别靠本机配置。
+tools/android-mtp-import/gradlew text eol=lf
 *.cmd        text eol=crlf
 
 # 二进制：别做换行转换

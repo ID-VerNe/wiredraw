@@ -1,38 +1,37 @@
 package com.rea.mtpimport;
 
-import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Insets;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.WindowInsets;
-import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
-import android.widget.ScrollView;
-import android.widget.TextView;
+import android.view.WindowInsetsController;
+
+import com.rea.mtpimport.ui.AppCallbacks;
+import com.rea.mtpimport.ui.AppModel;
+import com.rea.mtpimport.ui.ComposeHost;
+
+import androidx.activity.ComponentActivity;
 
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 导片工具界面（骨架）。
+ * 导片工具（界面层）。
  *
- * 三块：顶部日志 / 中间目录树（勾选）/ 底部进度与操作。
- * 传输那一环当前是 {@link ResumableTransfer.NotImplemented}，所以点 `Import` 会
- * 明确停在 `No import`，进度条不会动——这是本轮的计划行为，README 里也写了。
+ * 界面已按 `UI-SPEC` v2 定稿重建（Compose），本类只剩**编排**：
+ * USB 权限 → 扫描 → 照片墙 → 传输。10 个界面态由 {@link UiState} 定义，
+ * 由 {@link AppModel} 持有，Compose 只读它渲染。
+ *
+ * 传输那一环当前仍是 {@link ResumableTransfer.NotImplemented}：点主 CTA 会落到
+ * `UNAVAILABLE`（`Not available`），不伪装成传输中（§0.11 第 6 行）。
  */
-public final class Main extends Activity {
+public final class Main extends ComponentActivity {
 
     private static final String TAG = "MTPIMPORT";
     private static final String ACTION_PERM = "com.rea.mtpimport.USB_PERM";
@@ -43,29 +42,14 @@ public final class Main extends Activity {
      */
     private static final String EXTRA_PERM_SEQ = "com.rea.mtpimport.PERM_SEQ";
 
-    private static final int MAX_ROWS = 800;
-
-    /**
-     * `COLD` 的单行状态文案。§4.5 的 `T-COLD` 是「标题 + 正文」两段式，
-     * 首屏还没重做（§0.11 第 7 行），这里先给一句不撒谎的摘要。
-     */
-    private static final String COPY_COLD = "No camera · auto-detect on plug-in";
-
-    private final StringBuilder logBuf = new StringBuilder();
-    private TextView logView;
-    private TextView summaryView;
-    private TextView progressView;
-    private ProgressBar progressBar;
-    private LinearLayout rowBox;
-    private Button scanBtn;
-    private Button startBtn;
-    private Button pauseBtn;
-
     /** USB 权限申请的等待门（#11）：每次申请重建 latch、只认本次序号的回调。 */
     private final PermGate permGate = new PermGate();
 
     /** 插线事件的准入判定（#17）：同一次插拔可能从 intent 与广播投递两次，重复事件不得开第二个会话。 */
     private final AttachGate attachGate = new AttachGate();
+
+    /** 界面状态（Compose 唯一数据源）。 */
+    private final AppModel model = new AppModel();
 
     private MtpSession session;
     private Catalog catalog;
@@ -73,7 +57,96 @@ public final class Main extends Activity {
     private ImportService service;
     private TransferProgress lastProgress;
 
+    /** debug 假数据入口；release 构建里没有这个类，恒为 null（U-54）。 */
+    private DemoBridge demoBridge;
+
     private final Log log = this::logLine;
+
+    private final AppCallbacks callbacks = new AppCallbacks() {
+        @Override
+        public void onConnectCamera() {
+            handleAttach("点 Connect camera");
+        }
+
+        @Override
+        public void onAllow() {
+            // 真正的系统弹窗由 awaitPermission 发起；这里只重试一次握手入口。
+            handleAttach("点 Allow");
+        }
+
+        @Override
+        public void onCancel() {
+            if (demoActive()) {
+                model.backToCatalog();
+                return;
+            }
+            if (service != null && service.isRunning()) service.cancel();
+            model.backToCatalog();
+        }
+
+        @Override
+        public void onPauseResume() {
+            if (demoActive()) {
+                applyDemoName(model.getState() == UiState.State.PAUSED ? "IMPORTING" : "PAUSED");
+                return;
+            }
+            if (service == null || !service.isRunning()) return;
+            if (model.getState() == UiState.State.PAUSED) {
+                service.resume();
+                model.showImport(
+                        lastProgress == null ? 0 : lastProgress.filesDone(),
+                        lastProgress == null ? 0 : lastProgress.totalFiles(),
+                        lastProgress == null ? 0 : lastProgress.bytesDone(),
+                        lastProgress == null ? 0 : lastProgress.totalBytes(),
+                        0);
+            } else {
+                service.pause();
+                model.showPaused();
+            }
+        }
+
+        @Override
+        public void onImport() {
+            doStart();
+        }
+
+        @Override
+        public void onOpen() {
+            // `Open` 目前只记日志：打开系统相册属于后续版本（§0.4 明确不在此轮范围内）。
+            log.line("点 Open（本版本只记录，不跳相册）");
+        }
+
+        @Override
+        public void onBack() {
+            if (model.getOpenedPhoto() != null) {
+                model.closePhoto();
+                return;
+            }
+            if (UiState.isTransfer(model.getState())) {
+                callbacks.onCancel();
+                return;
+            }
+            if (model.getDetailsOpen()) {
+                model.setDetailsOpen(false);
+                return;
+            }
+            // `ERROR` / `UNAVAILABLE` 下返回键不得丢当前选择（§1.3）：有照片墙就回照片墙，
+            // 选择还在 AppModel 里；没有墙才退出。`Connect camera` 是唯一**恢复**动作，
+            // 不是唯一动作，所以返回键照常可用。
+            if (model.getState() == UiState.State.ERROR
+                    || model.getState() == UiState.State.UNAVAILABLE) {
+                model.backToCatalog();
+                return;
+            }
+            finish();
+        }
+
+        @Override
+        public void onDemoState(String name) {
+            applyDemoName(name);
+            model.setDetailsOpen(false);
+        }
+    };
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -87,7 +160,7 @@ public final class Main extends Activity {
                 log.line("USB 权限回调：granted=" + granted + (accepted ? "" : " · 旧请求，已忽略"));
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
                 // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
-                handleAttach("收到 USB_DEVICE_ATTACHED 广播");
+                if (!demoActive()) handleAttach("收到 USB_DEVICE_ATTACHED 广播");
             }
         }
     };
@@ -95,7 +168,27 @@ public final class Main extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        setContentView(buildUi());
+
+        // targetSdk 35 在 Android 15 上强制 edge-to-edge；Compose 侧用 systemBarsPadding 让位，
+        // 这里只把窗口装饰关掉，判定对象是「inset 之后的容器」（L-01）。
+        getWindow().setDecorFitsSystemWindows(false);
+
+        model.setCallbacks(callbacks);
+        model.applyDeviceName("a7C");
+        model.applyLocationPath(new File(getFilesDir(), "imported").getAbsolutePath());
+
+        ComposeHost.mount(this, model);
+
+        // 深色图标必须在 setContentView 之后设：`getInsetsController()` 依赖已挂上的 DecorView，
+        // 在 onCreate 里抢在 setContentView 之前调会拿到 null（Mi 9 / Android 15 上实测直接崩溃）。
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsAppearance(
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
+            }
+        }
 
         IntentFilter f = new IntentFilter();
         f.addAction(ACTION_PERM);
@@ -108,9 +201,9 @@ public final class Main extends Activity {
 
         service = new ImportService(log, new ResumableTransfer.NotImplemented(log), getFilesDir());
 
-        // 冷启动两条入口都要接（#17）：系统按默认处理者用 attach intent 拉起，或用户手动点图标。
-        // 相机已连着就直接进扫描；没连就显示 COLD 文案，之后插线由 onNewIntent / 广播再接一次。
-        autoScanOnLaunch();
+        // 假数据入口只在 debug 里存在；有 `--es demo_state` 就直接进那个状态，不碰 USB。
+        loadDemo(getIntent());
+        if (!demoActive()) autoScanOnLaunch();
     }
 
     @Override
@@ -118,8 +211,9 @@ public final class Main extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         // 前台插线：系统按默认处理者把 attach intent 直接投给本 Activity。
-        // 覆写之前这里走基类的空实现，intent 被直接丢掉——这就是「前台插线不自动扫描」的根因。
-        handleAttach("系统插线拉起");
+        // 覆写之前基类空实现会把 intent 丢掉——这就是「前台插线不自动扫描」的根因（#17）。
+        if (loadDemo(intent)) return;
+        if (!demoActive()) handleAttach("系统插线拉起");
     }
 
     @Override
@@ -135,188 +229,58 @@ public final class Main extends Activity {
         super.onDestroy();
     }
 
-    // ---------------- 界面 ----------------
+    @Override
+    public void onBackPressed() {
+        callbacks.onBack();
+    }
 
-    private View buildUi() {
-        // targetSdk 35 在 Android 15 上强制 edge-to-edge（窗口属性里能看到 EDGE_TO_EDGE_ENFORCED），
-        // 内容默认从 [0,0] 起排；这里显式关掉装饰拟合，并把 systemBars 让位加到根容器内边距上。
-        getWindow().setDecorFitsSystemWindows(false);
+    // ---------------- 假数据 ----------------
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        final int padH = dp(16);
-        final int padV = dp(8);
-        root.setOnApplyWindowInsetsListener((v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-            v.setPadding(padH + bars.left, padV + bars.top, padH + bars.right, padV + bars.bottom);
-            return insets;
-        });
-
-        logView = new TextView(this);
-        logView.setTextSize(10);
-        logView.setMaxLines(12);
-        root.addView(logView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        scanBtn = new Button(this);
-        // 插线已能自动检测（#17），手动入口按 §4.5 恢复为 `Rescan`，不再是「连接并扫描」。
-        scanBtn.setText("Rescan");
-        scanBtn.setOnClickListener(v -> handleAttach("点 Rescan"));
-        Button allBtn = new Button(this);
-        allBtn.setText("Select all");
-        allBtn.setOnClickListener(v -> {
-            if (selection != null) {
-                selection.selectAll();
-                renderRows();
-                refreshSummary();
+    /**
+     * 反射加载 debug 的 {@code DemoEntry}：release 源集里没有这个类，
+     * `Class.forName` 会抛 `ClassNotFoundException`，这里静默跳过。
+     */
+    private boolean loadDemo(Intent intent) {
+        try {
+            Class<?> cls = Class.forName("com.rea.mtpimport.DemoEntry");
+            Object bridge = cls.getMethod("create", Intent.class).invoke(null, intent);
+            if (bridge instanceof DemoBridge) {
+                demoBridge = (DemoBridge) bridge;
+                DemoPayload payload = demoBridge.current();
+                if (payload != null) {
+                    applyDemo(payload);
+                    return true;
+                }
             }
-        });
-        Button noneBtn = new Button(this);
-        noneBtn.setText("Clear");
-        noneBtn.setOnClickListener(v -> {
-            if (selection != null) {
-                selection.clear();
-                renderRows();
-                refreshSummary();
-            }
-        });
-        bar.addView(scanBtn);
-        bar.addView(allBtn);
-        bar.addView(noneBtn);
-        root.addView(bar);
-
-        summaryView = new TextView(this);
-        summaryView.setTextSize(12);
-        summaryView.setText(COPY_COLD);
-        root.addView(summaryView);
-
-        ScrollView sv = new ScrollView(this);
-        rowBox = new LinearLayout(this);
-        rowBox.setOrientation(LinearLayout.VERTICAL);
-        sv.addView(rowBox);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        root.addView(sv, lp);
-
-        progressView = new TextView(this);
-        progressView.setTextSize(11);
-        // 初值取 UI-SPEC §4.5 `T-COLD` 的正文（按 C-01 计 33 字符 / 7 词，均在 ≤40 字符、≤10 词以内）；
-        // 旧初值是无对象的解释句，被 C-02、C-19 与 §1.2 `COLD` 行明列为禁用话术（#31 → #34）。
-        progressView.setText("Plug in · auto-detect · Rescan after 10 s");
-        root.addView(progressView);
-
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progressBar.setMax(1000);
-        progressBar.setProgress(0);
-        root.addView(progressBar);
-
-        LinearLayout ops = new LinearLayout(this);
-        ops.setOrientation(LinearLayout.HORIZONTAL);
-        startBtn = new Button(this);
-        startBtn.setText("Import");
-        startBtn.setOnClickListener(v -> doStart());
-        pauseBtn = new Button(this);
-        pauseBtn.setText("Pause");
-        pauseBtn.setOnClickListener(v -> {
-            if (service == null || !service.isRunning()) return;
-            if ("Pause".contentEquals(pauseBtn.getText())) {
-                service.pause();
-                pauseBtn.setText("Resume");
-            } else {
-                service.resume();
-                pauseBtn.setText("Pause");
-            }
-        });
-        ops.addView(startBtn);
-        ops.addView(pauseBtn);
-        root.addView(ops);
-
-        return root;
-    }
-
-    /** dp → px：本工程 UI 全代码构建，尺寸一律走 dp，避免 560 dpi 之类的密度差异写死像素。 */
-    private int dp(float v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
-    }
-
-    void logLine(String s) {
-        android.util.Log.i(TAG, s);   // 全限定：同包的 Log 已被本工具的日志接口占用
-        runOnUiThread(() -> {
-            int keep = Math.max(0, logBuf.length() - 4000);
-            if (keep > 0) logBuf.delete(0, keep);
-            logBuf.append(s).append('\n');
-            if (logView != null) logView.setText(logBuf.toString());
-        });
-    }
-
-    private void refreshSummary() {
-        if (catalog == null) {
-            summaryView.setText(COPY_COLD);
-            return;
+        } catch (ClassNotFoundException e) {
+            // release 构建：没有假数据模式，走真实 USB 路径。
+        } catch (Throwable t) {
+            log.line("假数据入口加载失败：" + t);
         }
-        int files = selection == null ? 0 : selection.fileHandles().size();
-        summaryView.setText(String.format(Locale.US,
-                "%d files · %d folders · %.2f GB · %d selected",
-                catalog.fileCount(), catalog.folderCount(),
-                catalog.fileBytes() / 1073741824.0, files));
+        return false;
     }
 
-    /** 把目录树摊平成一行行 CheckBox；只渲染前 MAX_ROWS 行，避免上千个 View 卡死界面。 */
-    private void renderRows() {
-        if (catalog == null) return;
-        rowBox.removeAllViews();
-        Catalog.Flat flat = catalog.flatten(MAX_ROWS);
-        for (Catalog.Entry e : flat.rows) {
-            rowBox.addView(makeRow(e));
-        }
-        // 未显示数必须按全树总数算，不能用截断集合的差值（#15：曾恒显示 200，真实缺口 726）
-        int remaining = flat.remaining();
-        if (remaining > 0) {
-            TextView more = new TextView(this);
-            more.setText("… " + remaining + " not shown · Select a folder");
-            more.setTextSize(10);
-            rowBox.addView(more);
-        }
+    private boolean demoActive() {
+        return model.getDemoActive();
     }
 
-    private View makeRow(Catalog.Entry e) {
-        CheckBox cb = new CheckBox(this);
-        StringBuilder label = new StringBuilder();
-        for (int i = 0; i < depthOf(e); i++) label.append("    ");
-        label.append(e.name);
-        if (e.isFolder()) {
-            label.append('/');
-        } else {
-            label.append(String.format(Locale.US, "  %.1f MB", e.size / 1048576.0));
-        }
-        cb.setText(label.toString());
-        cb.setTextSize(11);
-        cb.setChecked(selection != null && selection.isChecked(e.handle));
-        cb.setOnClickListener(v -> {
-            if (selection == null) return;
-            selection.setChecked(e.handle, cb.isChecked());
-            renderRows();
-            refreshSummary();
-        });
-        return cb;
+    private void applyDemoName(String name) {
+        if (demoBridge == null) return;
+        applyDemo(demoBridge.forState(name));
     }
 
-    private int depthOf(Catalog.Entry e) {
-        String p = e.relPath == null ? "" : e.relPath;
-        int d = 0;
-        for (int i = 0; i < p.length(); i++) if (p.charAt(i) == '/') d++;
-        return d;
+    private void applyDemo(DemoPayload payload) {
+        if (payload == null) return;
+        runOnUiThread(() -> model.applyDemo(payload));
     }
 
     // ---------------- 动作 ----------------
 
-    /** 冷启动检测：相机已连着就直接进扫描，否则状态区给出可读的 COLD 文案，不静默。 */
+    /** 冷启动检测：相机已连着就直接进扫描，否则落到 `COLD`（`No camera` + `Connect camera`）。 */
     private void autoScanOnLaunch() {
         UsbDevice dev = findCamera();
         if (dev == null) {
-            summaryView.setText(COPY_COLD);
+            model.showCold();
             return;
         }
         requestScan("冷启动检测", dev);
@@ -342,13 +306,12 @@ public final class Main extends Activity {
         switch (admit) {
             case GO:
                 log.line(trigger + " → 开始扫描");
-                summaryView.setText("Scanning…");
-                scanBtn.setEnabled(false);
+                model.showScanning(0, 0);
                 new Thread(() -> scanWorker(dev), "scan-worker").start();
                 break;
             case NOTHING_NO_DEVICE:
                 log.line(trigger + " → 没找到索尼设备（VID 0x054C）：检查 OTG 线、相机 USB 模式是否 MTP");
-                summaryView.setText(COPY_COLD);
+                model.showCold();
                 break;
             case NOTHING_TRANSFERRING:
                 log.line(trigger + " → 传输进行中，先取消再重扫");
@@ -364,41 +327,43 @@ public final class Main extends Activity {
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
             if (!um.hasPermission(dev) && !awaitPermission(um, dev)) {
                 log.line("USB 权限未授予，退出");
-                runOnUiThread(() -> summaryView.setText("USB access denied · Retry"));
+                runOnUiThread(() -> model.showError("未获得 USB 权限"));
                 return;
             }
             if (session != null) session.close();
             session = MtpSession.open(um, dev, log);
-            if (session == null) return;
+            if (session == null) {
+                runOnUiThread(() -> model.showError("相机未就绪，请拔插数据线"));
+                return;
+            }
 
             int[] sids = session.storageIds(log);
             if (sids.length == 0) {
-                log.line("拿不到存储：请拔插 USB 线后重试（相机会话结束后约 1 分钟会挂起 USB）");
-                runOnUiThread(() -> summaryView.setText("No storage · Replug the cable · Rescan"));
+                log.line("拿不到存储：请拔插 USB 线（相机会话结束后约 1 分钟会挂起 USB）");
+                runOnUiThread(() -> model.showError("相机存储不可用，请拔插数据线"));
                 return;
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
             Catalog scanned = CatalogScanner.scan(session.device(), sids, log,
-                    (done, total) -> runOnUiThread(() ->
-                            summaryView.setText("Scanning " + done + "/" + total)));
+                    (done, total) -> runOnUiThread(() -> model.showScanning(done, total)));
             catalog = scanned;
             selection = new Selection(catalog);
-            runOnUiThread(() -> {
-                renderRows();
-                refreshSummary();
-            });
+            log.line(String.format(Locale.US, "扫描完成：文件夹 %d 个、文件 %d 个（合计 %.2f GB，其中 ARW %.2f GB）",
+                    scanned.folderCount(), scanned.fileCount(),
+                    scanned.fileBytes() / 1073741824.0, scanned.rawBytes() / 1073741824.0));
+            runOnUiThread(() -> model.showCatalog(scanned, selection));
         } catch (Throwable t) {
             log.line("扫描异常：" + t);
+            runOnUiThread(() -> model.showError("相机连接已断开，请拔插数据线"));
         } finally {
             attachGate.finish();
-            runOnUiThread(() -> scanBtn.setEnabled(true));
         }
     }
 
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {
         log.line("尚无 USB 权限，发起申请");
-        runOnUiThread(() -> summaryView.setText("Allow USB · Tap Allow in the dialog"));
+        runOnUiThread(model::showPermission);
         int seq = permGate.begin();
         // requestCode 必须用 seq（#11 复评）：PendingIntent 记录按 requestCode 区分，
         // 固定用 0 + FLAG_UPDATE_CURRENT 时所有申请共用一条记录，后一次 begin() 会把
@@ -421,6 +386,11 @@ public final class Main extends Activity {
             log.line("先扫描");
             return;
         }
+        // 假数据模式：直接把界面切到 `IMPORTING`（12/36），不碰真实传输。
+        if (demoActive()) {
+            applyDemoName("IMPORTING");
+            return;
+        }
         ImportPlan plan = ImportPlan.of(catalog, selection);
         if (plan.isEmpty()) {
             log.line("没有勾选任何文件");
@@ -432,8 +402,7 @@ public final class Main extends Activity {
         // 本轮先把目录建出来，让「计划 → 落盘位置」的链路是通的。
         if (!out.exists() && !out.mkdirs()) log.line("建目标目录失败：" + out);
 
-        progressBar.setProgress(0);
-        progressView.setText("Preparing…");
+        model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
         service.start(plan, new ImportListener() {
             @Override
             public void onPlanReady(ImportPlan p) {
@@ -444,10 +413,10 @@ public final class Main extends Activity {
             public void onProgress(TransferProgress progress, ImportPlan.Item current) {
                 lastProgress = progress;
                 long now = System.nanoTime();
-                runOnUiThread(() -> {
-                    progressBar.setProgress((int) Math.round(progress.fraction() * 1000));
-                    progressView.setText(progress.summary(now) + " · " + current.relPath);
-                });
+                runOnUiThread(() -> model.updateProgress(
+                        progress.filesDone(), progress.totalFiles(),
+                        progress.bytesDone(), progress.totalBytes(),
+                        (long) progress.bytesPerSec(now)));
             }
 
             @Override
@@ -459,10 +428,15 @@ public final class Main extends Activity {
             @Override
             public void onFinished(boolean cancelled, String summary) {
                 runOnUiThread(() -> {
-                    progressView.setText(summary);
-                    pauseBtn.setText("Pause");
-                    if (lastProgress != null) {
-                        progressBar.setProgress((int) Math.round(lastProgress.fraction() * 1000));
+                    if (cancelled) {
+                        model.backToCatalog();
+                    } else if (summary != null && summary.contains("未实现")) {
+                        // 传输实现未就绪 → `Not available`，不伪装成传输中（§0.11 第 6 行）。
+                        model.showUnavailable();
+                    } else if (lastProgress != null) {
+                        model.showDone(lastProgress.filesDone(), lastProgress.bytesDone());
+                    } else {
+                        model.backToCatalog();
                     }
                 });
             }
@@ -470,7 +444,15 @@ public final class Main extends Activity {
             @Override
             public void onError(String message, Throwable t) {
                 log.line("错误：" + message + (t == null ? "" : " · " + t));
+                runOnUiThread(() -> model.showError("导入中断，请拔插数据线"));
             }
         });
+    }
+
+    // ---------------- 日志 ----------------
+
+    void logLine(String s) {
+        android.util.Log.i(TAG, s);   // 全限定：同包的 Log 已被本工具的日志接口占用
+        runOnUiThread(() -> model.addLog(s));
     }
 }

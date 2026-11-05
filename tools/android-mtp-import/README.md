@@ -14,7 +14,10 @@
 | 找 Sony 机身、申请/自动获取 USB 权限 | ✅ 实现（从探针抽出，坑原样保留） |
 | 建 MTP 会话、带唤醒重试拿存储 | ✅ 实现（8 次 / 3 秒，同探针） |
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
-| 目录树打勾、勾目录连带子孙、全选/清空 | ✅ 实现 |
+| 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
+| 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
+| 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
+| 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（句柄 → 已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
@@ -37,11 +40,22 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
-└─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
+├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
+├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
+├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
+├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
+├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
+├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
+├─ ui/               Compose 三屏 + 两个抽屉 + 图标 + 主题 + AppModel       [android]
+└─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）  [debug 变体]
 ```
 
-标 `[纯 JDK]` 的**十一个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
-`test/SelfTest.java`。
+**Compose 只做 UI 层与状态映射**：`PermGate` / `AttachGate` / `Catalog` / `Journal` /
+`TransferProgress` / `ImportService` 保持原样，`Main` 只负责把系统事件翻译成
+`AppModel` 的可观察属性。
+
+标 `[纯 JDK]` 的**十七个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+`test/SelfTest.java`（其中 `DemoTree.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
 （classpath 故意为空），所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
@@ -113,6 +127,20 @@ adb logcat -s MTPIMPORT:*
 ```bash
 adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
 ```
+
+## 假数据模式（不插相机也能走完 10 个状态）
+
+只在 **debug** APK 里有（`src/debug` 源集，release 编不进去，U-54）。状态名见 `UiState.State`，
+也认任务书短名 `PERMISSION` / `READY` / `EMPTY`：
+
+```bash
+adb shell am start -n com.rea.mtpimport/.Main --es demo_state IMPORTING
+```
+
+假树与真机同口径：1526 对象 / 503 文件夹 / 511 ARW / 512 JPEG / 12.75 GB（ARW 11.89 GB）；
+`IMPORTING` / `PAUSED` 冻结在 `12/36`（33%），`DONE` 是 `36 · 858 MB`。
+速率与 ETA 只在 `Location details` 抽屉里出现，不进主视觉（P-03）。
+详情抽屉（长按顶栏设备名）里也有一排 10 态切换入口。
 
 ## 沿用探针的三条实测结论
 
