@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * JVM 纯逻辑自检（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
@@ -28,10 +29,18 @@ public final class SelfTest {
         truncationCases();
         attachCases();
         permissionCases();
+        allowCases();
+        resolveCases();
+        scanCancelCases();
+        scanReleaseCases();
         selectionCases();
         planCases();
         progressCases();
         journalCases();
+        uiStateCases();
+        uiTextCases();
+        photoWallCases();
+        demoTreesCases();
 
         System.out.println();
         if (failed == 0) {
@@ -244,6 +253,204 @@ public final class SelfTest {
                 late.onResult(round2, true) && late.granted(), "granted=" + late.granted());
     }
 
+    // ---------------- PermGate 重发（PR #41 首轮评审 B1） ----------------
+
+    /**
+     * 墓碑 B1：`PERMISSION_PENDING` 里点 `Allow` 必须能把权限申请重发一次，
+     * 且**新序号**的回调要能结束扫描线程正在进行的同一次等待。
+     *
+     * 现场：扫描线程阻塞在 `permGate.await`（第一轮），用户点 `Allow` → `begin()` 开第二轮。
+     * 旧实现里 `await` 只捕获调用瞬间的 latch、`begin()` 又不唤醒旧 latch，
+     * 扫描线程会一直卡在第一轮的 latch 上直到 120 s 超时——界面看起来「点了 Allow 没反应」，
+     * 这正是 U-42 必失败的原因。
+     *
+     * 等待用秒级超时，不依赖真实 120 s；join 只等 2 s，旧实现会红在最后一条断言上。
+     */
+    static void allowCases() throws InterruptedException {
+        PermGate g = new PermGate();
+        int first = g.begin();
+        final AtomicBoolean released = new AtomicBoolean(false);
+        Thread scanner = new Thread(() -> {
+            try {
+                released.set(g.await(3, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "perm-waiter");
+        scanner.start();
+        // 让扫描线程确实阻塞在 await 上，再模拟「点 Allow」
+        Thread.sleep(100);
+
+        int second = g.begin();
+        check("allow：重发生成新序号", second == first + 1, "first=" + first + " second=" + second);
+        check("allow：重发不得把未授权的等待当成已回答放行",
+                !released.get(), "released=" + released.get());
+        check("allow：重发后、Allow 的回调到达前扫描线程仍在等待",
+                scanner.isAlive(), "isAlive=" + scanner.isAlive());
+
+        boolean accepted = g.onResult(second, true);
+        scanner.join(2_000);
+        check("allow：重发后的新序号回调被接受", accepted, "accepted=" + accepted);
+        check("allow：重发后的新序号回调结束同一次等待（U-42 的根因）",
+                !scanner.isAlive() && released.get() && g.granted(),
+                "isAlive=" + scanner.isAlive() + " released=" + released.get()
+                        + " granted=" + g.granted());
+    }
+
+    // ---------------- PermGate 直接判定（PR #41 第三轮评审小项 1） ----------------
+
+    /**
+     * 墓碑：`PERMISSION_PENDING` 里点 `Allow` 时 `UsbManager.hasPermission()` 已经为真，
+     * 系统广播可能永远不会再来；只记日志会让扫描线程继续卡在 `await` 上直到 120 s 超时。
+     * `resolve(true)` 要把这一轮直接判成「已授权」并释放等待，重复调用不得改写结果。
+     */
+    static void resolveCases() throws InterruptedException {
+        PermGate g = new PermGate();
+        int seq = g.begin();
+        final AtomicBoolean released = new AtomicBoolean(false);
+        Thread scanner = new Thread(() -> {
+            try {
+                released.set(g.await(2, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "perm-resolve-waiter");
+        scanner.start();
+        Thread.sleep(100);
+
+        boolean resolved = g.resolve(true);
+        scanner.join(2_000);
+        check("resolve：直接判定已授权并释放等待（小项 1 的根因）",
+                resolved && !scanner.isAlive() && released.get() && g.granted(),
+                "resolved=" + resolved + " isAlive=" + scanner.isAlive()
+                        + " released=" + released.get() + " granted=" + g.granted());
+        check("resolve：已回答过的一轮不再被改写",
+                !g.resolve(false) && g.granted(), "granted=" + g.granted());
+        check("resolve：序号没被偷偷 +1", g.begin() == seq + 1, "seq 漂移");
+    }
+
+
+    // ---------------- 扫描取消（PR #41 第四轮评审 B1 / U-06 / P-02） ----------------
+
+    /**
+     * 墓碑：`SCANNING` 点 `Cancel` 后，扫描线程迟到的进度、结果、错误都不得再改界面。
+     *
+     * 这里用一个字符串代替 `AppModel` 的界面态，判的仍是 `ScanRun.accept()` 这道闸——
+     * `Main.scanWorker` 的进度回调、`showCatalog`、`showError` 三处都先问它。
+     * 取消必须真取消：只把界面退回 `COLD` 而不置位，扫描完成时会把界面翻回
+     * `CATALOG_READY`（第四轮评审 B1 的现象）。
+     */
+    static void scanCancelCases() {
+        ScanRun run = new ScanRun();
+        String[] screen = {"SCANNING"};
+        int[] progressLanded = {0};
+
+        // 用户在 SCANNING 点 Cancel：Main.onCancel 置位令牌，再把界面退回目录。
+        run.cancel();
+        screen[0] = "COLD";
+
+        // 取消之后才到达的三类迟到回调。
+        if (run.accept()) progressLanded[0]++;
+        if (run.accept()) screen[0] = "CATALOG_READY";
+        if (run.accept()) screen[0] = "ERROR";
+
+        check("取消后迟到的扫描结果不得翻回 CATALOG_READY", "COLD".equals(screen[0]),
+                "界面停在 " + screen[0]);
+        check("取消后不再刷新扫描进度", progressLanded[0] == 0,
+                "落地 " + progressLanded[0] + " 次");
+        check("cancel() 置位后 isCancelled() 为真", run.isCancelled(), "未置位");
+
+        // 对照：没取消时三类回调都必须照常落地，否则上面两条恒真、测不出回归。
+        ScanRun live = new ScanRun();
+        String[] liveScreen = {"SCANNING"};
+        int[] liveProgress = {0};
+        if (live.accept()) liveProgress[0]++;
+        if (live.accept()) liveScreen[0] = "CATALOG_READY";
+        check("未取消时扫描结果照常落到照片墙", "CATALOG_READY".equals(liveScreen[0]),
+                "界面停在 " + liveScreen[0]);
+        check("未取消时进度照常刷新", liveProgress[0] == 1,
+                "落地 " + liveProgress[0] + " 次");
+    }
+
+    // ---------------- 扫描锁与重试循环的取消交互（PR #41 第五轮评审 B-1） ----------------
+
+    /**
+     * 墓碑 B-1：取消必须让扫描线程**尽快退出**，否则 {@link AttachGate} 的扫描锁不释放，
+     * README 里「取消后再点 `Connect camera` 能重新开始扫描」就是假的。
+     *
+     * 钉三件事（旧实现全部不成立）：
+     * 1. `storageIds` 的重试循环在取消后最多只多睡一轮 —— 旧实现睡满 8 × 3 秒 ≈ 24 秒；
+     * 2. 已经取消的话一次都不取、一次都不睡（不再碰相机）；
+     * 3. `admit → 取消 → 工作线程收尾 finish() → admit` 必须重新拿到 `GO`。
+     *    原来只有 `ScanRun` 自身的 4 条用例，锁与重试循环的交互没人守（评审原话）。
+     */
+    static void scanReleaseCases() {
+        // 取消发生在第一次重试的等待里：只许 1 次取 + 1 次睡，然后返回空数组。
+        ScanRun run = new ScanRun();
+        int[] fetches = {0};
+        int[] sleeps = {0};
+        StorageRetry.Sleeper cancellingSleeper = ms -> {
+            sleeps[0]++;
+            run.cancel();          // 模拟 UI 线程在这 3 秒里点了 Cancel
+        };
+        int[] sids = StorageRetry.fetch(() -> {
+            fetches[0]++;
+            return new int[0];
+        }, cancellingSleeper, run, 8, 3000, Log.NOOP);
+        check("取消后第 1 次重试即返回空数组（不再睡满 8 轮 ≈ 24 秒）",
+                sids.length == 0 && fetches[0] == 1 && sleeps[0] == 1,
+                "sids=" + sids.length + " fetch=" + fetches[0] + " sleep=" + sleeps[0]);
+        check("取消后重试循环不再发起第 2 次取",
+                fetches[0] == 1, "fetch=" + fetches[0]);
+
+        // 已经取消：一次都不取、一次都不睡。
+        ScanRun dead = new ScanRun();
+        dead.cancel();
+        int[] fetches2 = {0};
+        int[] sleeps2 = {0};
+        int[] empty = StorageRetry.fetch(() -> {
+            fetches2[0]++;
+            return new int[0];
+        }, ms -> sleeps2[0]++, dead, 8, 3000, Log.NOOP);
+        check("已取消时 getStorageIds 一次都不调（不碰相机）",
+                empty.length == 0 && fetches2[0] == 0, "fetch=" + fetches2[0]);
+        check("已取消时一次都不睡（不等 3 秒）", sleeps2[0] == 0, "sleep=" + sleeps2[0]);
+
+        // onCancel 会 interrupt 扫描线程：等待被打断要立刻退出，不睡满一轮。
+        int[] fetches3 = {0};
+        int[] interrupted = StorageRetry.fetch(() -> {
+            fetches3[0]++;
+            return new int[0];
+        }, ms -> {
+            throw new InterruptedException("模拟 onCancel 的 interrupt");
+        }, new ScanRun(), 8, 3000, Log.NOOP);
+        Thread.interrupted();      // 清掉 StorageRetry 回写的标志，别影响后续用例
+        check("等待被 interrupt 时立即退出（不再睡满 8 轮）",
+                interrupted.length == 0 && fetches3[0] == 1, "fetch=" + fetches3[0]);
+
+        // 对照：没取消时必须照常重试满 8 轮，否则上面「只睡 1 轮」恒真、测不出回归。
+        int[] fetches4 = {0};
+        int[] sleeps4 = {0};
+        int[] exhausted = StorageRetry.fetch(() -> {
+            fetches4[0]++;
+            return new int[0];
+        }, ms -> sleeps4[0]++, new ScanRun(), 8, 3000, Log.NOOP);
+        check("未取消时重试满 8 轮（对照）",
+                exhausted.length == 0 && fetches4[0] == 8 && sleeps4[0] == 8,
+                "fetch=" + fetches4[0] + " sleep=" + sleeps4[0]);
+
+        // 扫描锁：取消 → 工作线程收尾 finish() → 再次 attach 必须重新准入（U-06 / P-02）。
+        AttachGate gate = new AttachGate();
+        check("取消前首次 attach 准入",
+                gate.admit(true, false) == AttachGate.Admit.GO, "未准入");
+        run.cancel();              // Main.onCancel
+        gate.finish();             // scanWorker 的 finally（此时工作线程已退出）
+        AttachGate.Admit again = gate.admit(true, false);
+        check("取消并收尾后再点 Connect camera 必须重新准入（不得停在 NOTHING_ALREADY_SCANNING）",
+                again == AttachGate.Admit.GO, "实际 " + again);
+        gate.finish();
+    }
+
     // ---------------- Selection ----------------
 
     static void selectionCases() {
@@ -403,6 +610,212 @@ public final class SelfTest {
         check("sanitize 把制表符与换行换成下划线",
                 "_a_b_".equals(Journal.sanitize("\ta\nb\r")),
                 "实际 " + Journal.sanitize("\ta\nb\r"));
+    }
+
+    // ---------------- 界面状态映射（UiState） ----------------
+
+    static void uiStateCases() {
+        check("10 个界面状态齐全（§1.2）", UiState.State.values().length == 10,
+                "实际 " + UiState.State.values().length);
+        check("parse 认任务书短名 PERMISSION", UiState.parse("PERMISSION") == UiState.State.PERMISSION_PENDING,
+                "实际 " + UiState.parse("PERMISSION"));
+        check("parse 认短名 READY", UiState.parse("READY") == UiState.State.CATALOG_READY,
+                "实际 " + UiState.parse("READY"));
+        check("parse 认短名 EMPTY", UiState.parse("EMPTY") == UiState.State.EMPTY_CATALOG,
+                "实际 " + UiState.parse("EMPTY"));
+        check("parse 大小写与连字符不敏感", UiState.parse(" importing ") == UiState.State.IMPORTING
+                        && UiState.parse("permission-pending") == UiState.State.PERMISSION_PENDING,
+                "实际 " + UiState.parse(" importing "));
+        check("parse 未知值返回 null（不能悄悄给默认态）", UiState.parse("NOPE") == null
+                        && UiState.parse(null) == null,
+                "实际 " + UiState.parse("NOPE"));
+        check("isTransfer 只认 IMPORTING / PAUSED",
+                UiState.isTransfer(UiState.State.IMPORTING) && UiState.isTransfer(UiState.State.PAUSED)
+                        && !UiState.isTransfer(UiState.State.CATALOG_READY),
+                "isTransfer 判定不符");
+        check("showsLibrary 只认 CATALOG_READY",
+                UiState.showsLibrary(UiState.State.CATALOG_READY)
+                        && !UiState.showsLibrary(UiState.State.SCANNING),
+                "showsLibrary 判定不符");
+        check("扫描态不渲染顶栏（U-43：1526 只作分母）",
+                !UiState.hasTopBar(UiState.State.SCANNING)
+                        && !UiState.hasTopBar(UiState.State.DONE)
+                        && UiState.hasTopBar(UiState.State.CATALOG_READY),
+                "hasTopBar 判定不符");
+    }
+
+    // ---------------- 数字与短文案（UiText，C-05 / C-08 / U-45） ----------------
+
+    static void uiTextCases() {
+        long mb = 1024L * 1024L;
+        long gb = mb * 1024L;
+
+        check("capacity: 0 → 0 MB", "0 MB".equals(UiText.capacity(0)), "实际 " + UiText.capacity(0));
+        check("capacity: 1 MB 整数不带小数", "1 MB".equals(UiText.capacity(mb)), "实际 " + UiText.capacity(mb));
+        check("capacity: 1.5 MB 保留 1 位", "1.5 MB".equals(UiText.capacity(mb + mb / 2)),
+                "实际 " + UiText.capacity(mb + mb / 2));
+        check("capacity: 284 MB（组头口径）", "284 MB".equals(UiText.capacity(284L * mb)),
+                "实际 " + UiText.capacity(284L * mb));
+        check("capacity: ≥100 MB 取整", "871 MB".equals(UiText.capacity(871L * mb)),
+                "实际 " + UiText.capacity(871L * mb));
+        check("capacity: 999 MB 仍是 MB", UiText.capacity(999L * mb).endsWith(" MB"),
+                "实际 " + UiText.capacity(999L * mb));
+        check("capacity: 1 GB → 2 位小数", "1.00 GB".equals(UiText.capacity(gb)),
+                "实际 " + UiText.capacity(gb));
+        long twelvePoint75Gb = 13_690_208_256L;
+        check("capacity: 12.75 GB → 2 位小数", "12.75 GB".equals(UiText.capacity(twelvePoint75Gb)),
+                "实际 " + UiText.capacity(twelvePoint75Gb));
+        check("capacity: 小容量不出现 0.00 GB", !UiText.capacity(50L * mb).contains("GB"),
+                "实际 " + UiText.capacity(50L * mb));
+        check("capacity: 负数按 0 处理", "0 MB".equals(UiText.capacity(-1)), "实际 " + UiText.capacity(-1));
+
+        check("groupHeader 是组内聚合且用中点分隔",
+                "Jun 7 \u00B7 12 \u00B7 284 MB".equals(UiText.groupHeader("Jun 7", 12, 284L * mb)),
+                "实际 " + UiText.groupHeader("Jun 7", 12, 284L * mb));
+
+        check("importCta 未选 → Import all N", "Import all 511".equals(UiText.importCta(0, 511)),
+                "实际 " + UiText.importCta(0, 511));
+        check("importCta 已选 → Import N", "Import 2".equals(UiText.importCta(2, 511)),
+                "实际 " + UiText.importCta(2, 511));
+
+        check("percent 12/36 → 33 且与 a/b 自洽", UiText.percent(12, 36) == 33,
+                "实际 " + UiText.percent(12, 36));
+        check("percent 边界 0 与满", UiText.percent(0, 36) == 0 && UiText.percent(36, 36) == 100,
+                "实际 " + UiText.percent(0, 36) + "/" + UiText.percent(36, 36));
+        check("percent 分母为 0 不除零", UiText.percent(5, 0) == 0, "实际 " + UiText.percent(5, 0));
+        check("percentText 带百分号", "33%".equals(UiText.percentText(12, 36)),
+                "实际 " + UiText.percentText(12, 36));
+        check("fraction 格式 a/b", "12/36".equals(UiText.fraction(12, 36)),
+                "实际 " + UiText.fraction(12, 36));
+        check("scanCounter 只给进度分母", "320/1526".equals(UiText.scanCounter(320, 1526)),
+                "实际 " + UiText.scanCounter(320, 1526));
+
+        String summary = UiText.doneSummary(36, 871L * mb);
+        check("doneSummary 形如 `36 · 871 MB`（U-47）", summary.matches("\\d+ \u00B7 \\d+ MB"),
+                "实际 " + summary);
+        check("doneSummary GB 口径也合法",
+                UiText.doneSummary(511, (long) (11.89 * gb)).matches("\\d+ \u00B7 \\d+\\.\\d{2} GB"),
+                "实际 " + UiText.doneSummary(511, (long) (11.89 * gb)));
+
+        check("rate 3.4 MB/s", "3.4 MB/s".equals(UiText.rate(3_567_104L)),
+                "实际 " + UiText.rate(3_567_104L));
+        check("rate 0 不除零", "0 MB/s".equals(UiText.rate(0)), "实际 " + UiText.rate(0));
+        check("eta 有值且带 ~ 与 min", !UiText.eta(1000L * mb, 3_567_104L).isEmpty()
+                        && UiText.eta(1000L * mb, 3_567_104L).startsWith("~"),
+                "实际 " + UiText.eta(1000L * mb, 3_567_104L));
+
+        check("monthDay 六月七日", "Jun 7".equals(UiText.monthDay(2026, 6, 7)),
+                "实际 " + UiText.monthDay(2026, 6, 7));
+        check("monthDay 月份越界返回 null", UiText.monthDay(2026, 13, 1) == null,
+                "实际 " + UiText.monthDay(2026, 13, 1));
+
+        check("deviceName 空值退回 Camera",
+                "Camera".equals(UiText.deviceName(null)) && "Camera".equals(UiText.deviceName("  "))
+                        && "a7C".equals(UiText.deviceName("a7C")),
+                "实际 " + UiText.deviceName(null));
+    }
+
+    // ---------------- 照片墙分组（PhotoWall） ----------------
+
+    static void photoWallCases() {
+        PhotoWall wall = PhotoWall.of(sample());
+        // 样本只有 2 张 ARW（100MSDCF 下 300 字节、DCIM 下 50 字节），JPEG 一律不进照片墙。
+        check("照片墙只收 ARW：2 张", wall.photoCount() == 2, "实际 " + wall.photoCount());
+        check("照片墙容量只算 ARW：350 B", wall.photoBytes() == 350, "实际 " + wall.photoBytes());
+        check("按目录名分出 2 组", wall.groups().size() == 2, "实际 " + wall.groups().size());
+        boolean jpegExcluded = true;
+        for (PhotoWall.Group g : wall.groups()) {
+            for (Catalog.Entry e : g.photos) {
+                if (!e.isRaw()) jpegExcluded = false;
+            }
+        }
+        check("组内不含 JPEG", jpegExcluded, "组内混入了非 ARW");
+
+        long groupBytes = 0;
+        int groupCount = 0;
+        for (PhotoWall.Group g : wall.groups()) {
+            groupBytes += g.bytes;
+            groupCount += g.count();
+        }
+        check("组内聚合之和等于总量", groupBytes == wall.photoBytes() && groupCount == wall.photoCount(),
+                "组和 " + groupBytes + "/" + groupCount);
+        check("组头是组内聚合格式",
+                wall.groups().get(0).header().matches(".+ \u00B7 \\d+ \u00B7 \\d+(.\\d)? MB"),
+                "实际 " + wall.groups().get(0).header());
+        check("目录名日期渲染成 Jun 7", "Jun 7".equals(PhotoWall.labelOf("20260607")),
+                "实际 " + PhotoWall.labelOf("20260607"));
+        check("非日期目录名原样保留", "100MSDCF".equals(PhotoWall.labelOf("100MSDCF")),
+                "实际 " + PhotoWall.labelOf("100MSDCF"));
+    }
+
+    // ---------------- 假数据模式（DemoTree，U-54） ----------------
+
+    static void demoTreesCases() {
+        Catalog demo = DemoTree.catalog();
+        int folders = 0;
+        int arw = 0;
+        int jpeg = 0;
+        long bytes = 0;
+        long rawBytes = 0;
+        for (Catalog.Entry e : demo.all()) {
+            if (e.isFolder()) folders++;
+            else if (e.isRaw()) {
+                arw++;
+                rawBytes += e.size;
+            } else jpeg++;
+            bytes += e.size;
+        }
+        check("假树 1526 个对象", demo.all().size() == DemoTree.OBJECT_COUNT,
+                "实际 " + demo.all().size());
+        check("假树 503 个文件夹", folders == DemoTree.FOLDER_COUNT, "实际 " + folders);
+        check("假树 511 张 ARW", arw == DemoTree.ARW_COUNT, "实际 " + arw);
+        check("假树 512 张 JPEG", jpeg == DemoTree.JPEG_COUNT, "实际 " + jpeg);
+        check("假树合计 12.75 GB", bytes == DemoTree.TOTAL_BYTES,
+                "实际 " + bytes);
+        check("ARW 合计 11.89 GB", rawBytes == DemoTree.RAW_BYTES,
+                "实际 " + rawBytes);
+
+        PhotoWall wall = PhotoWall.of(demo);
+        check("徽标 511 与 Import all 511 同分母",
+                wall.photoCount() == 511 && "Import all 511".equals(UiText.importCta(0, wall.photoCount())),
+                "实际 " + wall.photoCount());
+        check("假树 12 个日期组", wall.groups().size() == 12, "实际 " + wall.groups().size());
+
+        for (UiState.State s : UiState.State.values()) {
+            check("每个状态都有假载荷：" + s.name(), DemoTree.payload(s) != null, "载荷为 null");
+        }
+
+        DemoPayload importing = DemoTree.payload(UiState.State.IMPORTING);
+        check("IMPORTING 环内 33% 与环下 12/36 自洽",
+                "33%".equals(importing.percentText()) && "12/36".equals(importing.fractionText())
+                        && UiText.percent(12, 36) == 33,
+                "实际 " + importing.percentText() + " / " + importing.fractionText());
+        check("IMPORTING 还有未传字节", importing.remainingBytes() > 0,
+                "实际 " + importing.remainingBytes());
+
+        DemoPayload paused = DemoTree.payload(UiState.State.PAUSED);
+        check("PAUSED 数值冻结（与 IMPORTING 相同）",
+                "33%".equals(paused.percentText()) && "12/36".equals(paused.fractionText()),
+                "实际 " + paused.percentText() + " / " + paused.fractionText());
+
+        DemoPayload done = DemoTree.payload(UiState.State.DONE);
+        check("DONE 是 36 张 + 容量", done.donePhotos == 36
+                        && UiText.doneSummary(done.donePhotos, done.resultBytes).matches("\\d+ \u00B7 \\d+(.\\d)? MB"),
+                "实际 " + UiText.doneSummary(done.donePhotos, done.resultBytes));
+
+        DemoPayload scanning = DemoTree.payload(UiState.State.SCANNING);
+        check("SCANNING 分母是 1526（C-09）", scanning.scanTotal == 1526
+                        && "320/1526".equals(UiText.scanCounter(scanning.scanned, scanning.scanTotal)),
+                "实际 " + scanning.scanned + "/" + scanning.scanTotal);
+
+        DemoPayload error = DemoTree.payload(UiState.State.ERROR);
+        check("ERROR 原因 ≤20 字且不提 Retry", error.errorReason.length() <= 20
+                        && !error.errorReason.contains("Retry") && !error.errorReason.contains("重试"),
+                "实际「" + error.errorReason + "」长度 " + error.errorReason.length());
+        // ERROR 必须带假树：否则 `--es demo_state ERROR` 冷启动后按返回只能落到 COLD，
+        // 「回照片墙、选择还在」（§1.3）在唯一可用载体上不成立（PR #41 第三轮评审 P2）。
+        check("ERROR 载荷带假树（返回能回照片墙）", error.catalog != null,
+                "catalog=" + error.catalog);
     }
 
     // ---------------- 样本与工具 ----------------

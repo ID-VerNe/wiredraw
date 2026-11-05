@@ -3,8 +3,10 @@ import java.util.Properties
 
 // 导片工具构建（issue #36）：AGP + Kotlin + Compose 编译器。
 //
-// 本轮只换构建体系，不改任何用户可见行为：界面仍是 Main.java 手写 View，
-// ComposeSmoke.kt 只是编译链探针，没有调用点。
+// 构建体系在本 PR（#40）里接了 Compose 三屏：`Main.java` 已降到编排层，
+// 界面全部由 `src/com/rea/mtpimport/ui/*.kt` 渲染（`ComposeHost` 是唯一挂载点）。
+// `ComposeSmoke.kt` 只保留编译链冒烟用途（`assembleDebug` 时验证 Compose 编译器就位），
+// 不再代表界面实现。
 plugins {
     id("com.android.application") version "8.7.3"
     id("org.jetbrains.kotlin.android") version "2.0.21"
@@ -42,12 +44,23 @@ android {
 
     // 沿用原有目录布局，不为了 Gradle 默认结构搬动源码：
     //   AndroidManifest.xml / res/ / src/ 都在工程根下，外加 test/SelfTest.java 给 JVM 自检用。
+    //
+    // `src/debug/` 是假数据模式（U-54）：main 必须显式排除它，否则 release 也会编进 DemoEntry；
+    // 纯 JDK 的 DemoTree.java 反过来要进 selfTest 的 classpath（见下面的 pureJdkDebugClasses）。
     sourceSets {
         getByName("main") {
             manifest.srcFile("AndroidManifest.xml")
-            java.srcDirs("src")
-            kotlin.srcDirs("src")
+            // 源码根取 `src/com` 而不是 `src`：后者会把 debug 源集（`src/debug`）一起卷进 main，
+            // 于是 release 也会编进 `DemoEntry`（U-54 的禁项）。AGP 的
+            // `AndroidSourceDirectorySet` 在这版没有可用的 exclude/filter，
+            // 用「更窄的根目录」是最直接的隔离方式。
+            java.srcDirs("src/com")
+            kotlin.srcDirs("src/com")
             res.srcDirs("res")
+        }
+        getByName("debug") {
+            java.srcDirs("src/debug")
+            kotlin.srcDirs("src/debug")
         }
     }
 
@@ -70,6 +83,14 @@ kotlin {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.runtime:runtime")
+    // 界面重建（#40）：只引 ui + foundation —— 不引 material3，避免默认主题的
+    // 字号/色调/涟漪盖过 UI-SPEC 的定稿 token。
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    // `ComposeView` 挂在窗口上时要求 ViewTreeLifecycleOwner（否则 `onAttachedToWindow` 直接抛
+    // `ViewTreeLifecycleOwner not found`）。`android.app.Activity` 不提供它，`ComponentActivity` 提供；
+    // 这一条是宿主 Activity 能承载 Compose 的最小依赖，不是 UI 组件库。
+    implementation("androidx.activity:activity:1.7.0")
 }
 
 // ---------------------------------------------------------------- 纯 JDK 自检
@@ -77,46 +98,67 @@ dependencies {
 // 原 check.sh 的两层保护原样迁过来，断言一条不放宽：
 //   1. PURE 清单与磁盘上「不 import android 的文件」必须一致（漏列即红）；
 //   2. 这批文件在**空 classpath** 下编译 —— 偷偷 import android.* 会直接编译失败；
-//   3. SelfTest 的 80 项断言由 JavaExec 跑，入口与断言零改动。
+//   3. SelfTest 的 170 项断言由 JavaExec 跑，入口与断言零改动。
 //
 // 清单的唯一事实来源就是下面这个列表（原 check.sh 的 PURE 数组）。
 
 val pureJdkClasses = listOf(
     "AttachGate.java",
     "Catalog.java",
+    "DemoBridge.java",
+    "DemoPayload.java",
     "ImportListener.java",
     "ImportPlan.java",
     "ImportService.java",
     "Journal.java",
     "Log.java",
     "PermGate.java",
+    "PhotoWall.java",
     "ResumableTransfer.java",
+    "ScanRun.java",
     "Selection.java",
+    "StorageRetry.java",
     "TransferProgress.java",
+    "UiState.java",
+    "UiText.java",
+)
+
+/**
+ * debug 源集里的纯 JDK 类。它们不进 APK 的 main 源集，但同样要受「不许 import android」
+ * 保护，并且必须编进 selfTest 的 classpath（假数据总量由 JVM 断言守住，U-54）。
+ * `DemoEntry.java` 故意不在这里：它读 `Intent`，属于 Android 侧。
+ */
+val pureJdkDebugClasses = listOf(
+    "DemoTree.java",
 )
 
 val pureJdkClassesDir = file("src/com/rea/mtpimport")
+val pureJdkDebugClassesDir = file("src/debug/com/rea/mtpimport")
 val pureJdkOutput = layout.buildDirectory.dir("classes/pureJdk")
 val selfTestOutput = layout.buildDirectory.dir("classes/selfTest")
 
 tasks.register("checkPureJdkList") {
     group = "verification"
-    description = "纯 JDK 类清单与磁盘一致性（原 check.sh 第 0 步）"
-    val declared = pureJdkClasses.sorted()
-    val dir = pureJdkClassesDir
+    description = "纯 JDK 类清单与磁盘一致性（原 check.sh 第 0 步，main + debug 两个目录）"
+    val declared = (pureJdkClasses + pureJdkDebugClasses).sorted()
+    val mainDir = pureJdkClassesDir
+    val debugDir = pureJdkDebugClassesDir
     doLast {
         // 与 `grep -L '^import android'` 等价：只看行首的 import android
         val androidImport = Regex("^import android", RegexOption.MULTILINE)
-        val actual = dir.listFiles { f -> f.isFile && f.name.endsWith(".java") }!!
-            .filterNot { androidImport.containsMatchIn(it.readText()) }
-            .map { it.name }
-            .sorted()
+        fun scan(dir: File): List<String> =
+            (dir.listFiles { f -> f.isFile && f.name.endsWith(".java") } ?: emptyArray())
+                .filterNot { androidImport.containsMatchIn(it.readText()) }
+                .map { it.name }
+
+        val actual = (scan(mainDir) + scan(debugDir)).sorted()
         if (actual != declared) {
             throw GradleException(
                 "PURE 清单与磁盘上「不 import android 的文件」不一致。\n" +
                     "磁盘上纯 JDK 文件：$actual\n" +
                     "清单声明：$declared\n" +
-                    "新增纯逻辑类必须加进 build.gradle.kts 的 pureJdkClasses，否则它不受「不许 import android」保护。"
+                    "新增纯逻辑类必须加进 build.gradle.kts 的 pureJdkClasses / pureJdkDebugClasses，" +
+                    "否则它不受「不许 import android」保护。"
             )
         }
         println("  ${declared.size} 个纯 JDK 文件，与清单一致")
@@ -125,8 +167,9 @@ tasks.register("checkPureJdkList") {
 
 val compilePureJdkJava = tasks.register<JavaCompile>("compilePureJdkJava") {
     group = "build"
-    description = "编译纯 JDK 类：classpath 故意为空，import android.* 会直接失败"
-    source(pureJdkClasses.map { File(pureJdkClassesDir, it) })
+    description = "编译纯 JDK 类（含 debug 的 DemoTree）：classpath 故意为空，import android.* 会直接失败"
+    source(pureJdkClasses.map { File(pureJdkClassesDir, it) } +
+        pureJdkDebugClasses.map { File(pureJdkDebugClassesDir, it) })
     classpath = files()
     destinationDirectory.set(pureJdkOutput)
     options.encoding = "UTF-8"
@@ -181,7 +224,7 @@ val verifyApk = tasks.register<Exec>("verifyApk") {
 
 tasks.register<JavaExec>("selfTest") {
     group = "verification"
-    description = "JVM 纯逻辑自检（80 项，不需要真机）"
+    description = "JVM 纯逻辑自检（170 项，不需要真机）"
     dependsOn("checkPureJdkList", compilePureJdkJava, compileSelfTestJava)
     // 中文断言名在 Windows 控制台按 cp936 输出会乱码，强制 UTF-8（原 check.sh 同样设置）
     jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")

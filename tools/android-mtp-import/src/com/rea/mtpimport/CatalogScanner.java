@@ -23,7 +23,11 @@ public final class CatalogScanner {
     private CatalogScanner() {
     }
 
-    public static Catalog scan(MtpDevice mtp, int[] storageIds, Log log, ScanProgress progress) {
+    /**
+     * 枚举全部对象。`run` 为取消令牌：每个 handle 前判一次，取消即提前结束
+     * （结果会被调用点丢弃，这里只是不让 1526 个 handle 空转一遍——第五轮评审 B-1）。
+     */
+    public static Catalog scan(MtpDevice mtp, int[] storageIds, Log log, ScanRun run, ScanProgress progress) {
         Catalog catalog = new Catalog();
         int scanned = 0;
         int total = 0;
@@ -31,6 +35,10 @@ public final class CatalogScanner {
         // 先数一遍总量，进度条才有分母（句柄数组已在本地，不额外碰相机）
         int[][] perStorage = new int[storageIds.length][];
         for (int i = 0; i < storageIds.length; i++) {
+            if (run != null && run.isCancelled()) {
+                log.line("扫描已取消：停止枚举存储");
+                return catalog.build();
+            }
             int[] hs = mtp.getObjectHandles(storageIds[i], 0, 0);
             perStorage[i] = hs == null ? new int[0] : hs;
             total += perStorage[i].length;
@@ -39,6 +47,10 @@ public final class CatalogScanner {
 
         for (int i = 0; i < storageIds.length; i++) {
             for (int handle : perStorage[i]) {
+                if (run != null && run.isCancelled()) {
+                    log.line("扫描已取消：已枚举 " + scanned + "/" + total + " 个对象，提前结束");
+                    return catalog.build();
+                }
                 MtpObjectInfo oi = mtp.getObjectInfo(handle);
                 scanned++;
                 if (progress != null && (scanned % 50 == 0 || scanned == total)) {

@@ -3,8 +3,8 @@
 把 `tools/android-mtp-probe/`（一次性验证工具）里已经跑通的 MTP 结论，
 沉淀成一个**能日常用**的导片工具的骨架。
 
-> **本轮只搭框架，不实现真正的传输。** 点「开始导入」会明确停在
-> `NOT_IMPLEMENTED`，进度条不会动。这是计划行为，不是 bug —— 原因见
+> **本轮只搭框架，不实现真正的传输。** 点 `Import all N` / `Import N` 会落到
+> `UNAVAILABLE`（`Not available`），进度条不会动。这是计划行为，不是 bug —— 原因见
 > 「为什么不做真续传」一节。
 
 ## 它现在能做什么
@@ -14,7 +14,10 @@
 | 找 Sony 机身、申请/自动获取 USB 权限 | ✅ 实现（从探针抽出，坑原样保留） |
 | 建 MTP 会话、带唤醒重试拿存储 | ✅ 实现（8 次 / 3 秒，同探针） |
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
-| 目录树打勾、勾目录连带子孙、全选/清空 | ✅ 实现 |
+| 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
+| 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
+| 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
+| 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（句柄 → 已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
@@ -24,7 +27,7 @@
 ## 类职责
 
 ```
-Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进度条 → 开始/暂停
+Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图 → 传输 → 进度/暂停/取消
 ├─ MtpSession        USB 连接 + MtpDevice 生命周期 + 唤醒重试          [android]
 ├─ CatalogScanner    枚举 MTP 对象 → Catalog（只读）                    [android]
 ├─ Catalog           只读目录树（Entry + childrenOf/descendantsOf）     [纯 JDK]
@@ -37,11 +40,24 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
-└─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
+├─ ScanRun           一轮扫描的取消令牌：取消后迟到回调不得改界面           [纯 JDK]
+├─ StorageRetry      getStorageIds 带唤醒重试：每轮判取消，最多多睡 1 个 3 秒 [纯 JDK]
+├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
+├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
+├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
+├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
+├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
+├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
+├─ ui/               Compose 三屏 + 两个抽屉 + 图标 + 主题 + AppModel       [android]
+└─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）  [debug 变体]
 ```
 
-标 `[纯 JDK]` 的**十一个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
-`test/SelfTest.java`。
+**Compose 只做 UI 层与状态映射**：`AttachGate` / `Catalog` / `Journal` /
+`TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
+序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
+
+标 `[纯 JDK]` 的**十八个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+`test/SelfTest.java`（其中 `DemoTree.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
 （classpath 故意为空），所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
@@ -73,7 +89,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；80 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；170 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -114,6 +130,23 @@ adb logcat -s MTPIMPORT:*
 adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
 ```
 
+## 假数据模式（不插相机也能走完 10 个状态）
+
+只在 **debug** APK 里有（`src/debug` 源集，release 编不进去，U-54）。状态名见 `UiState.State`，
+也认任务书短名 `PERMISSION` / `READY` / `EMPTY`：
+
+```bash
+adb shell am start -n com.rea.mtpimport/.Main --es demo_state IMPORTING
+```
+
+假树与真机同口径：1526 对象 / 503 文件夹 / 511 ARW / 512 JPEG / 12.75 GB（ARW 11.89 GB）；
+`IMPORTING` / `PAUSED` 冻结在 `12/36`（33%），`DONE` 是 `36 · 858 MB`。
+P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、不得进主视觉；本轮没有调用点
+（`UiText.rate` / `UiText.eta` 只被自检覆盖，界面与 `Main` 都不调），所以主视觉与抽屉里都不出现。
+可达范围：`am start --es demo_state <状态>` 能直达全部 10 态；应用内从照片墙的 `Details` 抽屉
+可以切到任一态，但 `COLD` / `EMPTY_CATALOG` 切过去后假树被清掉、没有回照片墙的路，
+`DONE` 下返回键直接退出——这三种只能重新 `am start`，不要当成「抽屉里随便来回切」。
+
 ## 沿用探针的三条实测结论
 
 1. **format 过滤不可信**：`getObjectHandles(sid, 0xB101, 0)` 返回 754 个而全量只有
@@ -130,16 +163,35 @@ adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
 - [x] 插线后 App 自动拉起、自动拿到 USB 权限（不弹窗）；**首次**要在系统弹窗里勾一次「一律打开」，
       应用侧没有正规接口能绕过这一步（#17）。实测 2026-11-05 18:48：插回后 `permissions_manager`
       只有既有 `uids=10269`，日志无 `尚无 USB 权限，发起申请`
-- [x] 插线或冷启动时自动开始扫描，不需要点「重新检测」；同一次插拔重复投递两次也不得开两个会话（#17）。
+- [x] 插线或冷启动时自动开始扫描，不需要手动点 `Connect camera`；同一次插拔重复投递两次也不得开两个会话（#17）。
       实测 2026-11-05 18:48：广播路径 `→ 开始扫描`，attach intent 路径 `→ 扫描已在进行中，忽略本次重复事件`，
       单次会话扫出 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`
-- [ ] 扫描完成，文件夹/文件数与卡内一致（探针对照值：1526 对象 / 503 文件夹 / 511 ARW）
-- [ ] 目录树层级正确（`DCIM/100MSDCF/...`），勾一个目录后「已勾选」计数与总量合理
-- [ ] 未显示全部行时的提示文案正确（超过 `MAX_ROWS = 800` 行）
-- [ ] 点「开始导入」→ 停在 `NOT_IMPLEMENTED`，日志说明原因，进度条停在 0
+- [ ] 扫描完成，照片墙的日期组 / 照片数与卡内一致（探针对照值：1526 对象 / 503 文件夹 / 511 ARW）；
+      顶栏徽标 = 511，`Import all 511` 与徽标同分母（U-53）
+- [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
+      （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
+- [ ] 点 `Import all N` → 停在 `UNAVAILABLE`（`Not available`），日志说明 `NotImplemented`，
+      不伪装成传输中（§0.11 第 6 行）
 - [ ] 拔线重插后能重新扫描（会话重建）
-- [ ] 连续两次「重新检测」并在两次系统弹窗都点**拒绝**：第二次必须等回调和提示
-      `USB 权限未授予 · 点「重新检测」重新申请`，**不得**出现 `openDevice() 返回 null`
+- [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
+      `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
+- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
+      （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
+- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`onDestroy`（`Main.java:312`）仍在 UI 线程
+      `session.close()` 且不 `cancel` `scanRun`，可能与扫描线程正在跑的 `getStorageIds` /
+      `getObjectInfo` 相撞（`main` 既有行为，本轮不改）——**未验**
+- [ ] `awaitPermission`（`Main.java:506-507`）「判取消」与 `requestPermission` 非原子，
+      取消后仍可能弹一次系统权限框——**未验**
+- [ ] 连续两次申请 USB 权限并在两次系统弹窗都点**拒绝**：第二次必须等回调/超时后落到 `ERROR`
+      并提示 `未获得 USB 权限`，**不得**出现 `openDevice() 返回 null`
       （#11：2026-11-05 用同源、不同包名的副本验过；原包要验得先让系统清掉它的 USB 授权，
       目前只在拔插后才会清，故留给下次真机）
+- [ ] `P-09` 导入前空间预检：**未验**（本轮 `ImportService` 仍是 `NotImplemented`，该分支不可达）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
+
+> 已删除的旧条目（「目录树层级 + 已勾选计数」「`MAX_ROWS = 800` 未显示提示」「点『开始导入』」）
+> 属于本轮前的目录树界面，已被照片墙取代，不再适用。
+
+## 待建清单（本轮不做，后续 issue 排期）
+
+- `DONE` 的 `Open` 只记日志（`Main.onOpen`，`Main.java:158-164`），不跳系统相册；需另接 `ACTION_VIEW` / 相册 intent。
