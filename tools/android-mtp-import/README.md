@@ -126,5 +126,7 @@ adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
 - [ ] 点「开始导入」→ 停在 `NOT_IMPLEMENTED`，日志说明原因，进度条停在 0
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] 连续两次「重新检测」并在两次系统弹窗都点**拒绝**：第二次必须等回调和提示
-      `USB 权限未授予 · 点「重新检测」重新申请`，**不得**出现 `openDevice() 返回 null`（#11，待设备释放后验）
+      `USB 权限未授予 · 点「重新检测」重新申请`，**不得**出现 `openDevice() 返回 null`
+      （#11：2026-11-05 用同源、不同包名的副本验过；原包要验得先让系统清掉它的 USB 授权，
+      目前只在拔插后才会清，故留给下次真机）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
