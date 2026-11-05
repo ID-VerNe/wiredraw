@@ -202,7 +202,7 @@ public final class Main extends Activity {
 
         progressView = new TextView(this);
         progressView.setTextSize(11);
-        // 初值取 UI-SPEC §4.5 `T-COLD` 的正文（按 C-01 计 31 字符 / 7 词，均在 ≤40 字符、≤10 词以内）；
+        // 初值取 UI-SPEC §4.5 `T-COLD` 的正文（按 C-01 计 33 字符 / 7 词，均在 ≤40 字符、≤10 词以内）；
         // 旧初值是无对象的解释句，被 C-02、C-19 与 §1.2 `COLD` 行明列为禁用话术（#31 → #34）。
         progressView.setText("Plug in · auto-detect · Rescan after 10 s");
         root.addView(progressView);
