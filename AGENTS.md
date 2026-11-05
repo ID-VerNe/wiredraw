@@ -200,6 +200,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移 |
 | `tools/android-mtp-probe/README.md` | MTP 探针的用法、实测结果与三个坑 |
 | `tools/android-mtp-import/README.md` | 导片工具骨架：类职责、实现状态表、为什么不做真续传、真机待验清单 |
+| `tools/android-mtp-import/UI-SPEC.md` | 导片工具界面规范（约束式）：两条主任务与任务流验收、状态机、布局安全区、视觉/文案基线、U-01–U-30 + T-01～T-06 |
 | `tools/sony-ptpip/README.md` | PTP/IP 抓包与探针的操作手册 |
 | `tools/sony-ptpip/FINDINGS-a7c-ptpip-session.md` | 抓包会话逐条分析 + 直连探针实测 |
 | `tools/pe/FINDINGS-Lja_PTP_IP.md` | `Lja_PTP_IP.dll` 静态分析结论 |
