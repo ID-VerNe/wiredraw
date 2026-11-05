@@ -29,8 +29,8 @@ import java.util.concurrent.TimeUnit;
  * 导片工具界面（骨架）。
  *
  * 三块：顶部日志 / 中间目录树（勾选）/ 底部进度与操作。
- * 传输那一环当前是 {@link ResumableTransfer.NotImplemented}，所以点「开始导入」会
- * 明确停在「未实现」，进度条不会动——这是本轮的计划行为，README 里也写了。
+ * 传输那一环当前是 {@link ResumableTransfer.NotImplemented}，所以点 `Import` 会
+ * 明确停在 `No import`，进度条不会动——这是本轮的计划行为，README 里也写了。
  */
 public final class Main extends Activity {
 
@@ -49,7 +49,7 @@ public final class Main extends Activity {
      * `COLD` 的单行状态文案。§4.5 的 `T-COLD` 是「标题 + 正文」两段式，
      * 首屏还没重做（§0.11 第 7 行），这里先给一句不撒谎的摘要。
      */
-    private static final String COPY_COLD = "未检测到相机 · 插上数据线会自动检测";
+    private static final String COPY_COLD = "No camera · auto-detect on plug-in";
 
     private final StringBuilder logBuf = new StringBuilder();
     private TextView logView;
@@ -161,11 +161,11 @@ public final class Main extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         scanBtn = new Button(this);
-        // 插线已能自动检测（#17），手动入口按 §4.5 恢复为「重新检测」，不再是「连接并扫描」。
-        scanBtn.setText("重新检测");
-        scanBtn.setOnClickListener(v -> handleAttach("点「重新检测」"));
+        // 插线已能自动检测（#17），手动入口按 §4.5 恢复为 `Rescan`，不再是「连接并扫描」。
+        scanBtn.setText("Rescan");
+        scanBtn.setOnClickListener(v -> handleAttach("点 Rescan"));
         Button allBtn = new Button(this);
-        allBtn.setText("全选");
+        allBtn.setText("Select all");
         allBtn.setOnClickListener(v -> {
             if (selection != null) {
                 selection.selectAll();
@@ -174,7 +174,7 @@ public final class Main extends Activity {
             }
         });
         Button noneBtn = new Button(this);
-        noneBtn.setText("清空");
+        noneBtn.setText("Clear");
         noneBtn.setOnClickListener(v -> {
             if (selection != null) {
                 selection.clear();
@@ -202,9 +202,9 @@ public final class Main extends Activity {
 
         progressView = new TextView(this);
         progressView.setTextSize(11);
-        // 初值取 UI-SPEC §4.5 `T-COLD` 的正文（按 C-01 计 25 字，≤40 上限）；
-        // 旧初值缺主语，被 C-02 与 §1.2 `COLD` 行明列为禁用话术（#31）。
-        progressView.setText("插上数据线会自动检测；10 秒没反应再点「重新检测」");
+        // 初值取 UI-SPEC §4.5 `T-COLD` 的正文（按 C-01 计 31 字符 / 7 词，均在 ≤40 字符、≤10 词以内）；
+        // 旧初值是无对象的解释句，被 C-02、C-19 与 §1.2 `COLD` 行明列为禁用话术（#31 → #34）。
+        progressView.setText("Plug in · auto-detect · Rescan after 10 s");
         root.addView(progressView);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -215,18 +215,18 @@ public final class Main extends Activity {
         LinearLayout ops = new LinearLayout(this);
         ops.setOrientation(LinearLayout.HORIZONTAL);
         startBtn = new Button(this);
-        startBtn.setText("开始导入");
+        startBtn.setText("Import");
         startBtn.setOnClickListener(v -> doStart());
         pauseBtn = new Button(this);
-        pauseBtn.setText("暂停");
+        pauseBtn.setText("Pause");
         pauseBtn.setOnClickListener(v -> {
             if (service == null || !service.isRunning()) return;
-            if ("暂停".contentEquals(pauseBtn.getText())) {
+            if ("Pause".contentEquals(pauseBtn.getText())) {
                 service.pause();
-                pauseBtn.setText("继续");
+                pauseBtn.setText("Resume");
             } else {
                 service.resume();
-                pauseBtn.setText("暂停");
+                pauseBtn.setText("Pause");
             }
         });
         ops.addView(startBtn);
@@ -257,17 +257,10 @@ public final class Main extends Activity {
             return;
         }
         int files = selection == null ? 0 : selection.fileHandles().size();
-        long bytes = 0;
-        if (selection != null) {
-            for (int h : selection.fileHandles()) {
-                Catalog.Entry e = catalog.get(h);
-                if (e != null) bytes += e.size;
-            }
-        }
         summaryView.setText(String.format(Locale.US,
-                "卡内 %d 个文件夹 / %d 个文件（%.2f GB）· 已勾选 %d 个（%.2f GB）",
-                catalog.folderCount(), catalog.fileCount(),
-                catalog.fileBytes() / 1073741824.0, files, bytes / 1073741824.0));
+                "%d files · %d folders · %.2f GB · %d selected",
+                catalog.fileCount(), catalog.folderCount(),
+                catalog.fileBytes() / 1073741824.0, files));
     }
 
     /** 把目录树摊平成一行行 CheckBox；只渲染前 MAX_ROWS 行，避免上千个 View 卡死界面。 */
@@ -282,7 +275,7 @@ public final class Main extends Activity {
         int remaining = flat.remaining();
         if (remaining > 0) {
             TextView more = new TextView(this);
-            more.setText("…… 还有 " + remaining + " 项未显示（可先勾上层目录）");
+            more.setText("… " + remaining + " not shown · Select a folder");
             more.setTextSize(10);
             rowBox.addView(more);
         }
@@ -349,7 +342,7 @@ public final class Main extends Activity {
         switch (admit) {
             case GO:
                 log.line(trigger + " → 开始扫描");
-                summaryView.setText("正在扫描…");
+                summaryView.setText("Scanning…");
                 scanBtn.setEnabled(false);
                 new Thread(() -> scanWorker(dev), "scan-worker").start();
                 break;
@@ -371,7 +364,7 @@ public final class Main extends Activity {
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
             if (!um.hasPermission(dev) && !awaitPermission(um, dev)) {
                 log.line("USB 权限未授予，退出");
-                runOnUiThread(() -> summaryView.setText("USB 权限未授予 · 点「重新检测」重新申请"));
+                runOnUiThread(() -> summaryView.setText("USB access denied · Retry"));
                 return;
             }
             if (session != null) session.close();
@@ -381,14 +374,14 @@ public final class Main extends Activity {
             int[] sids = session.storageIds(log);
             if (sids.length == 0) {
                 log.line("拿不到存储：请拔插 USB 线后重试（相机会话结束后约 1 分钟会挂起 USB）");
-                runOnUiThread(() -> summaryView.setText("未拿到存储 · 拔插数据线后点「重新检测」"));
+                runOnUiThread(() -> summaryView.setText("No storage · Replug the cable · Rescan"));
                 return;
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
             Catalog scanned = CatalogScanner.scan(session.device(), sids, log,
                     (done, total) -> runOnUiThread(() ->
-                            summaryView.setText("扫描中 " + done + "/" + total)));
+                            summaryView.setText("Scanning " + done + "/" + total)));
             catalog = scanned;
             selection = new Selection(catalog);
             runOnUiThread(() -> {
@@ -405,7 +398,7 @@ public final class Main extends Activity {
 
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {
         log.line("尚无 USB 权限，发起申请");
-        runOnUiThread(() -> summaryView.setText("等待 USB 授权 · 请在系统弹窗点「允许」"));
+        runOnUiThread(() -> summaryView.setText("Allow USB · Tap Allow in the dialog"));
         int seq = permGate.begin();
         // requestCode 必须用 seq（#11 复评）：PendingIntent 记录按 requestCode 区分，
         // 固定用 0 + FLAG_UPDATE_CURRENT 时所有申请共用一条记录，后一次 begin() 会把
@@ -440,7 +433,7 @@ public final class Main extends Activity {
         if (!out.exists() && !out.mkdirs()) log.line("建目标目录失败：" + out);
 
         progressBar.setProgress(0);
-        progressView.setText("准备中…");
+        progressView.setText("Preparing…");
         service.start(plan, new ImportListener() {
             @Override
             public void onPlanReady(ImportPlan p) {
@@ -453,7 +446,7 @@ public final class Main extends Activity {
                 long now = System.nanoTime();
                 runOnUiThread(() -> {
                     progressBar.setProgress((int) Math.round(progress.fraction() * 1000));
-                    progressView.setText(progress.summary(now) + " · 当前 " + current.relPath);
+                    progressView.setText(progress.summary(now) + " · " + current.relPath);
                 });
             }
 
@@ -467,7 +460,7 @@ public final class Main extends Activity {
             public void onFinished(boolean cancelled, String summary) {
                 runOnUiThread(() -> {
                     progressView.setText(summary);
-                    pauseBtn.setText("暂停");
+                    pauseBtn.setText("Pause");
                     if (lastProgress != null) {
                         progressBar.setProgress((int) Math.round(lastProgress.fraction() * 1000));
                     }
