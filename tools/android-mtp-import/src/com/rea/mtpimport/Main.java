@@ -202,7 +202,9 @@ public final class Main extends Activity {
 
         progressView = new TextView(this);
         progressView.setTextSize(11);
-        progressView.setText("等待开始");
+        // 初值取 UI-SPEC §4.5 `T-COLD` 的正文（按 C-01 计 25 字，≤40 上限）；
+        // 旧初值缺主语，被 C-02 与 §1.2 `COLD` 行明列为禁用话术（#31）。
+        progressView.setText("插上数据线会自动检测；10 秒没反应再点「重新检测」");
         root.addView(progressView);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
