@@ -23,7 +23,6 @@ import android.widget.TextView;
 
 import java.io.File;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -37,6 +36,13 @@ public final class Main extends Activity {
 
     private static final String TAG = "MTPIMPORT";
     private static final String ACTION_PERM = "com.rea.mtpimport.USB_PERM";
+
+    /**
+     * 本次权限申请的序号（#11）。系统回调是广播，上一次申请迟到的回调
+     * 可能落在新一次申请等待期间；只有序号匹配的回调才算数。
+     */
+    private static final String EXTRA_PERM_SEQ = "com.rea.mtpimport.PERM_SEQ";
+
     private static final int MAX_ROWS = 800;
 
     /**
@@ -55,9 +61,8 @@ public final class Main extends Activity {
     private Button startBtn;
     private Button pauseBtn;
 
-    private final CountDownLatch permLatch = new CountDownLatch(1);
-    private volatile boolean permGranted;
-    private volatile boolean permAnswered;
+    /** USB 权限申请的等待门（#11）：每次申请重建 latch、只认本次序号的回调。 */
+    private final PermGate permGate = new PermGate();
 
     /** 插线事件的准入判定（#17）：同一次插拔可能从 intent 与广播投递两次，重复事件不得开第二个会话。 */
     private final AttachGate attachGate = new AttachGate();
@@ -75,10 +80,11 @@ public final class Main extends Activity {
         public void onReceive(Context c, Intent i) {
             String a = i.getAction();
             if (ACTION_PERM.equals(a)) {
-                permGranted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                permAnswered = true;
-                log.line("USB 权限回调：granted=" + permGranted);
-                permLatch.countDown();
+                boolean granted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
+                int seq = i.getIntExtra(EXTRA_PERM_SEQ, 0);
+                // 序号对不上或已经回答过的回调属于上一次申请，不得释放本次等待（#11）
+                boolean accepted = permGate.onResult(seq, granted);
+                log.line("USB 权限回调：granted=" + granted + (accepted ? "" : " · 旧请求，已忽略"));
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
                 // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
                 handleAttach("收到 USB_DEVICE_ATTACHED 广播");
@@ -124,6 +130,8 @@ public final class Main extends Activity {
         }
         if (service != null) service.cancel();
         if (session != null) session.close();
+        // 销毁后不会再收到回调（receiver 已注销），提前释放还在等权限的扫描线程，别让它空等 120 秒
+        permGate.cancel();
         super.onDestroy();
     }
 
@@ -396,12 +404,21 @@ public final class Main extends Activity {
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {
         log.line("尚无 USB 权限，发起申请");
         runOnUiThread(() -> summaryView.setText("等待 USB 授权 · 请在系统弹窗点「允许」"));
-        Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName());
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
-        um.requestPermission(dev, PendingIntent.getBroadcast(this, 0, pi, flags));
-        permLatch.await(120, TimeUnit.SECONDS);
-        return permAnswered && permGranted;
+        int seq = permGate.begin();
+        // requestCode 必须用 seq（#11 复评）：PendingIntent 记录按 requestCode 区分，
+        // 固定用 0 + FLAG_UPDATE_CURRENT 时所有申请共用一条记录，后一次 begin() 会把
+        // extras 里的 seq 覆写成新值——上一轮迟到的回调于是带着「当前」seq 到达，
+        // 序号判定被绕过，又回到「迟到回调被当成当前回调」。每条申请一条独立记录后，
+        // 迟到回调只会携带它自己那一轮的 seq，被 PermGate.onResult 丢弃。
+        Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName()).putExtra(EXTRA_PERM_SEQ, seq);
+        // 必须 MUTABLE，别改成 IMMUTABLE（#11 复评，防复发）：系统是拿 fillIn 把
+        // EXTRA_PERMISSION_GRANTED 塞进这条广播的，PendingIntentRecord.sendInner 在
+        // immutable 时会跳过 fillIn —— 那样即使用户点「允许」，回调读到的也恒为 false，
+        // 授权永远失败。记录已按 seq 唯一，不需要 FLAG_UPDATE_CURRENT；
+        // 也不要把 MUTABLE 与 IMMUTABLE 同时给，会抛 IllegalArgumentException。
+        um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_MUTABLE));
+        permGate.await(120, TimeUnit.SECONDS);
+        return permGate.granted();
     }
 
     private void doStart() {
