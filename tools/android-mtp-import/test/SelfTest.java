@@ -41,6 +41,7 @@ public final class SelfTest {
         uiTextCases();
         photoWallCases();
         demoTreesCases();
+        demoTransferCases();
 
         System.out.println();
         if (failed == 0) {
@@ -816,6 +817,48 @@ public final class SelfTest {
         // 「回照片墙、选择还在」（§1.3）在唯一可用载体上不成立（PR #41 第三轮评审 P2）。
         check("ERROR 载荷带假树（返回能回照片墙）", error.catalog != null,
                 "catalog=" + error.catalog);
+
+        // issue #46：demo 照片预览必须按 handle 轮转映射，没有素材时给出 -1
+        check("demo 预览按 handle 轮转映射",
+                DemoTree.previewIndex(600, 5) == 0
+                        && DemoTree.previewIndex(601, 5) == 1
+                        && DemoTree.previewIndex(605, 5) == 0,
+                "实际 " + DemoTree.previewIndex(600, 5) + "/" + DemoTree.previewIndex(601, 5)
+                        + "/" + DemoTree.previewIndex(605, 5));
+        check("无素材时预览下标为 -1", DemoTree.previewIndex(600, 0) == -1,
+                "实际 " + DemoTree.previewIndex(600, 0));
+    }
+
+    // ---------------- demo 传输模拟（issue #46） ----------------
+
+    static void demoTransferCases() {
+        long batchBytes = DemoTree.arwSize() * DemoTree.BATCH_PHOTOS;
+        DemoTransfer transfer = new DemoTransfer(DemoTree.BATCH_PHOTOS, batchBytes);
+
+        check("demo 传输从 0 开始", transfer.doneFiles() == 0 && transfer.doneBytes() == 0,
+                "实际 " + transfer.doneFiles() + "/" + transfer.doneBytes());
+        check("demo 传输第一次推进 1 张且字节 > 0",
+                !transfer.advance() && transfer.doneFiles() == 1
+                        && transfer.doneBytes() > 0 && transfer.doneBytes() < batchBytes,
+                "实际 " + transfer.doneFiles() + "/" + transfer.doneBytes());
+
+        long previous = transfer.doneBytes();
+        int ticks = 1;
+        boolean finished = false;
+        while (!finished && ticks < 100) {
+            finished = transfer.advance();
+            ticks++;
+            if (transfer.doneBytes() <= previous) break;
+            previous = transfer.doneBytes();
+        }
+        check("demo 传输逐 tick 推进到 36 张", transfer.doneFiles() == DemoTree.BATCH_PHOTOS && finished,
+                "实际 " + transfer.doneFiles() + " 张，finished=" + finished);
+        check("demo 传输完成时字节等于总字节", transfer.doneBytes() == batchBytes,
+                "实际 " + transfer.doneBytes() + " / " + batchBytes);
+        check("demo 传输到顶后再推进不变",
+                transfer.advance() && transfer.doneFiles() == DemoTree.BATCH_PHOTOS
+                        && transfer.doneBytes() == batchBytes,
+                "实际 " + transfer.doneFiles() + "/" + transfer.doneBytes());
     }
 
     // ---------------- 样本与工具 ----------------

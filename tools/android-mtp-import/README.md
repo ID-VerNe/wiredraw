@@ -48,16 +48,18 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
 ├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
 ├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
+├─ PhotoPreview      照片详情页的预览来源（真实路径恒为 null）              [android]
 ├─ ui/               Compose 三屏 + 两个抽屉 + 图标 + 主题 + AppModel       [android]
-└─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）  [debug 变体]
+└─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）
+                     + DemoImages（真实照片占位）+ DemoTransfer（进度模拟）  [debug 变体]
 ```
 
 **Compose 只做 UI 层与状态映射**：`AttachGate` / `Catalog` / `Journal` /
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**十八个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
-`test/SelfTest.java`（其中 `DemoTree.java` 在 `src/debug`，用单独的清单核对）。
+标 `[纯 JDK]` 的**二十一个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+`test/SelfTest.java`（其中 `DemoTree.java` / `DemoTransfer.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
 （classpath 故意为空），所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
@@ -89,7 +91,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；170 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；177 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -146,6 +148,18 @@ P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、�
 可达范围：`am start --es demo_state <状态>` 能直达全部 10 态；应用内从照片墙的 `Details` 抽屉
 可以切到任一态，但 `COLD` / `EMPTY_CATALOG` 切过去后假树被清掉、没有回照片墙的路，
 `DONE` 下返回键直接退出——这三种只能重新 `am start`，不要当成「抽屉里随便来回切」。
+另：`CATALOG_READY` 点 `Import all` 现在会真实进入 `IMPORTING` 并每 250 ms 推进一张，
+约 9 秒落到 `DONE`；`Pause` / `Resume` / `Cancel` 都能点按到达（issue #46）。
+`--es demo_state IMPORTING/PAUSED` 仍是冻结的 `12/36`，那是冷启动直达，不是模拟进度。
+
+### demo 照片占位（issue #46）
+
+`photo` 页在 demo 模式下渲染真实照片：素材由 `generateDemoPhotos` 在 debug 构建时从
+`local.properties` 的 `demo.photo.dir` / `demo.photo.files`（也可用 `-Pdemo.photo.dir` 覆盖）
+读取，按最长边 ≤1440、JPEG 质量 80 降采样到 `src/debug/assets/demo/photo_XX.jpg`，
+EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；目录缺失 / 未配置时任务打印
+`skip` 并继续，APK 里没有素材，`photo` 页退回 `ARW · <size>` 胶囊。ARW 不进 APK，
+假树仍保留 ARW 条目与真实大小。真实 MTP 路径不走这条链路，仍按 U-51 只显示胶囊。
 
 ## 沿用探针的三条实测结论
 

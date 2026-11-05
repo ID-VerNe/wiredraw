@@ -144,6 +144,15 @@ public final class DemoTree {
         }
     }
 
+    /**
+     * demo 预览图下标（issue #46）：同一 handle 恒映射到同一张降采样图。
+     * `count <= 0`（没有素材）时返回 -1，调用方退回无图胶囊。
+     */
+    public static int previewIndex(int handle, int count) {
+        if (count <= 0) return -1;
+        return Math.floorMod(handle, count);
+    }
+
     /** 测试用：把日期目录名列表原样给出（不参与界面）。 */
     static List<String> dateNames() {
         return Arrays.asList(DATES);

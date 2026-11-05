@@ -45,6 +45,11 @@ public final class DemoEntry implements DemoBridge {
         return payloadOf(state);
     }
 
+    @Override
+    public DemoRun newRun(int totalFiles, long totalBytes) {
+        return new DemoTransfer(totalFiles, totalBytes);
+    }
+
     private static DemoPayload payloadOf(String name) {
         UiState.State state = UiState.parse(name);
         return state == null ? null : DemoTree.payload(state);
