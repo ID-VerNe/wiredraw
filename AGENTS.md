@@ -91,8 +91,8 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 产品名 | 索尼 a7C 经 USB 有线传 RAW 到安卓（先打通 MTP 导片，后续加 PTP 遥控） |
 | 仓库 | `ID-VerNe/wiredraw`（private） |
 | 目录名 | `sony-camera-remote-repos`（**与仓库名不一致，别被目录名误导**） |
-| 技术栈 | Python 3（工具脚本，**只用标准库**）+ Java / Android（探针 APK，手搓构建） |
-| 包管理器 | 无。不引入 pip / npm / gradle |
+| 技术栈 | Python 3（工具脚本，**只用标准库**）+ Java / Android（探针 APK，手搓构建）+ Kotlin / Android（导片工具，Gradle + Compose 编译器） |
+| 包管理器 | Python 侧仍零依赖；Android 导片工具用 Gradle（Kotlin + Compose），探针 APK 仍手搓 |
 | 主开发线 | `main`（不再直接提交，见 §0） |
 | 目标设备 | ILCE-7C，固件 2.00 |
 | 测试机 | 魅族 20 Infinity / Android 15 (API 35) |
@@ -141,7 +141,8 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 迭代流程细则 | `doc/ISSUE_GUIDE.md` / `doc/PR_GUIDE.md` |
 | 合并评审（派发 + 评审清单） | `doc/REVIEW_DISPATCH.md`（派发文案用 `scripts/review_prompt.py` 生成，**不要手写**） |
 | MTP 枚举与下载 | `tools/android-mtp-probe/src/com/rea/mtpprobe/Main.java` |
-| APK 构建流程 | `tools/android-mtp-probe/build.sh`（**keystore 必须在工程根目录**，见 §4） |
+| APK 构建流程（探针） | `tools/android-mtp-probe/build.sh`（**keystore 必须在工程根目录**，见 §4） |
+| APK 构建流程（导片工具） | `tools/android-mtp-import/build.gradle.kts` + `gradle/wrapper/`（工具链版本锁在 wrapper 里，别用全局 Gradle） |
 | PTP/IP 连相机 | `tools/sony-ptpip/probe.py` |
 | pcap 解析 | `tools/sony-ptpip/parse_ptpip.py` |
 | 全部实测数据与历史 | `RESEARCH-android-usb-raw-a7c.md` |
@@ -158,9 +159,10 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 - **ObjectInfo 字段偏移**：`26` = ImagePixWidth、`30` = ImagePixHeight；
   文件名长度字节在 `52`、名字从 `53` 开始（按 PTP 规范累加应是 48，索尼多塞 4 字节）。
   写成 28/32/49 会解析出空名字 —— 抓包与实时探针两处交叉验证过。
-- **`build.sh` 的 `rm -rf build` 会杀掉 keystore**（2026-11-04 踩过）：
-  签名一变，`adb install -r` 直接 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。
-  所以 `rea-debug.keystore` 放在**工程根目录**，别挪回 `build/`。
+- **keystore 必须与构建目录分离**（2026-11-04 踩过）：`rea-debug.keystore` 在
+  `tools/android-mtp-probe/` 工程根目录，**不在**任何 `build/` 下。签名一变，`adb install -r`
+  直接 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。探针的 `build.sh` 与导片工具的 Gradle
+  签名配置都指向这把 key，`rm -rf build` / `gradle clean` 都碰不到它。
 - **取手机上的文件用 `run-as`**：APK 是 `debuggable`，`adb exec-out run-as <pkg> cat files/x > x`
   比 pull 可靠（`/sdcard/Android/data` 在 Android 11+ 连 shell 都进不去）。
 - **Windows 下 `javac` 的失败退出码会被管道吞掉**：`javac ... | grep -v xxx || true` 会让

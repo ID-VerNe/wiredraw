@@ -7,15 +7,15 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * JVM 纯逻辑自检（不需要 Android SDK、不需要真机）。
+ * JVM 纯逻辑自检（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
  *
- * 覆盖 check.sh 的 `PURE` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
+ * 覆盖 build.gradle.kts 的 `pureJdkClasses` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
  * TransferProgress / Journal / AttachGate 等，清单本身是唯一事实来源）；
  * 它们不 import android.*，所以能在普通 JVM 里直接跑，这也是骨架里唯一
  * 「能拿门禁守住」的部分。真机相关的 MtpSession / CatalogScanner / ImportService
  * 不在本自检的覆盖范围（需要设备），见 README 的真机待验清单。
  *
- * 运行：bash tools/android-mtp-import/check.sh
+ * 运行：bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
  */
 public final class SelfTest {
 

@@ -26,6 +26,12 @@
 /tools/android-mtp-probe/build/
 /tools/android-mtp-import/build/
 
+# ---- Gradle（导片工具构建，issue #36）----
+# wrapper 与版本锁入库；缓存、机器相关的 SDK 路径、堆转储不入库
+/tools/android-mtp-import/.gradle/
+/tools/android-mtp-import/local.properties
+*.hprof
+
 # ---- 2026-11-04 早期工作区：里面的产出已整理进 docs/history/，剩下的是第三方源码 ----
 # （libgphoto2 的 gphoto_ptp*.c 与 sonyalphapy 轮子，只作本地参考）
 /2026-11-04/
