@@ -23,7 +23,6 @@ import android.widget.TextView;
 
 import java.io.File;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -37,6 +36,13 @@ public final class Main extends Activity {
 
     private static final String TAG = "MTPIMPORT";
     private static final String ACTION_PERM = "com.rea.mtpimport.USB_PERM";
+
+    /**
+     * 本次权限申请的序号（#11）。系统回调是广播，上一次申请迟到的回调
+     * 可能落在新一次申请等待期间；只有序号匹配的回调才算数。
+     */
+    private static final String EXTRA_PERM_SEQ = "com.rea.mtpimport.PERM_SEQ";
+
     private static final int MAX_ROWS = 800;
 
     /**
@@ -55,9 +61,8 @@ public final class Main extends Activity {
     private Button startBtn;
     private Button pauseBtn;
 
-    private final CountDownLatch permLatch = new CountDownLatch(1);
-    private volatile boolean permGranted;
-    private volatile boolean permAnswered;
+    /** USB 权限申请的等待门（#11）：每次申请重建 latch、只认本次序号的回调。 */
+    private final PermGate permGate = new PermGate();
 
     /** 插线事件的准入判定（#17）：同一次插拔可能从 intent 与广播投递两次，重复事件不得开第二个会话。 */
     private final AttachGate attachGate = new AttachGate();
@@ -75,10 +80,11 @@ public final class Main extends Activity {
         public void onReceive(Context c, Intent i) {
             String a = i.getAction();
             if (ACTION_PERM.equals(a)) {
-                permGranted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                permAnswered = true;
-                log.line("USB 权限回调：granted=" + permGranted);
-                permLatch.countDown();
+                boolean granted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
+                int seq = i.getIntExtra(EXTRA_PERM_SEQ, 0);
+                // 序号对不上或已经回答过的回调属于上一次申请，不得释放本次等待（#11）
+                boolean accepted = permGate.onResult(seq, granted);
+                log.line("USB 权限回调：granted=" + granted + (accepted ? "" : " · 旧请求，已忽略"));
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
                 // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
                 handleAttach("收到 USB_DEVICE_ATTACHED 广播");
@@ -124,6 +130,8 @@ public final class Main extends Activity {
         }
         if (service != null) service.cancel();
         if (session != null) session.close();
+        // 销毁后不会再收到回调（receiver 已注销），提前释放还在等权限的扫描线程，别让它空等 120 秒
+        permGate.cancel();
         super.onDestroy();
     }
 
@@ -396,12 +404,13 @@ public final class Main extends Activity {
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {
         log.line("尚无 USB 权限，发起申请");
         runOnUiThread(() -> summaryView.setText("等待 USB 授权 · 请在系统弹窗点「允许」"));
-        Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName());
+        int seq = permGate.begin();
+        Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName()).putExtra(EXTRA_PERM_SEQ, seq);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
         um.requestPermission(dev, PendingIntent.getBroadcast(this, 0, pi, flags));
-        permLatch.await(120, TimeUnit.SECONDS);
-        return permAnswered && permGranted;
+        permGate.await(120, TimeUnit.SECONDS);
+        return permGate.granted();
     }
 
     private void doStart() {

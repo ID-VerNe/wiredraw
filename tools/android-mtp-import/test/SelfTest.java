@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * JVM 纯逻辑自检（不需要 Android SDK、不需要真机）。
@@ -22,10 +23,11 @@ public final class SelfTest {
     static int failed = 0;
     static final StringBuilder failures = new StringBuilder();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         catalogCases();
         truncationCases();
         attachCases();
+        permissionCases();
         selectionCases();
         planCases();
         progressCases();
@@ -166,6 +168,60 @@ public final class SelfTest {
         check("attach：finish() 释放锁", !g.isScanning(), "isScanning=" + g.isScanning());
         a = g.admit(true, false);
         check("attach：finish() 后可再次准入", a == AttachGate.Admit.GO, "实际 " + a);
+    }
+
+    // ---------------- PermGate（#11 的墓碑） ----------------
+
+    /**
+     * 墓碑：#11 —— 权限等待门必须每次申请都重建，且只认本次序号的回调。
+     *
+     * 两个真实回归点：
+     * 1. 第一次授权成功后 latch 归零并保持 0：不重建的话第二次 await 立即放行、
+     *    返回的还是上一次的 granted=true，最终表现为 MtpDevice.open() 失败（#11）。
+     * 2. 上一次申请超时后用户才点弹窗，迟到的广播会把新一次申请误标成已回答 / 已授权。
+     *
+     * 等待都用毫秒级超时，不依赖真实 120 s。
+     */
+    static void permissionCases() throws InterruptedException {
+        PermGate g = new PermGate();
+
+        int s1 = g.begin();
+        check("perm：第一次申请的序号从 1 开始", s1 == 1, "实际 " + s1);
+        check("perm：begin 之后、回调之前不算已授权", !g.granted(), "granted=" + g.granted());
+        check("perm：当前序号的回调被接受", g.onResult(s1, true), "返回值 false");
+        check("perm：授权回调后 granted 为 true", g.granted(), "granted=" + g.granted());
+        check("perm：本次 answered 后 await 立即返回",
+                g.await(1, TimeUnit.SECONDS), "await=false");
+
+        int s2 = g.begin();
+        check("perm：第二次申请序号递增", s2 == s1 + 1, "实际 " + s2);
+        check("perm：第二次 begin 复位上一次的 granted，不残留 true",
+                !g.granted(), "granted=" + g.granted());
+        boolean waited = g.await(50, TimeUnit.MILLISECONDS);
+        check("perm：第二次申请没有新回调时必须超时，不得立即放行（#11 的根因）",
+                !waited, "await=" + waited);
+
+        // 第一次申请迟到的回调不得污染第二次
+        check("perm：旧序号的回调被忽略", !g.onResult(s1, true), "返回值 true");
+        check("perm：旧回调不释放本次等待", !g.await(20, TimeUnit.MILLISECONDS), "await=true");
+        check("perm：旧回调不写 granted", !g.granted(), "granted=" + g.granted());
+
+        check("perm：新序号的拒绝回调被接受", g.onResult(s2, false), "返回值 false");
+        check("perm：拒绝后 granted 为 false", !g.granted(), "granted=" + g.granted());
+        check("perm：拒绝后 await 立即返回（等的是回答，不是授权）",
+                g.await(1, TimeUnit.SECONDS), "await=false");
+        check("perm：同一序号的重复回调被忽略", !g.onResult(s2, true), "返回值 true");
+        check("perm：重复回调不改写拒绝结果", !g.granted(), "granted=" + g.granted());
+
+        g.begin();
+        boolean timedOut = g.await(20, TimeUnit.MILLISECONDS);
+        check("perm：超时的 await 返回 false 且不算已回答",
+                !timedOut && !g.granted(), "await=" + timedOut + " granted=" + g.granted());
+
+        g.cancel();
+        check("perm：cancel() 提前释放 await，但不能被当成授权",
+                g.await(1, TimeUnit.SECONDS) && !g.granted(),
+                "granted=" + g.granted());
     }
 
     // ---------------- Selection ----------------

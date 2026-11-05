@@ -31,6 +31,7 @@ PURE=(
   src/com/rea/mtpimport/ImportService.java
   src/com/rea/mtpimport/Journal.java
   src/com/rea/mtpimport/Log.java
+  src/com/rea/mtpimport/PermGate.java
   src/com/rea/mtpimport/ResumableTransfer.java
   src/com/rea/mtpimport/Selection.java
   src/com/rea/mtpimport/TransferProgress.java

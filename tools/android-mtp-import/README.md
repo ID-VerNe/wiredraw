@@ -36,10 +36,11 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 ├─ ResumableTransfer 传输契约 + NotImplemented 占位                     [纯 JDK]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
+├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
 └─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
 ```
 
-标 `[纯 JDK]` 的**十个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**十一个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`。
 
 这条边界是**编译期强制**的：`check.sh` 编译这批文件时**不给** `-classpath android.jar`，
@@ -124,4 +125,6 @@ adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
 - [ ] 未显示全部行时的提示文案正确（超过 `MAX_ROWS = 800` 行）
 - [ ] 点「开始导入」→ 停在 `NOT_IMPLEMENTED`，日志说明原因，进度条停在 0
 - [ ] 拔线重插后能重新扫描（会话重建）
+- [ ] 连续两次「重新检测」并在两次系统弹窗都点**拒绝**：第二次必须等回调和提示
+      `USB 权限未授予 · 点「重新检测」重新申请`，**不得**出现 `openDevice() 返回 null`（#11，待设备释放后验）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
