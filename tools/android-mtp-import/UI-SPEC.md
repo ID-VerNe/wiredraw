@@ -501,9 +501,10 @@ Next:    <一个可执行动作>
 - **A-03** 每个可交互控件**必须**有可读文本或 `contentDescription`；**不得**只有图标。
 - **A-04** 进度条**必须**设置动态 `contentDescription`（例：`Importing 12/1023, ~58 min left`）。
 - **A-05** 列表行**必须**朗读层级与数量，开头随行类型而定（日期分组**不是**文件夹）：
-  日期分组行读 `Date group <date>, N files, selected/Partial`；文件行读 `File <name>, <size>, selected`；
-  `Folder <name>, N files, selected/Partial` **只**用于「位置详情」里的真实 MTP 文件夹行（原始路径已降级，§0.6）。
-  三态字面量按 §0.10 固定为 `Selected` / `Partial`（大小写敏感，`U-11` 按 `contentDescription` 含 `Partial` 断言）。
+  日期分组行读 `Date group <date>, N files, Selected/Partial`；文件行读 `File <name>, <size>, Selected`；
+  `Folder <name>, N files, Selected/Partial` **只**用于「位置详情」里的真实 MTP 文件夹行（原始路径已降级，§0.6）。
+  本条朗读模板的三态字面量按 §0.10 固定为 `Selected` / `Partial`，大小写敏感（`U-11` 按 `contentDescription` 含 `Partial` 断言）；
+  `T-CATALOG` 正文的 `0 selected` 是计数短语、不属本条模板，按 `C-19` 第 3 条句首大写规则处理。
 - **A-06** **必须**支持系统字号 1.3× 与 2.0×，不裁切、不重叠、按钮可换行（U-24）。
 - **A-07** **必须**支持系统深色模式（U-25）；**不得**仅靠颜色表达已选/错误。
 - **A-08** 状态变化**必须**通过无障碍事件播报（扫描完成、导入完成、错误），**不得**只改静态文本。
