@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.rea.mtpimport"
-    android:versionCode="1"
-    android:versionName="0.1-framework">
+<!-- 包名与版本号由 Gradle 的 namespace / defaultConfig 提供（AGP 8 起不再支持 manifest 的 package 属性） -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
 

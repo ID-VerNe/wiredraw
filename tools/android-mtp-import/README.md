@@ -43,10 +43,10 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 标 `[纯 JDK]` 的**十一个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`。
 
-这条边界是**编译期强制**的：`check.sh` 编译这批文件时**不给** `-classpath android.jar`，
-所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
-`PURE=(...)` 清单还有第 0 步漂移检查兜底——拿 `grep -L '^import android'` 的实际结果
-与清单比对，漏列一个文件就判红（否则新加的纯逻辑类会悄悄脱离这条保护）。
+这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
+（classpath 故意为空），所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
+`pureJdkClasses` 清单还有第 0 步漂移检查兜底——`checkPureJdkList` 拿「磁盘上不 import android
+的文件」与清单比对，漏列一个文件就判红（否则新加的纯逻辑类会悄悄脱离这条保护）。
 
 ## 为什么不做真续传
 
@@ -63,23 +63,33 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 
 ## 构建与自检
 
-一条命令验完（JVM 自检 + APK 构建 + 签名校验）：
+构建体系：Gradle `8.9` + AGP `8.7.3` + Kotlin `2.0.21` + Compose 编译器插件 `2.0.21`
+（Compose 运行库 BOM `2024.12.01`）。工具链由 `gradle/wrapper/` 锁定，**不要**用本机全局
+安装的 Gradle。首次构建要联网下载 Gradle 依赖；本机代理链路会间歇断开，失败时原样重跑即可。
+
+一条命令验完（JVM 自检 + APK 构建）：
 
 ```bash
-bash tools/android-mtp-import/check.sh
+bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只要跑纯逻辑、不要 Android SDK：
+只跑纯逻辑自检（不需要 Android SDK，80 项断言）：
 
 ```bash
-SKIP_BUILD=1 bash tools/android-mtp-import/check.sh
+bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
 ```
 
 单独构建 APK：
 
 ```bash
-bash tools/android-mtp-import/build.sh   # 产物 build/mtp-import.apk
+bash tools/android-mtp-import/gradlew -p tools/android-mtp-import assembleDebug
+# 产物 tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
 ```
+
+环境要求：JDK 17+（本机用 Temurin 21）、Android SDK（platform 35 + build-tools 35）。
+SDK 定位顺序是 `local.properties` 的 `sdk.dir` → `ANDROID_HOME` / `ANDROID_SDK_ROOT` →
+`%LOCALAPPDATA%\Android\Sdk`；三者都没有时 `settings.gradle.kts` 会写一份被 gitignore 的
+`local.properties`，仍找不到就报错退出。
 
 签名复用 `tools/android-mtp-probe/rea-debug.keystore`（同一把 key，包名不同不冲突；
 换 key 会导致覆盖安装 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
@@ -87,7 +97,7 @@ bash tools/android-mtp-import/build.sh   # 产物 build/mtp-import.apk
 ## 安装运行
 
 ```bash
-adb install -g build/mtp-import.apk
+adb install -g tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
 adb shell am start -n com.rea.mtpimport/.Main
 adb logcat -s MTPIMPORT:*
 ```
