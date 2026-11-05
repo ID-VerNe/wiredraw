@@ -8,7 +8,8 @@ package com.rea.mtpimport;
  * 用户再点 `Connect camera` 只会拿到「扫描已在进行中，忽略本次重复事件」——假的 `COLD`。
  *
  * 所以每一轮扫描持有一个令牌：
- * - `Main.onCancel` 置位，并唤醒还在等 USB 权限的线程、关闭当前 MTP 会话；
+ * - `Main.onCancel` 置位，并唤醒还在等 USB 权限的线程；MTP 会话由 `Main.scanWorker`
+ *   的 `finally` 在扫描线程上关闭；
  * - `Main.scanWorker` 在进度、结果、错误三处落地前都判一次，取消后一律丢弃。
  *
  * 纯 JDK（不 import android.*），所以「取消后结果不得翻回照片墙」能由 JVM 自检守住。

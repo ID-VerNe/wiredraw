@@ -52,9 +52,9 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 └─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）  [debug 变体]
 ```
 
-**Compose 只做 UI 层与状态映射**：`PermGate` / `AttachGate` / `Catalog` / `Journal` /
-`TransferProgress` / `ImportService` 保持原样，`Main` 只负责把系统事件翻译成
-`AppModel` 的可观察属性。
+**Compose 只做 UI 层与状态映射**：`AttachGate` / `Catalog` / `Journal` /
+`TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
+序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
 标 `[纯 JDK]` 的**十八个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（其中 `DemoTree.java` 在 `src/debug`，用单独的清单核对）。
@@ -175,6 +175,13 @@ P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、�
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
+- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
+      （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
+- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`onDestroy`（`Main.java:312`）仍在 UI 线程
+      `session.close()` 且不 `cancel` `scanRun`，可能与扫描线程正在跑的 `getStorageIds` /
+      `getObjectInfo` 相撞（`main` 既有行为，本轮不改）——**未验**
+- [ ] `awaitPermission`（`Main.java:506-507`）「判取消」与 `requestPermission` 非原子，
+      取消后仍可能弹一次系统权限框——**未验**
 - [ ] 连续两次申请 USB 权限并在两次系统弹窗都点**拒绝**：第二次必须等回调/超时后落到 `ERROR`
       并提示 `未获得 USB 权限`，**不得**出现 `openDevice() 返回 null`
       （#11：2026-11-05 用同源、不同包名的副本验过；原包要验得先让系统清掉它的 USB 授权，
