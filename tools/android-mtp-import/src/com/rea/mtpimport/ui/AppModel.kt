@@ -21,6 +21,9 @@ interface AppCallbacks {
     fun onImport()
     fun onOpen()
     fun onBack()
+    fun onCloseTransfer()
+    fun onPauseExit()
+    fun onResumeExit()
     fun onDemoState(name: String)
 }
 
@@ -79,6 +82,20 @@ class AppModel {
 
     var detailsOpen by mutableStateOf(false)
     var filterOpen by mutableStateOf(false)
+
+    /**
+     * `IMPORTING` / `PAUSED` 下按返回键弹出的确认框（`Pause & exit` / `Resume`，§1.3）。
+     * 只有系统返回键会打开它；顶部返回只关视图，不弹框。
+     */
+    var exitConfirmOpen by mutableStateOf(false)
+        private set
+
+    /**
+     * 顶部返回只关闭传输视图（§1.3 第 2 条）：任务继续跑，所以进度回调**不得**把界面
+     * 拽回传输屏；下一次 `showImport` 或完成时复位。
+     */
+    var transferViewClosed by mutableStateOf(false)
+        private set
 
     var filterKind by mutableStateOf(FilterKind.ALL)
         private set
@@ -152,18 +169,33 @@ class AppModel {
     }
 
     fun showImport(doneFiles: Int, totalFiles: Int, doneBytes: Long, totalBytes: Long, bps: Long) {
+        transferViewClosed = false
+        exitConfirmOpen = false
         updateProgress(doneFiles, totalFiles, doneBytes, totalBytes, bps)
         state = UiState.State.IMPORTING
     }
 
-    /** 进度推进：暂停时保持 `PAUSED`，不把用户按下的暂停顶回 `IMPORTING`。 */
+    /** 进度推进：暂停时保持 `PAUSED`；传输视图已关闭时保持当前视图，不抢回传输屏。 */
     fun updateProgress(doneFiles: Int, totalFiles: Int, doneBytes: Long, totalBytes: Long, bps: Long) {
         importDoneFiles = doneFiles
         importTotalFiles = totalFiles
         importDoneBytes = doneBytes
         importTotalBytes = totalBytes
         bytesPerSecond = bps
-        if (state != UiState.State.PAUSED) state = UiState.State.IMPORTING
+        if (!transferViewClosed && state != UiState.State.PAUSED) state = UiState.State.IMPORTING
+    }
+
+    /** transfer 顶部返回：只关视图（回 `CATALOG_READY`），不取消任务（§1.3）。 */
+    fun closeTransferView() {
+        transferViewClosed = true
+        exitConfirmOpen = false
+        backToCatalog()
+    }
+
+    // 名字不能叫 `setExitConfirmOpen`：`exitConfirmOpen` 这个 property 的 setter 已经占用
+    // `setExitConfirmOpen(Z)V`，再写同名方法会平台声明冲突。
+    fun setExitConfirm(open: Boolean) {
+        exitConfirmOpen = open
     }
 
     fun showPaused() {
@@ -171,6 +203,8 @@ class AppModel {
     }
 
     fun showDone(photos: Int, bytes: Long) {
+        transferViewClosed = false
+        exitConfirmOpen = false
         donePhotos = photos
         doneBytes = bytes
         state = UiState.State.DONE
@@ -217,6 +251,8 @@ class AppModel {
     fun applyDemo(p: DemoPayload?) {
         if (p == null) return
         demoActive = true
+        transferViewClosed = false
+        exitConfirmOpen = false
         if (p.catalog != null) {
             // 先装树，再覆盖状态：showCatalog 会把状态改成 CATALOG_READY。
             val prev = state

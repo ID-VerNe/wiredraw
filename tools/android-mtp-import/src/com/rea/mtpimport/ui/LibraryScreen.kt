@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -27,10 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -61,19 +64,38 @@ fun LibraryScreen(model: AppModel) {
 @Composable
 private fun TopBar(model: AppModel) {
     Row(
-        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp),
+        // 顶栏容器的语义标签固定为 `topBar`、高度 56 dp（§2 顶栏定义 (a)，U-01 / U-02 靠它定位）。
+        // `testTagsAsResourceId(true)` 在 `ImportApp` 的根节点上，dump 里它以 resource-id 出现。
+        Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .testTag("topBar")
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         CameraGlyph(20.dp, UiColors.ink)
         Spacer(Modifier.width(8.dp))
         // 设备短名只作标识（§1.1）；长按它打开详情抽屉（L-05 的入口之一）。
-        BasicText(
-            model.deviceName,
-            style = TextLabel,
-            modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures(onLongPress = { model.detailsOpen = true })
-            }
-        )
+        // 热区挂在 ≥48×48 dp 的容器上（A-01 / U-09），外观仍是 13 sp 文本；
+        // `onLongClick` 语义让 dump 能读到 `long-clickable`，TalkBack 也有动作可走（A-03）。
+        Box(
+            Modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(onLongPress = { model.detailsOpen = true })
+                }
+                .clearAndSetSemantics {
+                    contentDescription = model.deviceName
+                    role = Role.Button
+                    onLongClick("Details") {
+                        model.detailsOpen = true
+                        true
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            BasicText(model.deviceName, style = TextLabel)
+        }
         Spacer(Modifier.weight(1f))
         Pill(model.photoCount.toString())
         Spacer(Modifier.width(4.dp))

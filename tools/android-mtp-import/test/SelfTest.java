@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * JVM 纯逻辑自检（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
@@ -28,6 +29,7 @@ public final class SelfTest {
         truncationCases();
         attachCases();
         permissionCases();
+        allowCases();
         selectionCases();
         planCases();
         progressCases();
@@ -246,6 +248,50 @@ public final class SelfTest {
                 !late.await(30, TimeUnit.MILLISECONDS), "await=true");
         check("perm：迟到回调之后，第二轮自己的回调仍然生效",
                 late.onResult(round2, true) && late.granted(), "granted=" + late.granted());
+    }
+
+    // ---------------- PermGate 重发（PR #41 首轮评审 B1） ----------------
+
+    /**
+     * 墓碑 B1：`PERMISSION_PENDING` 里点 `Allow` 必须能把权限申请重发一次，
+     * 且**新序号**的回调要能结束扫描线程正在进行的同一次等待。
+     *
+     * 现场：扫描线程阻塞在 `permGate.await`（第一轮），用户点 `Allow` → `begin()` 开第二轮。
+     * 旧实现里 `await` 只捕获调用瞬间的 latch、`begin()` 又不唤醒旧 latch，
+     * 扫描线程会一直卡在第一轮的 latch 上直到 120 s 超时——界面看起来「点了 Allow 没反应」，
+     * 这正是 U-42 必失败的原因。
+     *
+     * 等待用秒级超时，不依赖真实 120 s；join 只等 2 s，旧实现会红在最后一条断言上。
+     */
+    static void allowCases() throws InterruptedException {
+        PermGate g = new PermGate();
+        int first = g.begin();
+        final AtomicBoolean released = new AtomicBoolean(false);
+        Thread scanner = new Thread(() -> {
+            try {
+                released.set(g.await(3, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "perm-waiter");
+        scanner.start();
+        // 让扫描线程确实阻塞在 await 上，再模拟「点 Allow」
+        Thread.sleep(100);
+
+        int second = g.begin();
+        check("allow：重发生成新序号", second == first + 1, "first=" + first + " second=" + second);
+        check("allow：重发不得把未授权的等待当成已回答放行",
+                !released.get(), "released=" + released.get());
+        check("allow：重发后、Allow 的回调到达前扫描线程仍在等待",
+                scanner.isAlive(), "isAlive=" + scanner.isAlive());
+
+        boolean accepted = g.onResult(second, true);
+        scanner.join(2_000);
+        check("allow：重发后的新序号回调被接受", accepted, "accepted=" + accepted);
+        check("allow：重发后的新序号回调结束同一次等待（U-42 的根因）",
+                !scanner.isAlive() && released.get() && g.granted(),
+                "isAlive=" + scanner.isAlive() + " released=" + released.get()
+                        + " granted=" + g.granted());
     }
 
     // ---------------- Selection ----------------

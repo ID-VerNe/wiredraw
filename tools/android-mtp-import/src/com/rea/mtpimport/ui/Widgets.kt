@@ -109,7 +109,9 @@ fun IconAction(
 /**
  * 进度环：外径 180 dp、描边 3.5 dp（V-22），环内只放一个主数字。
  *
- * 语义按 A-04：`progressBarRangeInfo` + `stateDescription`（读作 `12 of 36`），
+ * 语义按 A-04：只有**传输环**（`stateText != null`，即 `IMPORTING` / `PAUSED`）带
+ * `progressBarRangeInfo` + `stateDescription`（读作 `12 of 36`）。
+ * `SCANNING` 的细环只呈现计数文案，**不另加进度语义**（A-04 明写两环分属不同状态）。
  * 不是把环整体对读屏隐藏（定稿原型那样做是错的，规范明令不得照抄）。
  */
 @Composable
@@ -124,13 +126,16 @@ fun ProgressRing(
     inner: @Composable BoxScope.() -> Unit
 ) {
     val clamped = progress.coerceIn(0f, 1f)
-    Box(
+    val ringModifier = if (stateText != null) {
+        modifier.semantics {
+            progressBarRangeInfo = ProgressBarRangeInfo(clamped, 0f..1f)
+            stateDescription = stateText
+        }
+    } else {
         modifier
-            .size(diameter)
-            .semantics {
-                progressBarRangeInfo = ProgressBarRangeInfo(clamped, 0f..1f)
-                if (stateText != null) stateDescription = stateText
-            },
+    }
+    Box(
+        ringModifier.size(diameter),
         contentAlignment = Alignment.Center
     ) {
         Canvas(Modifier.fillMaxSize()) {

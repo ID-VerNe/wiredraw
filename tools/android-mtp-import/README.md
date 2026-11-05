@@ -139,8 +139,11 @@ adb shell am start -n com.rea.mtpimport/.Main --es demo_state IMPORTING
 
 假树与真机同口径：1526 对象 / 503 文件夹 / 511 ARW / 512 JPEG / 12.75 GB（ARW 11.89 GB）；
 `IMPORTING` / `PAUSED` 冻结在 `12/36`（33%），`DONE` 是 `36 · 858 MB`。
-速率与 ETA 只在 `Location details` 抽屉里出现，不进主视觉（P-03）。
-详情抽屉（长按顶栏设备名）里也有一排 10 态切换入口。
+P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、不得进主视觉；本轮没有调用点
+（`UiText.rate` / `UiText.eta` 只被自检覆盖，界面与 `Main` 都不调），所以主视觉与抽屉里都不出现。
+可达范围：`am start --es demo_state <状态>` 能直达全部 10 态；应用内从照片墙的 `Details` 抽屉
+可以切到任一态，但 `COLD` / `EMPTY_CATALOG` 切过去后假树被清掉、没有回照片墙的路，
+`DONE` 下返回键直接退出——这三种只能重新 `am start`，不要当成「抽屉里随便来回切」。
 
 ## 沿用探针的三条实测结论
 

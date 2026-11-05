@@ -70,8 +70,28 @@ public final class Main extends ComponentActivity {
 
         @Override
         public void onAllow() {
-            // 真正的系统弹窗由 awaitPermission 发起；这里只重试一次握手入口。
-            handleAttach("点 Allow");
+            // 假数据模式：`PERMISSION_PENDING` + `Allow` 直接进扫描（不碰 USB，§0.5）。
+            if (demoActive()) {
+                if (model.getState() == UiState.State.PERMISSION_PENDING) applyDemoName("SCANNING");
+                return;
+            }
+            // 真实路径**不能**走 handleAttach / AttachGate（B1）：扫描线程正卡在
+            // `permGate.await` 上，扫描锁要到 scanWorker 的 finally 才释放，admit 必回
+            // NOTHING_ALREADY_SCANNING，Allow 就成了死键。这里只重发一次权限申请，
+            // 由 PermGate 的新序号唤醒那条正在等待的线程（`begin()` 会唤醒旧 latch）。
+            UsbDevice dev = findCamera();
+            if (dev == null) {
+                log.line("点 Allow → 没找到索尼设备（VID 0x054C）：检查 OTG 线、相机 USB 模式是否 MTP");
+                model.showCold();
+                return;
+            }
+            UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
+            if (um.hasPermission(dev)) {
+                log.line("点 Allow → 权限已经在手，扫描线程继续");
+                return;
+            }
+            int seq = requestPermission(um, dev);
+            log.line("点 Allow → 重发 USB 权限申请（序号 " + seq + "）");
         }
 
         @Override
@@ -118,27 +138,57 @@ public final class Main extends ComponentActivity {
 
         @Override
         public void onBack() {
+            // 退出确认框开着时，返回键先关框（视同 `Resume`）。
+            if (model.getExitConfirmOpen()) {
+                model.setExitConfirm(false);
+                return;
+            }
             if (model.getOpenedPhoto() != null) {
                 model.closePhoto();
                 return;
             }
-            if (UiState.isTransfer(model.getState())) {
-                callbacks.onCancel();
-                return;
-            }
+            // 抽屉判断必须在传输态之前：传输中开着 Details 时按返回应当只关抽屉（B2 附带缺陷）。
             if (model.getDetailsOpen()) {
                 model.setDetailsOpen(false);
                 return;
             }
-            // `ERROR` / `UNAVAILABLE` 下返回键不得丢当前选择（§1.3）：有照片墙就回照片墙，
-            // 选择还在 AppModel 里；没有墙才退出。`Connect camera` 是唯一**恢复**动作，
-            // 不是唯一动作，所以返回键照常可用。
-            if (model.getState() == UiState.State.ERROR
-                    || model.getState() == UiState.State.UNAVAILABLE) {
+            // `IMPORTING` / `PAUSED` 下返回键不得销毁任务（§1.3）：弹 `Pause & exit` / `Resume`。
+            if (UiState.isTransfer(model.getState())) {
+                model.setExitConfirm(true);
+                return;
+            }
+            // `ERROR` 下返回键不得丢当前选择（§1.3）：回照片墙，选择还在 AppModel 里；
+            // `Connect camera` 是唯一**恢复**动作，不是唯一动作，所以返回键照常可用。
+            if (model.getState() == UiState.State.ERROR) {
                 model.backToCatalog();
                 return;
             }
+            // 其余状态（含 `UNAVAILABLE`）按 §1.3 直接退出应用。
             finish();
+        }
+
+        /**
+         * transfer 顶部返回：只关闭视图，任务继续（§1.3 第 2 条）。
+         * 与系统返回键分开——后者在 `IMPORTING` 下要弹确认框。
+         */
+        @Override
+        public void onCloseTransfer() {
+            model.closeTransferView();
+        }
+
+        /** 确认框选 `Pause & exit`：暂停并退出应用，断点由 Journal 保留（§1.3 / §4.5）。 */
+        @Override
+        public void onPauseExit() {
+            model.setExitConfirm(false);
+            if (!demoActive() && service != null && service.isRunning()) service.pause();
+            finish();
+        }
+
+        /** 确认框选 `Resume`：收起确认框；已暂停时顺带继续。 */
+        @Override
+        public void onResumeExit() {
+            model.setExitConfirm(false);
+            if (model.getState() == UiState.State.PAUSED) callbacks.onPauseResume();
         }
 
         @Override
@@ -364,6 +414,18 @@ public final class Main extends ComponentActivity {
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {
         log.line("尚无 USB 权限，发起申请");
         runOnUiThread(model::showPermission);
+        requestPermission(um, dev);
+        permGate.await(120, TimeUnit.SECONDS);
+        return permGate.granted();
+    }
+
+    /**
+     * 发起一次权限申请（带序号），返回本次序号。
+     *
+     * 首次申请（{@link #awaitPermission}）与 `PERMISSION_PENDING` 里点 `Allow` 的重发共用这一段，
+     * 避免两条路径的 PendingIntent 细节走偏——B1 的根因就是「Allow 走了另一条路」。
+     */
+    private int requestPermission(UsbManager um, UsbDevice dev) {
         int seq = permGate.begin();
         // requestCode 必须用 seq（#11 复评）：PendingIntent 记录按 requestCode 区分，
         // 固定用 0 + FLAG_UPDATE_CURRENT 时所有申请共用一条记录，后一次 begin() 会把
@@ -377,8 +439,7 @@ public final class Main extends ComponentActivity {
         // 授权永远失败。记录已按 seq 唯一，不需要 FLAG_UPDATE_CURRENT；
         // 也不要把 MUTABLE 与 IMMUTABLE 同时给，会抛 IllegalArgumentException。
         um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_MUTABLE));
-        permGate.await(120, TimeUnit.SECONDS);
-        return permGate.granted();
+        return seq;
     }
 
     private void doStart() {

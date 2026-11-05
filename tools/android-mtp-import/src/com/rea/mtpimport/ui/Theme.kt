@@ -10,7 +10,8 @@ import androidx.compose.ui.unit.sp
  * 视觉 token 的唯一出处（UI-SPEC §3 的 47 个 token 里界面实际用到的子集）。
  *
  * 只做 light：定稿 §0.5 明确本轮不出 dark，V-08 / A-07 标「暂不适用」。
- * 正文色 `secondary` 在白底上的对比度约 9.8:1，`outline` 约 4.6:1，均满足 V-07 的 ≥4.5:1。
+ * 正文色 `secondary` 在白底上的对比度约 9.8:1；`outline`（#747878 on #FFFFFF）实测约 4.47:1，
+ * 略低于正文的 4.5:1，所以它**只用于图标**（图标按 A-02 取 ≥3:1 即可，不违规）。
  */
 object UiColors {
     /** canvas / surface：界面底色。 */
@@ -22,7 +23,7 @@ object UiColors {
     /** 正文与组头（≥4.5:1）。 */
     val secondary = Color(0xFF444748)
 
-    /** 图标与次级描边（≥4.5:1）。 */
+    /** 图标与次级描边（#747878 on #FFFFFF ≈ 4.47:1，只用于图标，按 A-02 的 ≥3:1 判）。 */
     val outline = Color(0xFF747878)
 
     /** 未选格的常态描边（装饰性，不承载文字，不受 V-07 约束）。 */

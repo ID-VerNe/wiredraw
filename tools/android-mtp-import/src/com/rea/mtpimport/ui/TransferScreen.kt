@@ -32,7 +32,9 @@ fun TransferScreen(model: AppModel) {
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)) {
-            IconAction(desc = "Back", onClick = { model.callbacks?.onBack() }) {
+            // 顶部返回只关闭视图（§1.3 第 2 条）：任务继续跑，取消由 `Cancel` 承担。
+            // 系统返回键另走 `onBack`，在 `IMPORTING` 下会弹 `Pause & exit` / `Resume`。
+            IconAction(desc = "Back", onClick = { model.callbacks?.onCloseTransfer() }) {
                 BackGlyph(20.dp, UiColors.ink)
             }
         }
