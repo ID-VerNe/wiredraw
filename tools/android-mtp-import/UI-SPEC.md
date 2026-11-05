@@ -138,7 +138,8 @@
 ### 0.10 术语表（全文只许一种说法）
 
 > 三列口径：**界面用词（英文）**是界面唯一权威；**文档用词（中文）**只在本文叙述与 issue 里使用；
-> **禁用写法**在任何地方都不得出现。中文界面文案只允许出现在 `C-19` 允许的错误原因里。
+> **禁用写法**在**用户可见文案**中不得出现；文档叙述在描述原型现状 / 控件形态时可以引用这些词，
+> 但**不得**作为界面文案出现（§8 的文案断言判的是渲染出来的字符串，不判本文件的叙述文字）。
 
 | 概念 | 界面用词（英文） | 文档用词（中文） | 禁用写法 |
 |---|---|---|---|
@@ -181,6 +182,16 @@
 | 6 | **传输实现** | `IMPORTING`/`PAUSED`/`DONE` 状态、`T-02`、U-45～U-47 | `ImportService.java` 类注释里「只有真正搬字节那一步委托给 `ResumableTransfer`」那段，当前是 `ResumableTransfer.NotImplemented`；`Journal.java` 注释里「跨会话续传要先按 relPath」那句：跨会话续传的真实现未做 | 界面按状态机照常渲染；点主 CTA（`T-CATALOG`）会进入 `UNAVAILABLE`（见 `T-UNAVAILABLE`），不得伪装成传输中 | `T-02` 及一切真实传输验收 |
 | 7 | **插线拉起 / 默认 USB 处理者** | §0.2 任务 A 第 3 步、§0.2.1「起步」行、§0.3 任务 B 第 1 步（同任务 A）、§1.2 `COLD` 行、`T-01`、`T-03` | 拉起与扫描已落地（**#17**）：`Main.java` 的 `onNewIntent` 接前台 attach intent，`receiver` 的 `ACTION_USB_DEVICE_ATTACHED` 分支与 `autoScanOnLaunch` 汇到 `requestScan`，去重由 `AttachGate.java` 的 `public synchronized Admit admit`（真机：`冷启动检测 → 开始扫描`、`待扫描对象共 1526 个`）；默认处理者由系统侧 `dumpsys usb` 的 `device_preferences` 指向 `com.rea.mtpimport`，应用代码不能自己申请成为默认者。真机（ILCE-7C fw2.00 / 魅族 20 Infinity / Android 15 API 35 / USB MTP）2026-11-05 18:48 复验：广播 `→ 开始扫描`、attach intent `→ 扫描已在进行中，忽略本次重复事件`（只起 1 次扫描），单次会话 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`，`permissions_manager` 无新授权请求（既有 `uids=10269`）；`AndroidManifest.xml` 的 `android:launchMode="singleTop"` 保证前台插线走 `onNewIntent` 而不是新建实例 | 剩余降级只有两条（**均为系统侧约束，不是代码缺口**；#17 已 CLOSED = 拉起与扫描已落地，依据是本行「现状证据」里 2026-11-05 18:48 的真机复验）：① 首次插线仍要用户勾一次「一律打开」，这是系统弹窗，应用没有正规接口可绕；② 探针 `com.rea.mtpprobe` 与本应用共用 `vendor-id=1356` 的 filter，探针占着默认处理者时插线拉不起本应用，此时手工打开本应用仍会由 `autoScanOnLaunch` 自动扫描。另：`COLD` 页缺失，随状态机补齐（本版按 `T-COLD` 定义） | 只阻断 `T-COLD` 的首屏形态与 8 个缺失状态的视觉（随 PR-2 的 Compose 三屏落地）；任务 A 的「插线自动扫描」与点击预算不再被本行阻断 |
 
+### 0.12 决策记录（被覆盖的旧口径）
+
+> 本表只登记**已被覆盖**的口径与覆盖依据，避免旧说法在正文残留；正文一律按「现行口径」执行，不再复述本表。
+
+| 日期 / 来源 | 旧口径 | 现行口径 | 依据 / 落在哪 |
+|---|---|---|---|
+| 2026-11-06 / PR #39 第四轮评审 | 复选框热区 ≥44 dp（`V-11`、`V-15` 例外②、`A-01` 旧例外句） | **统一 ≥48 dp**（`A-01` / `U-09`），复选框无例外 | 两套口径会让 46 dp 的复选框同时满足 `V-11`、违反 `A-01` / `U-09`；48 dp 是 Android 平台推荐下限。**本条覆盖早先的 44 dp 口径** |
+| 2026-11-06 / PR #39 第四轮评审 | `ERROR` 的动作写成「循环箭头图标 + 应用内再试」 | `Connect camera`（USB 插头 / 重连语义，`contentDescription` 同名） | 会话结束后相机挂起 USB，应用内反复尝试唤不醒（`AGENTS.md` §4）；对最主要的一类 `ERROR` 该动作无效，`C-14` 要求提示拔插数据线；`ERROR` 进入条件已覆盖可恢复与不可恢复（§1.2） |
+| 2026-11-06 / PR #39 第四轮评审 | §0.10 禁用写法「任何地方都不得出现」 | 只在**用户可见文案**里禁止；文档叙述描述原型现状 / 控件形态时可引用 | 该类说法是描述定稿原型控件形态的必要术语（`V-15` 要写「网格不得显示该形态」），改掉反而说不清原型；判定见 §8 抬头 |
+
 ---
 
 ## 1. 信息架构与状态模型
@@ -216,12 +227,12 @@
 | `COLD` 未连接 | 冷启动且无已授权相机 | **缺**（本版按 `T-COLD` 补齐） | 见 `T-COLD` | `Connect camera`（等价于原「重新检测」行为）、返回退出 | 空白首屏；`Waiting` / `Loading` / 「等待开始」这类无对象状态词；主 CTA 被顶栏遮挡；插线后仍要求用户手动点 CTA（插线应自动触发，§0.2，已由 #17 接通） |
 | `PERMISSION_PENDING` 未授权 | 系统 USB 授权弹窗未返回 | **缺**（本版按 `T-PERMISSION` 补齐） | 见 `T-PERMISSION` | `Allow`（再次触发系统弹窗）、返回退出 | 静默等待（当前最长 120 s 无反馈，见 F13）；只给「去设置」而不给 `Allow`；中文说明句 |
 | `SCANNING` 扫描中 | 扫描线程启动 | **缺**（本版按 `T-SCANNING` 补齐） | 见 `T-SCANNING` | `Cancel` | 照片墙可操作（若显示上一轮，必须 `enabled=false` 置灰并标 `Last import`，见 §1.1 / U-43）；主 CTA 可点；显示速率或剩余时间 |
-| `CATALOG_READY` 日期分组 + 照片墙 | 扫描成功 | **有**（`library`，含 0 选 / ≥1 选 / 折叠三子态；CTA 切换需补齐） | 见 `T-CATALOG` | 折叠、过滤抽屉、点格选/取消、`Import all N` / `Import N` | 已选为 0 时禁用主 CTA（任务 A 要求 0 选择也能一键全导，§0.5）；同屏并置两个总量分母；网格内显示文件名/大小/徽标/勾选圈；已选数写进正文句 |
+| `CATALOG_READY` 日期分组 + 照片墙 | 扫描成功 | **有**（`library`，含 0 选 / ≥1 选 / 折叠三子态；CTA 切换需补齐） | 见 `T-CATALOG` | 折叠、过滤抽屉、点格选/取消、`Import all N` / `Import N` | **不得因未选**而禁用主 CTA（`P-09` 的空间预检除外；任务 A 要求 0 选择也能一键全导，§0.5）；同屏并置两个总量分母；网格内显示文件名/大小/徽标/勾选圈；已选数写进正文句 |
 | `IMPORTING` 传输中 | 导入线程启动 | **有**（`transfer`，控件与无障碍不完整） | 见 `T-IMPORTING` | `Pause`、`Cancel`、顶部返回（关闭视图，见 §1.3） | 修改已选；返回键直接销毁任务；进度停在 0 不动；主视觉出现速率/剩余时间/协议 |
 | `PAUSED` 已暂停 | 用户暂停 | **缺**（本版按 `T-PAUSED` 补齐） | 见 `T-PAUSED` | `Resume`、`Cancel` | `Resume` 不可点；把暂停态显示成完成态；环数值继续变化 |
 | `DONE` 完成 | 全部结束且有成功项 | **缺**（本版按 `T-DONE` 补齐） | 见 `T-DONE` | `Open`、位置图标（进 `Location details`）、返回退出 | 四段统计（成功/跳过/失败/总数）；任务 ID、哈希、协议、内部编号；统计卡 |
-| `ERROR` 错误（可恢复） | 连接/传输失败且可重试 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | 重试图标、返回、`Details` 抽屉 | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉 |
-| `EMPTY_CATALOG` 相机内为空 | 扫描成功但 0 个照片 | **缺**（本版按 `T-EMPTY` 补齐） | 见 `T-EMPTY` | 重试图标、返回退出 | 显示空网格或 `0 GB` 的占位；把空态显示成加载中 |
+| `ERROR` 错误 | 相机相关失败：可恢复错误与 USB 挂起（**不可恢复**）都归此态 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | `Connect camera`、返回、`Details` 抽屉；**不可恢复（USB 挂起）时唯一动作 = 拔插数据线后点 `Connect camera`** | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉；把 USB 挂起描述成应用内再点一次即可 |
+| `EMPTY_CATALOG` 相机内为空 | 扫描成功但 0 个照片 | **缺**（本版按 `T-EMPTY` 补齐） | 见 `T-EMPTY` | `Connect camera`（重新扫描）、返回退出 | 显示空网格或 `0 GB` 的占位；把空态显示成加载中 |
 | `UNAVAILABLE` 功能未实现（**内部标签**） | 传输层未就绪 | **缺**（本版按 `T-UNAVAILABLE` 补齐） | 见 `T-UNAVAILABLE` | `OK`、返回（按 §1.3 直接退出） | 显示 0% 进度；显示 `Imported 0 · Failed 0` 式统计；出现 `NOT_IMPLEMENTED` 等枚举；用户可见文案出现「未实现」（状态名只是内部标签，见 C-18） |
 
 > 行文简写：`READY` = `CATALOG_READY`、`EMPTY` = `EMPTY_CATALOG`、`PERMISSION` = `PERMISSION_PENDING`。
@@ -427,11 +438,12 @@
 | 危险 | `#ba1a1a` | 破坏性操作 | 当前**无触发入口**（V-17 挂起） |
 
 - **V-09** 同一屏**不得**出现两个实心主按钮：每个状态至多 1 个（`COLD` 为 `Connect camera`、
-  `PERMISSION_PENDING` 为 `Allow`、`CATALOG_READY` 见 `T-CATALOG`、`ERROR` 为重试图标），其余动作一律次按钮或图标。
+  `PERMISSION_PENDING` 为 `Allow`、`CATALOG_READY` 见 `T-CATALOG`）；`ERROR` / `EMPTY_CATALOG` **无实心主按钮**，
+  其 `Connect camera` 以次按钮图标呈现（USB 插头 / 重连语义），其余动作一律次按钮或图标。
 - **V-10** 禁用态**必须**同时改变视觉（降低不透明度/去色）并 `enabled=false`；**不得**只靠点击后无反应表达不可用。
 - **V-11（改写）** 已选态**必须**用**形态变化**表达，**不得**只靠颜色：未选格 = 去饱和（约 55%）+ 常态描边；
   已选格 = 恢复饱和度 + 1 px 深色描边。原型里的「右上角 tick 徽标 + 2 px inset」**不得**照抄。
-  若降级形态使用复选框：视觉可 ≤20 dp，但**热区不得低于 44 dp**（原型 20 dp 的热区不达标，**不得**照抄）；
+  若降级形态使用复选框：视觉可 ≤20 dp，但**热区不得低于 48 dp**（原型 20 dp 的热区不达标，**不得**照抄）；
   选中/激活态也不改图标填充风格（统一线性 `FILL 0`）。
 - **V-17（挂起）** 破坏性操作**必须**可撤销（`Undo` 至少本次会话内有效）。定稿没有清空/删除入口，
   本版本**无触发入口**；条文保留，随清理类功能落地再启用（U-28 同步挂起）。**不得**以「二次确认」替代撤销。
@@ -445,7 +457,7 @@
 - **V-14** 缩进层级**必须**用分区/边框表达；**不得**用空格字符缩进（当前用 4 个空格，见 `Main.java` 的 `makeRow` 中 `label.append("    ")` 那一行）。
 - **V-15（废止）** 原「文件项必须显示文件名、大小、是否已导入」与定稿相反：网格**不得**显示文件名、大小、
   格式徽标、已导入标记或勾选圈；这些信息只在 `photo` 页或 `Location details` 里出现。**例外有两处**：
-  ① `V-19` 的缩略图降级形态（同尺寸灰块 + 文件名）；② `V-11` / `A-01` 允许降级形态使用复选框（热区 ≥44 dp）。
+  ① `V-19` 的缩略图降级形态（同尺寸灰块 + 文件名）；② `V-11` 允许降级形态使用复选框（热区 ≥48 dp，无例外）。
 - **V-16（改写）** 超过 200 张的集合**必须**提供过滤入口（漏斗图标）；打开后是底部抽屉，内容为 `All` / `RAW` / 日期；
   **不得**出现两组分段按钮，**不得**出现未导入过滤（索引缺失，§0.11 第 1 行），**不得**写 `Only RAW (Raw)` 这类重复括注。
 - **V-18** 信息层级**必须**是：一级按拍摄日期分组 → 载体为缩略图网格；原始 MTP 路径**不得**作主展示，
@@ -483,7 +495,7 @@
      图标资源缺失时用英文词单独承担（文字兜底），**不得**因此退回中文句子。
   2. **不得**出现「为说明而说明」的解释句、技术自证（协议名、opcode、哈希、规范章节号）、统计卡片堆叠。
   3. 英文用句首大写（sentence case），**不得**全大写喊话；专有名词（`USB`、`ARW`、`GB`、`MB`）保持原写法。
-  4. 同一个动作在按钮与正文里**必须**用同一个词（按钮 `Connect camera`，正文不得换成 `Retry`）。
+  4. 同一个动作在按钮与正文里**必须**用同一个词：`Connect camera` 是唯一写法，正文与朗读文案**不得**另造同义动作词。
 - **（已废止）** 首屏说明句条（原 §4.1 第 7 条）：与 §0.8 同步删除，改由「唯一焦点 + 一个实心主按钮」承担。
 
 ### 4.2 数字口径（本组是数字、单位与小数位的唯一权威）
@@ -518,7 +530,7 @@ Next:    <一个可执行动作>
 - **C-12** 错误文案**不得**包含：异常类名、opcode、`getStorageIds`、`openDevice`、`/dev/bus/usb`、VID/PID、`relPath`。
 - **C-13** 错误细节**必须**只进 `Details`（日志抽屉）。
 - **C-14** 相机相关错误**必须**给出可执行动作（「半按快门唤醒相机」「拔插数据线后点 `Connect camera`」），
-  **不得**只让用户「重试」；动作按钮名按 §4.5 的按钮词表，用英文。
+  **不得**只让用户在应用内原地再来一次（对 USB 挂起无效，见 `E-03`）；动作按钮名按 §4.5 的按钮词表，用英文，`Connect camera` 是唯一写法。
 
 ### 4.4 未实现态话术
 
@@ -547,18 +559,20 @@ Next:    <一个可执行动作>
 | `T-IMPORTING` | `IMPORTING` | 大环（180 dp） | 环内 `33%` | 环下 `12/36`；`Pause` / `Cancel` 图标 | 速率卡、`~58 min`、协议、第二个百分比 |
 | `T-PAUSED` | `PAUSED` | 同一环，数值冻结 | 环内 `33%`（不变） | `Resume` / `Cancel` 图标 | 「已暂停」长句、把暂停显示成完成 |
 | `T-DONE` | `DONE` | 环的位置换成完成标记 | `Done` | `36 · 871 MB` + 位置图标；`Open` 次按钮 | `Imported … Skipped … Failed …`、任务 ID、哈希、统计卡 |
-| `T-ERROR` | `ERROR` | 环的位置换成错误标记 | 一行短中文原因（≤20 字） | 重试图标；三段式进 `Details` | `Error`、异常类名、opcode、路径 |
-| `T-EMPTY` | `EMPTY_CATALOG` | 居中相机图标 | `No photos` | 重试图标 | 空网格、`0 GB`、`0%` |
+| `T-ERROR` | `ERROR` | 环的位置换成错误标记 | 一行短中文原因（≤20 字） | `Connect camera` 图标（USB 插头 / 重连语义）；三段式进 `Details` | `Error`、异常类名、opcode、路径 |
+| `T-EMPTY` | `EMPTY_CATALOG` | 居中相机图标 | `No photos` | `Connect camera` 图标 | 空网格、`0 GB`、`0%` |
 | `T-UNAVAILABLE` | `UNAVAILABLE` | 居中禁止图标 | `Not available` | `OK`，或返回直接退出 | `NOT_IMPLEMENTED`、`Unimplemented`、长句版本说明 |
 
 - **`CATALOG_READY` 主 CTA 文案（本文件唯一出处）**：已选 0 → `Import all N`；已选 ≥1 → `Import N`。
   `N` 一律取**模型内数量**（不是已渲染行数，见 C-08）。已导入索引缺失时（§0.11 第 1 行），
   「新片」不可计算，CTA 同为 `Import all N`——这是唯一允许的降级写法，其余位置不得另造。
+- **`T-CATALOG` 的「主文案」列**同时列了徽标与 CTA：**徽标 / CTA 不属于状态主文案**（`C-01` 只约束状态主文案的一行 ≤20 字符），
+  本状态的主表达是照片墙；三者并列出现不违反 `C-01`。
 - **按钮词表（本文件唯一出处）**：状态模板与 `U-xx` 出现的按钮名一律以本表为准，其他章节直接引用、不复述。
 
   | 动作（文档内） | 按钮/图标文案 | 用在哪 |
   |---|---|---|
-  | 连接相机 / 重新检测 | `Connect camera` | `COLD` 主按钮（点击行为等同原重新检测，含重扫） |
+  | 连接相机 / 重新检测 / USB 挂起后重连 | `Connect camera` | `COLD` 主按钮（点击行为等同原重新检测，含重扫）；`ERROR` / `EMPTY_CATALOG` 的次按钮图标（USB 插头 / 重连语义，**不得**用循环箭头，`contentDescription` 一律 `Connect camera`） |
   | 允许 | `Allow` | `PERMISSION_PENDING` 主按钮 |
   | 取消（扫描/导入） | `Cancel` | `SCANNING` / `IMPORTING` / `PAUSED` |
   | 暂停 | `Pause` | `IMPORTING` |
@@ -567,7 +581,6 @@ Next:    <一个可执行动作>
   | 导入（已选） | `Import N` | `CATALOG_READY` 已选 ≥1 |
   | 打开 | `Open` | `DONE` 次按钮 |
   | 知道了 | `OK` | `UNAVAILABLE` |
-  | 重试 | 重试图标（`contentDescription` = `Retry`） | `ERROR` / `EMPTY_CATALOG` |
   | 暂停并退出 | `Pause & exit` | `IMPORTING` 返回键对话框选项（§1.3）；是对话框选项，不占主按钮额度 |
   | 空间不足提示 | `Low space` | `CATALOG_READY` 主 CTA 上方一行 12 sp；仅在预检不足、CTA 被禁用时出现（`P-09`） |
   | 已存在的跳过数 | `Skipped N existing` | `Details` 抽屉（`P-07`）；主视觉不出现 |
@@ -613,8 +626,9 @@ Next:    <一个可执行动作>
 
 - **E-01（改写）** 空态**必须**是「一个图标 + 一个主动作」（`T-COLD` / `T-EMPTY`）；**不得**加解释句。
 - **E-02** 错误**必须**就地显示，**不得**只写日志或只弹 Toast；错误态**必须**保留用户选择。
-- **E-03** 不可恢复态（相机休眠/USB 挂起）**必须**给出「拔插数据线」的明确步骤，并提供 `Connect camera`；
-  **不得**让应用在后台重试 8 次却不告诉用户（项目实测重试唤不醒相机）。
+- **E-03** 不可恢复态（相机休眠 / USB 挂起）**必须**归入 `ERROR`（`T-ERROR`；进入条件与「唯一动作 = 拔插数据线后点 `Connect camera`」见 §1.2），
+  并给出「拔插数据线」的明确步骤；**不得**让应用在后台自行反复尝试 8 次却不告诉用户
+  （项目实测：会话结束后相机挂起 USB，应用内 8 次 / 约 70 秒尝试唤不醒，必须拔插数据线，见 `AGENTS.md` §4）。
 - **E-04** 功能未实现态**必须**用 `UNAVAILABLE` 状态表达，**不得**伪装成进行中、失败或完成（见 C-16）。
 - **E-05** 扫描到空目录**必须**进入 `EMPTY_CATALOG`，**不得**停留在 `SCANNING` 或显示空网格。
 
@@ -622,8 +636,7 @@ Next:    <一个可执行动作>
 
 ## 7. 无障碍
 
-- **A-01** 所有可点击目标**必须** ≥48 dp × 48 dp（当前列表行 32 dp，见 F9）。
-  复选框类控件（仅降级形态可能出现）热区**不得**低于 44 dp（原型 20 dp 不达标，见 V-11）。
+- **A-01** 所有可点击目标**必须** ≥48 dp × 48 dp，**含降级形态的复选框，无例外**（当前列表行 32 dp，见 F9）。
 - **A-02** 正文对比度 ≥4.5:1，大字 ≥3:1（WCAG 2.1 AA，实算值见 V-07）。
 - **A-03** 每个可交互控件**必须**有可读文本或 `contentDescription`；**不得**只有图标。
 - **A-04（改写）** 传输环（`IMPORTING` / `PAUSED`）是**导入进度**的唯一载体，**必须**提供 `role=progressbar`
@@ -646,6 +659,8 @@ Next:    <一个可执行动作>
 > 验证手段优先级：`dump` bounds 断言 > 截图 > 人工判定（人工判定按 §0.9 原则 3 记录判定人与场景）。
 > 「状态」列含义：**保留** = 条文与措辞均未变；**改写** = 判定对象随定稿重排改变，标准不降低；
 > **暂不适用** = 定稿无对应物，恢复条件已写明；**废止** 见 §8.4。
+> 所有文案类断言（`U-xx` 的「必须匹配 / 必须不匹配」）判的是**渲染出来的字符串**（dump 文本、`contentDescription`、截图 OCR），
+> 不判本文件的叙述文字。
 
 ### 8.1 布局与交互断言（沿用旧编号）
 
@@ -679,12 +694,12 @@ Next:    <一个可执行动作>
 | U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
 | U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏无数字徽标**（`1526` 只作进度分母，不与照片数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
-| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标、勾选圈；同屏出现两个不同的总量分母 |
+| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配）；同屏出现两个不同的总量分母 |
 | U-45 | `IMPORTING` | 文本匹配 `\d+%` 恰好 1 处、`\d+/\d+` 恰好 1 处；`Pause` 与 `Cancel` 各 1 个且 `clickable=true`；`round(已完成/总数×100)` 与百分比差 ≤1 | `MB/s`、`~\d+ min`、`MTP`、`USB`、第二个百分比；已选可修改；`Done` |
 | U-46 | `PAUSED` | 环内数值与暂停瞬间相同；`Resume` 与 `Cancel` 存在且可点 | 完成标记、`Done`；环数值继续变化；`Import` 可点 |
 | U-47 | `DONE` | `Done`；文本匹配 `\d+ · \d+(\.\d)? MB` 或 `\d+ · \d+\.\d{2} GB`（按 C-05）；`contentDescription` 含 `Location` 且 `clickable=true`；`Open` 存在 | `Imported\s*\d+`、`Skipped\s*\d+`、`Failed\s*\d+`、`total`、`TASK`、哈希、`§`；统计卡 |
-| U-48 | `ERROR` | 首屏存在 1 行中文原因（≤20 字）与 `contentDescription` 为 `Retry` 的可点节点 | 首屏同时出现 `Problem` / `Cause` / `Next` 三段；异常类名、`opcode`、`/dev/bus/usb`、VID/PID |
-| U-49 | `EMPTY_CATALOG` | `No photos`；`Retry` 可点 | 任何照片网格单元；`0 GB`；`0%` |
+| U-48 | `ERROR` | 首屏存在 1 行中文原因（≤20 字）与 `contentDescription` 为 `Connect camera` 的可点节点 | 首屏同时出现 `Problem` / `Cause` / `Next` 三段；异常类名、`opcode`、`/dev/bus/usb`、VID/PID |
+| U-49 | `EMPTY_CATALOG` | `No photos`；`Connect camera` 可点 | 任何照片网格单元；`0 GB`；`0%` |
 | U-50 | `UNAVAILABLE` | `Not available` | `\d+%`、`Imported\s*\d+`、`Failed\s*\d+`、`NOT_IMPLEMENTED`、`Unimplemented`、`Not implemented`、`未实现`；进度控件存在 |
 
 ### 8.3 页面级断言（新增，`U-51`～`U-54`）
@@ -694,7 +709,7 @@ Next:    <一个可执行动作>
 | U-51 | `photo` 页 | 全幅照片（或 §0.7 降级时的同尺寸块）+ 返回图标 + 单行 `ARW · 24.6 MB` + 位置图标；返回图标热区 ≥48 dp | dump：`contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
 | U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / 日期三项；抽屉打开不推挤主 CTA（L-09） | dump：三个过滤项各 1 个；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
 | U-53 | 徽标口径 | 顶栏徽标 = catalog 中 ARW 张数；与 `Import all N` 的 N 相等；同屏不出现第二个总量分母 | 读 catalog 总数与 ARW 数；dump 徽标文本；比对 N |
-| U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 511 ARW / 12.75 GB | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列四个数一致 |
+| U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 511 ARW / 12.75 GB | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列四个数一致（`demo_state` 入口**尚不存在**，PR-2 待建） |
 
 ### 8.4 `U-xx` 变更对照（重写 / 废止 / 新增）
 
@@ -710,9 +725,9 @@ Next:    <一个可执行动作>
 | U-16 | 废止 | 并入 U-45；新增「百分比与 a/b 自洽」「禁主视觉速率」两条更严断言 |
 | U-18 | 废止 | 并入 U-50，断言字面量更严（含 `Unimplemented` / 禁止进度控件） |
 | U-19 | 废止 | 并入 U-47，改为 `Done` + 数量/容量 + 位置 + `Open`，并禁四段统计与内部编号 |
-| U-20 | 废止 | 并入 U-48；三段式改到抽屉，首屏只留一行原因 + 重试 |
+| U-20 | 废止 | 并入 U-48；三段式改到抽屉，首屏只留一行原因 + `Connect camera` |
 | U-22 | 废止 | 并入 U-42；`Allow` 为唯一主按钮，删去「去设置」 |
-| U-23 | 废止 | 并入 U-49；空态改 `No photos` + 重试图标 |
+| U-23 | 废止 | 并入 U-49；空态改 `No photos` + `Connect camera` 图标 |
 | U-28 | 挂起 | 定稿无清空入口，V-17 同步挂起。工作区已按本节前文删除，原断言要点：清空动作可撤销；清空后出现 `Undo`；撤销后 `checked=true` 的行集合须与清空前**逐条相等**（三次 dump 比对，不只看数量）；功能落地后按此恢复，基线原文见 `git show 73bbdc2:tools/android-mtp-import/UI-SPEC.md` 的 §8.1 |
 | U-30 | 废止 | 首屏说明句删除，判定改由 `T-05` / `T-06` 承担 |
 | U-41～U-50 | 新增 | 10 态逐态首屏断言（8 态无设计稿，本版补齐） |
@@ -757,7 +772,7 @@ Next:    <一个可执行动作>
 | §0.2 / §0.6 / V-18 / V-19 / U-29 / T-01～T-06 | 首次使用无路径：照抄 MTP 目录、1000+ 行、无「导新片」概念（**F7** / **F14**） | 待单开 |
 | **状态缺失（10 态中 8 态无界面）** | 定稿只有 `CATALOG_READY` / `IMPORTING` 两页（承接 U-41～U-50） | 本 issue |
 | **安全区缺失（`library` 顶栏无 inset、`photo` 上下都无）** | 定稿 `library` / `photo` 两页均可复现：顶栏与首条内容、底部内容贴边（承接 L-01 / L-02 / U-01 / U-02） | #16 |
-| **触达不足（44 / 32 / 26 / 20 dp）** | 定稿 `transfer` 的 `Pause` / `Cancel` 为 44 dp、日期组头 32 dp、位置图标 26 dp、徽标约 20 dp（承接 A-01 / V-11 / U-09） | 本 issue |
+| **触达不足（44 / 32 / 26 / 20 dp）** | 定稿 `transfer` 的 `Pause` / `Cancel` 为 44 dp、日期组头 32 dp、位置图标 26 dp、徽标约 20 dp（承接 A-01 / V-11 / U-09）；**这是对定稿的审计判定**，本规范的断言统一 ≥48 dp，不复用这组数字 | 本 issue |
 
 > F 编号共 20 个（F1–F20），本表逐个覆盖；其中 F6 与 #15 同一现象，F7/F14 与 §0 的结构性改造相关。
 > 「现有 issue」列是**归属引用**，不代表仍未关闭：`#15` / `#16` / `#17` 均已 **CLOSED**（2026-11-05），
