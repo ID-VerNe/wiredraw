@@ -64,9 +64,10 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             .padding(horizontal = 24.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
+        // V-03：主按钮与正文同级（14 sp，`body-md`），不用 `label-md`（PR #41 第四轮评审 B2）。
         BasicText(
             text,
-            style = TextLabel.copy(color = UiColors.canvas, textAlign = TextAlign.Center)
+            style = TextBody.copy(color = UiColors.canvas, textAlign = TextAlign.Center)
         )
     }
 }
@@ -83,7 +84,8 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
             .padding(horizontal = 20.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        BasicText(text, style = TextLabel.copy(color = UiColors.ink))
+        // V-01 / V-03：次按钮与正文同级（14 sp）。
+        BasicText(text, style = TextBody.copy(color = UiColors.ink))
     }
 }
 
@@ -170,7 +172,12 @@ fun Scrim(onDismiss: () -> Unit) {
     )
 }
 
-/** 小圆角容器（徽标、照片页胶囊共用）。 */
+/**
+ * 小圆角容器（徽标、照片页胶囊共用）。
+ *
+ * 13 sp（`label-md`）：按 §3.1 只允许出现在环下 `12/36` 与 `photo` 页的
+ * `ARW · 24.6 MB` 胶囊（含顶栏徽标，同属 `label-md`）（PR #41 第四轮评审 B2）。
+ */
 @Composable
 fun Pill(text: String, modifier: Modifier = Modifier, onDark: Boolean = false) {
     val bg = if (onDark) UiColors.photoCapsule else UiColors.container
@@ -182,7 +189,7 @@ fun Pill(text: String, modifier: Modifier = Modifier, onDark: Boolean = false) {
             .padding(horizontal = 10.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center
     ) {
-        BasicText(text, style = TextSmall.copy(color = fg))
+        BasicText(text, style = TextLabel.copy(color = fg))
     }
 }
 

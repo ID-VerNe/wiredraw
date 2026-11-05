@@ -45,7 +45,7 @@ fun DetailsDrawer(model: AppModel) {
                 .verticalScroll(rememberScrollState())
         ) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("Location details", style = TextLabel)
+                BasicText("Location details", style = TextBody)
                 Spacer(Modifier.weight(1f))
                 IconAction(desc = "Close", onClick = { model.detailsOpen = false }) {
                     CloseGlyph(16.dp, UiColors.outline)
@@ -71,7 +71,7 @@ fun DetailsDrawer(model: AppModel) {
                             .tappable { model.callbacks?.onDemoState(s.name) },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        BasicText(s.name, style = TextLabel.copy(color = UiColors.secondary))
+                        BasicText(s.name, style = TextBody.copy(color = UiColors.secondary))
                     }
                 }
             }

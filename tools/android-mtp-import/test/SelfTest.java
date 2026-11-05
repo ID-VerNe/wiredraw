@@ -31,6 +31,7 @@ public final class SelfTest {
         permissionCases();
         allowCases();
         resolveCases();
+        scanCancelCases();
         selectionCases();
         planCases();
         progressCases();
@@ -327,6 +328,48 @@ public final class SelfTest {
         check("resolve：序号没被偷偷 +1", g.begin() == seq + 1, "seq 漂移");
     }
 
+
+    // ---------------- 扫描取消（PR #41 第四轮评审 B1 / U-06 / P-02） ----------------
+
+    /**
+     * 墓碑：`SCANNING` 点 `Cancel` 后，扫描线程迟到的进度、结果、错误都不得再改界面。
+     *
+     * 这里用一个字符串代替 `AppModel` 的界面态，判的仍是 `ScanRun.accept()` 这道闸——
+     * `Main.scanWorker` 的进度回调、`showCatalog`、`showError` 三处都先问它。
+     * 取消必须真取消：只把界面退回 `COLD` 而不置位，扫描完成时会把界面翻回
+     * `CATALOG_READY`（第四轮评审 B1 的现象）。
+     */
+    static void scanCancelCases() {
+        ScanRun run = new ScanRun();
+        String[] screen = {"SCANNING"};
+        int[] progressLanded = {0};
+
+        // 用户在 SCANNING 点 Cancel：Main.onCancel 置位令牌，再把界面退回目录。
+        run.cancel();
+        screen[0] = "COLD";
+
+        // 取消之后才到达的三类迟到回调。
+        if (run.accept()) progressLanded[0]++;
+        if (run.accept()) screen[0] = "CATALOG_READY";
+        if (run.accept()) screen[0] = "ERROR";
+
+        check("取消后迟到的扫描结果不得翻回 CATALOG_READY", "COLD".equals(screen[0]),
+                "界面停在 " + screen[0]);
+        check("取消后不再刷新扫描进度", progressLanded[0] == 0,
+                "落地 " + progressLanded[0] + " 次");
+        check("cancel() 置位后 isCancelled() 为真", run.isCancelled(), "未置位");
+
+        // 对照：没取消时三类回调都必须照常落地，否则上面两条恒真、测不出回归。
+        ScanRun live = new ScanRun();
+        String[] liveScreen = {"SCANNING"};
+        int[] liveProgress = {0};
+        if (live.accept()) liveProgress[0]++;
+        if (live.accept()) liveScreen[0] = "CATALOG_READY";
+        check("未取消时扫描结果照常落到照片墙", "CATALOG_READY".equals(liveScreen[0]),
+                "界面停在 " + liveScreen[0]);
+        check("未取消时进度照常刷新", liveProgress[0] == 1,
+                "落地 " + liveProgress[0] + " 次");
+    }
 
     // ---------------- Selection ----------------
 

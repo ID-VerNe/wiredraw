@@ -69,11 +69,11 @@ fun TransferScreen(model: AppModel) {
                 if (model.state == UiState.State.PAUSED) {
                     PlayGlyph(16.dp, UiColors.ink)
                     Spacer(Modifier.width(8.dp))
-                    BasicText("Resume", style = TextLabel)
+                    BasicText("Resume", style = TextBody)
                 } else {
                     PauseGlyph(16.dp, UiColors.ink)
                     Spacer(Modifier.width(8.dp))
-                    BasicText("Pause", style = TextLabel)
+                    BasicText("Pause", style = TextBody)
                 }
             }
             Spacer(Modifier.width(8.dp))

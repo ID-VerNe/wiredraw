@@ -66,8 +66,11 @@ val TextDisplay = TextStyle(
 )
 
 val TextMonoData = TextStyle(
-    fontFamily = FontFamily.Monospace,
+    // §3.1：字体族必须统一（含 `mono-data`），不得再引入第二套字形。
+    // 数字对齐靠 `tabular-nums`（`tnum`），不靠等宽字体（PR #41 第四轮评审 B2）。
+    fontFamily = Sans,
     fontSize = 12.sp,
     lineHeight = 16.sp,
-    color = UiColors.secondary
+    color = UiColors.secondary,
+    fontFeatureSettings = "tnum"
 )

@@ -3,8 +3,10 @@ import java.util.Properties
 
 // 导片工具构建（issue #36）：AGP + Kotlin + Compose 编译器。
 //
-// 本轮只换构建体系，不改任何用户可见行为：界面仍是 Main.java 手写 View，
-// ComposeSmoke.kt 只是编译链探针，没有调用点。
+// 构建体系在本 PR（#40）里接了 Compose 三屏：`Main.java` 已降到编排层，
+// 界面全部由 `src/com/rea/mtpimport/ui/*.kt` 渲染（`ComposeHost` 是唯一挂载点）。
+// `ComposeSmoke.kt` 只保留编译链冒烟用途（`assembleDebug` 时验证 Compose 编译器就位），
+// 不再代表界面实现。
 plugins {
     id("com.android.application") version "8.7.3"
     id("org.jetbrains.kotlin.android") version "2.0.21"
@@ -113,6 +115,7 @@ val pureJdkClasses = listOf(
     "PermGate.java",
     "PhotoWall.java",
     "ResumableTransfer.java",
+    "ScanRun.java",
     "Selection.java",
     "TransferProgress.java",
     "UiState.java",

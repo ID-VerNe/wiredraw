@@ -51,6 +51,9 @@ public final class Main extends ComponentActivity {
     /** 界面状态（Compose 唯一数据源）。 */
     private final AppModel model = new AppModel();
 
+    /** 当前这一轮扫描的取消令牌（B1）；没有扫描时为 null，由 scanWorker 的 finally 清掉。 */
+    private volatile ScanRun scanRun;
+
     private MtpSession session;
     private Catalog catalog;
     private Selection selection;
@@ -106,6 +109,21 @@ public final class Main extends ComponentActivity {
                 return;
             }
             if (service != null && service.isRunning()) service.cancel();
+            // 扫描态取消（PR #41 第四轮评审 B1 / U-06 / P-02）：只把界面退回目录是不够的。
+            // 扫描线程还在跑，完成后会把界面又翻回 `CATALOG_READY`；`AttachGate` 也仍被占着，
+            // 此后点 `Connect camera` 只会拿到「扫描已在进行中，忽略本次重复事件」——假的 `COLD`。
+            // 所以这里置位令牌、唤醒还在等 USB 权限的线程、并关掉当前 MTP 会话。
+            ScanRun run = scanRun;
+            if (run != null && !run.isCancelled()) {
+                run.cancel();
+                permGate.resolve(false);
+                MtpSession s = session;
+                if (s != null) {
+                    s.close();
+                    session = null;
+                }
+                log.line("点 Cancel → 取消扫描并关闭 MTP 会话");
+            }
             model.backToCatalog();
         }
 
@@ -370,11 +388,14 @@ public final class Main extends ComponentActivity {
     private void requestScan(String trigger, UsbDevice dev) {
         AttachGate.Admit admit = attachGate.admit(dev != null, service != null && service.isRunning());
         switch (admit) {
-            case GO:
+            case GO: {
+                ScanRun run = new ScanRun();
+                scanRun = run;
                 log.line(trigger + " → 开始扫描");
                 model.showScanning(0, 0);
-                new Thread(() -> scanWorker(dev), "scan-worker").start();
+                new Thread(() -> scanWorker(dev, run), "scan-worker").start();
                 break;
+            }
             case NOTHING_NO_DEVICE:
                 log.line(trigger + " → 没找到索尼设备（VID 0x054C）：检查 OTG 线、相机 USB 模式是否 MTP");
                 model.showCold();
@@ -388,43 +409,72 @@ public final class Main extends ComponentActivity {
         }
     }
 
-    private void scanWorker(UsbDevice dev) {
+    private void scanWorker(UsbDevice dev, ScanRun run) {
         try {
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
             if (!um.hasPermission(dev) && !awaitPermission(um, dev)) {
                 log.line("USB 权限未授予，退出");
-                runOnUiThread(() -> model.showError("未获得 USB 权限"));
+                postIfActive(run, () -> model.showError("未获得 USB 权限"));
+                return;
+            }
+            if (run.isCancelled()) {
+                log.line("扫描已取消，跳过会话建立");
                 return;
             }
             if (session != null) session.close();
             session = MtpSession.open(um, dev, log);
             if (session == null) {
-                runOnUiThread(() -> model.showError("相机未就绪，请拔插数据线"));
+                postIfActive(run, () -> model.showError("相机未就绪，请拔插数据线"));
+                return;
+            }
+            if (run.isCancelled()) {
+                // 取消可能发生在 open() 返回之前：刚建立的会话必须立刻关掉，
+                // 否则下一轮扫描会撞上「相机被占用」（会话是要复用的，见 MtpSession 注释）。
+                log.line("扫描已取消，关闭刚建立的 MTP 会话");
+                session.close();
+                session = null;
                 return;
             }
 
             int[] sids = session.storageIds(log);
             if (sids.length == 0) {
                 log.line("拿不到存储：请拔插 USB 线（相机会话结束后约 1 分钟会挂起 USB）");
-                runOnUiThread(() -> model.showError("相机存储不可用，请拔插数据线"));
+                postIfActive(run, () -> model.showError("相机存储不可用，请拔插数据线"));
                 return;
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
             Catalog scanned = CatalogScanner.scan(session.device(), sids, log,
-                    (done, total) -> runOnUiThread(() -> model.showScanning(done, total)));
+                    (done, total) -> postIfActive(run, () -> model.showScanning(done, total)));
+            if (!run.accept()) {
+                log.line("扫描已取消，丢弃本轮结果（不上照片墙）");
+                return;
+            }
             catalog = scanned;
             selection = new Selection(catalog);
             log.line(String.format(Locale.US, "扫描完成：文件夹 %d 个、文件 %d 个（合计 %.2f GB，其中 ARW %.2f GB）",
                     scanned.folderCount(), scanned.fileCount(),
                     scanned.fileBytes() / 1073741824.0, scanned.rawBytes() / 1073741824.0));
-            runOnUiThread(() -> model.showCatalog(scanned, selection));
+            postIfActive(run, () -> model.showCatalog(scanned, selection));
         } catch (Throwable t) {
             log.line("扫描异常：" + t);
-            runOnUiThread(() -> model.showError("相机连接已断开，请拔插数据线"));
+            postIfActive(run, () -> model.showError("相机连接已断开，请拔插数据线"));
         } finally {
+            if (scanRun == run) scanRun = null;
             attachGate.finish();
         }
+    }
+
+    /**
+     * 扫描线程往界面投递的唯一入口：取消后丢弃。
+     *
+     * 取消发生在「已投递、未执行」的窗口里时，只在投递前判一次仍会把界面翻回
+     * `CATALOG_READY`，所以判在 lambda 执行时。
+     */
+    private void postIfActive(ScanRun run, Runnable ui) {
+        runOnUiThread(() -> {
+            if (run.accept()) ui.run();
+        });
     }
 
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {

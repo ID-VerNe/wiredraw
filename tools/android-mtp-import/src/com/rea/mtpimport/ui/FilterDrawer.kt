@@ -42,7 +42,7 @@ fun FilterDrawer(model: AppModel) {
                 .verticalScroll(rememberScrollState())
         ) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("Filter", style = TextLabel)
+                BasicText("Filter", style = TextBody)
                 Spacer(Modifier.weight(1f))
                 IconAction(desc = "Close", onClick = { model.filterOpen = false }) {
                     CloseGlyph(16.dp, UiColors.outline)
@@ -78,11 +78,11 @@ private fun FilterRow(label: String, active: Boolean, onClick: () -> Unit) {
             .semantics { selected = active },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        BasicText(label, style = TextLabel.copy(color = if (active) UiColors.ink else UiColors.secondary))
+        BasicText(label, style = TextBody.copy(color = if (active) UiColors.ink else UiColors.secondary))
         Spacer(Modifier.width(8.dp))
         if (active) {
             Box(Modifier.width(12.dp))
-            BasicText("·", style = TextLabel)
+            BasicText("·", style = TextBody)
         }
     }
 }

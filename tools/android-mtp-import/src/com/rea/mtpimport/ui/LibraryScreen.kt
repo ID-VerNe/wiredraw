@@ -76,7 +76,7 @@ private fun TopBar(model: AppModel) {
         CameraGlyph(20.dp, UiColors.ink)
         Spacer(Modifier.width(8.dp))
         // 设备短名只作标识（§1.1）；长按它打开详情抽屉（L-05 的入口之一）。
-        // 热区挂在 ≥48×48 dp 的容器上（A-01 / U-09），外观仍是 13 sp 文本；
+        // 热区挂在 ≥48×48 dp 的容器上（A-01 / U-09），外观是正文 14 sp（V-01 / U-09）；
         // `onLongClick` 语义让 dump 能读到 `long-clickable`，TalkBack 也有动作可走（A-03）。
         Box(
             Modifier
@@ -94,7 +94,7 @@ private fun TopBar(model: AppModel) {
                 },
             contentAlignment = Alignment.CenterStart
         ) {
-            BasicText(model.deviceName, style = TextLabel)
+            BasicText(model.deviceName, style = TextBody)
         }
         Spacer(Modifier.weight(1f))
         Pill(model.photoCount.toString())
@@ -186,6 +186,13 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
                 role = Role.Button
                 onClick {
                     model.toggleSelection(entry)
+                    true
+                }
+                // 长按进 `photo` 页（§1.2 的入口）：手势在 `detectTapGestures` 里，
+                // 但 `clearAndSetSemantics` 会把手势语义全部清掉，读屏就进不了照片页，
+                // 所以这里补一条 `onLongClick`（PR #41 第四轮评审非阻断 1）。
+                onLongClick("Open photo") {
+                    model.openPhoto(entry)
                     true
                 }
             }
