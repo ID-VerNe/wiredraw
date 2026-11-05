@@ -39,6 +39,12 @@ public final class Main extends Activity {
     private static final String ACTION_PERM = "com.rea.mtpimport.USB_PERM";
     private static final int MAX_ROWS = 800;
 
+    /**
+     * `COLD` 的单行状态文案。§4.5 的 `T-COLD` 是「标题 + 正文」两段式，
+     * 首屏还没重做（§0.11 第 7 行），这里先给一句不撒谎的摘要。
+     */
+    private static final String COPY_COLD = "未检测到相机 · 插上数据线会自动检测";
+
     private final StringBuilder logBuf = new StringBuilder();
     private TextView logView;
     private TextView summaryView;
@@ -52,6 +58,9 @@ public final class Main extends Activity {
     private final CountDownLatch permLatch = new CountDownLatch(1);
     private volatile boolean permGranted;
     private volatile boolean permAnswered;
+
+    /** 插线事件的准入判定（#17）：同一次插拔可能从 intent 与广播投递两次，重复事件不得开第二个会话。 */
+    private final AttachGate attachGate = new AttachGate();
 
     private MtpSession session;
     private Catalog catalog;
@@ -71,7 +80,8 @@ public final class Main extends Activity {
                 log.line("USB 权限回调：granted=" + permGranted);
                 permLatch.countDown();
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
-                log.line("收到 USB_DEVICE_ATTACHED");
+                // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
+                handleAttach("收到 USB_DEVICE_ATTACHED 广播");
             }
         }
     };
@@ -91,6 +101,19 @@ public final class Main extends Activity {
         }
 
         service = new ImportService(log, new ResumableTransfer.NotImplemented(log), getFilesDir());
+
+        // 冷启动两条入口都要接（#17）：系统按默认处理者用 attach intent 拉起，或用户手动点图标。
+        // 相机已连着就直接进扫描；没连就显示 COLD 文案，之后插线由 onNewIntent / 广播再接一次。
+        autoScanOnLaunch();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // 前台插线：系统按默认处理者把 attach intent 直接投给本 Activity。
+        // 覆写之前这里走基类的空实现，intent 被直接丢掉——这就是「前台插线不自动扫描」的根因。
+        handleAttach("系统插线拉起");
     }
 
     @Override
@@ -130,8 +153,9 @@ public final class Main extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         scanBtn = new Button(this);
-        scanBtn.setText("连接并扫描");
-        scanBtn.setOnClickListener(v -> doScan());
+        // 插线已能自动检测（#17），手动入口按 §4.5 恢复为「重新检测」，不再是「连接并扫描」。
+        scanBtn.setText("重新检测");
+        scanBtn.setOnClickListener(v -> handleAttach("点「重新检测」"));
         Button allBtn = new Button(this);
         allBtn.setText("全选");
         allBtn.setOnClickListener(v -> {
@@ -157,7 +181,7 @@ public final class Main extends Activity {
 
         summaryView = new TextView(this);
         summaryView.setTextSize(12);
-        summaryView.setText("未连接");
+        summaryView.setText(COPY_COLD);
         root.addView(summaryView);
 
         ScrollView sv = new ScrollView(this);
@@ -219,7 +243,7 @@ public final class Main extends Activity {
 
     private void refreshSummary() {
         if (catalog == null) {
-            summaryView.setText("未连接");
+            summaryView.setText(COPY_COLD);
             return;
         }
         int files = selection == null ? 0 : selection.fileHandles().size();
@@ -285,25 +309,59 @@ public final class Main extends Activity {
 
     // ---------------- 动作 ----------------
 
-    private void doScan() {
-        if (service != null && service.isRunning()) {
-            log.line("传输进行中，先取消再重扫");
+    /** 冷启动检测：相机已连着就直接进扫描，否则状态区给出可读的 COLD 文案，不静默。 */
+    private void autoScanOnLaunch() {
+        UsbDevice dev = findCamera();
+        if (dev == null) {
+            summaryView.setText(COPY_COLD);
             return;
         }
-        scanBtn.setEnabled(false);
-        new Thread(this::scanWorker, "scan-worker").start();
+        requestScan("冷启动检测", dev);
     }
 
-    private void scanWorker() {
+    /** 插线事件入口：广播、attach intent 与手动按钮都从这里进。 */
+    private void handleAttach(String trigger) {
+        requestScan(trigger, findCamera());
+    }
+
+    private UsbDevice findCamera() {
+        return MtpSession.findSony((UsbManager) getSystemService(Context.USB_SERVICE), log);
+    }
+
+    /**
+     * 所有扫描入口的唯一汇合点：按钮、插线 intent（冷启动 / 前台）、插线广播、冷启动检测。
+     *
+     * 互斥与去重交给 {@link AttachGate}：同一次插拔可能从 intent 与广播投递两次，
+     * 重复事件不得开第二个 MTP 会话（相机会话同一时刻只能有一个）。
+     */
+    private void requestScan(String trigger, UsbDevice dev) {
+        AttachGate.Admit admit = attachGate.admit(dev != null, service != null && service.isRunning());
+        switch (admit) {
+            case GO:
+                log.line(trigger + " → 开始扫描");
+                summaryView.setText("正在扫描…");
+                scanBtn.setEnabled(false);
+                new Thread(() -> scanWorker(dev), "scan-worker").start();
+                break;
+            case NOTHING_NO_DEVICE:
+                log.line(trigger + " → 没找到索尼设备（VID 0x054C）：检查 OTG 线、相机 USB 模式是否 MTP");
+                summaryView.setText(COPY_COLD);
+                break;
+            case NOTHING_TRANSFERRING:
+                log.line(trigger + " → 传输进行中，先取消再重扫");
+                break;
+            case NOTHING_ALREADY_SCANNING:
+                log.line(trigger + " → 扫描已在进行中，忽略本次重复事件");
+                break;
+        }
+    }
+
+    private void scanWorker(UsbDevice dev) {
         try {
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
-            UsbDevice dev = MtpSession.findSony(um, log);
-            if (dev == null) {
-                log.line("没找到索尼设备（VID 0x054C）：检查 OTG 线、相机 USB 模式是否 MTP");
-                return;
-            }
             if (!um.hasPermission(dev) && !awaitPermission(um, dev)) {
                 log.line("USB 权限未授予，退出");
+                runOnUiThread(() -> summaryView.setText("USB 权限未授予 · 点「重新检测」重新申请"));
                 return;
             }
             if (session != null) session.close();
@@ -313,6 +371,7 @@ public final class Main extends Activity {
             int[] sids = session.storageIds(log);
             if (sids.length == 0) {
                 log.line("拿不到存储：请拔插 USB 线后重试（相机会话结束后约 1 分钟会挂起 USB）");
+                runOnUiThread(() -> summaryView.setText("未拿到存储 · 拔插数据线后点「重新检测」"));
                 return;
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
@@ -329,12 +388,14 @@ public final class Main extends Activity {
         } catch (Throwable t) {
             log.line("扫描异常：" + t);
         } finally {
+            attachGate.finish();
             runOnUiThread(() -> scanBtn.setEnabled(true));
         }
     }
 
     private boolean awaitPermission(UsbManager um, UsbDevice dev) throws InterruptedException {
         log.line("尚无 USB 权限，发起申请");
+        runOnUiThread(() -> summaryView.setText("等待 USB 授权 · 请在系统弹窗点「允许」"));
         Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName());
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;

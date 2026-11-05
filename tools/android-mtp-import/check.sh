@@ -24,6 +24,7 @@ mkdir -p "$OUT"
 # 清单必须与磁盘一致——漏列一个文件，它就悄悄脱离了这条保护，
 # 所以下面第 0 步会拿 `grep -L '^import android'` 的实际结果对清单做漂移检查。
 PURE=(
+  src/com/rea/mtpimport/AttachGate.java
   src/com/rea/mtpimport/Catalog.java
   src/com/rea/mtpimport/ImportListener.java
   src/com/rea/mtpimport/ImportPlan.java
