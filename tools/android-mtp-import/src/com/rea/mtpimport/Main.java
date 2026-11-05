@@ -405,10 +405,14 @@ public final class Main extends Activity {
         log.line("尚无 USB 权限，发起申请");
         runOnUiThread(() -> summaryView.setText("等待 USB 授权 · 请在系统弹窗点「允许」"));
         int seq = permGate.begin();
+        // requestCode 必须用 seq（#11 复评）：PendingIntent 记录按 requestCode 区分，
+        // 固定用 0 + FLAG_UPDATE_CURRENT 时所有申请共用一条记录，后一次 begin() 会把
+        // extras 里的 seq 覆写成新值——上一轮迟到的回调于是带着「当前」seq 到达，
+        // 序号判定被绕过，又回到「迟到回调被当成当前回调」。每条申请一条独立记录后，
+        // 迟到回调只会携带它自己那一轮的 seq，被 PermGate.onResult 丢弃。
         Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName()).putExtra(EXTRA_PERM_SEQ, seq);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
-        um.requestPermission(dev, PendingIntent.getBroadcast(this, 0, pi, flags));
+        // 记录已按 seq 唯一，不需要 UPDATE_CURRENT；Intent 只由系统回填授权结果，用 IMMUTABLE。
+        um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_IMMUTABLE));
         permGate.await(120, TimeUnit.SECONDS);
         return permGate.granted();
     }

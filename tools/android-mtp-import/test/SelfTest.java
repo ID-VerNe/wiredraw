@@ -222,6 +222,26 @@ public final class SelfTest {
         check("perm：cancel() 提前释放 await，但不能被当成授权",
                 g.await(1, TimeUnit.SECONDS) && !g.granted(),
                 "granted=" + g.granted());
+
+        // 迟到回调的最坏形态（#11 复评）：第一轮已被「允许」，第二轮 begin() 之后
+        // 第一轮的回调才到。PendingIntent 若共用一条记录（requestCode 固定 0 +
+        // FLAG_UPDATE_CURRENT），这条迟到广播会带着第二轮写入的新 seq 到达，
+        // 序号判定就被绕过；requestCode=seq 让每条记录自带本轮 extras。
+        // 这里钉住 PermGate 这一侧的合同：拿旧 seq 回来一定不被接受。
+        PermGate late = new PermGate();
+        int round1 = late.begin();
+        check("perm：迟到用例的第一轮序号为 1", round1 == 1, "实际 " + round1);
+        check("perm：第一轮允许生效", late.onResult(round1, true) && late.granted(),
+                "granted=" + late.granted());
+
+        int round2 = late.begin();
+        check("perm：第二轮 begin 复位了第一轮的 granted", !late.granted(), "granted=" + late.granted());
+        check("perm：迟到回调（第一轮 seq）不被接受", !late.onResult(round1, true), "返回值 true");
+        check("perm：迟到回调不把 granted 改成 true", !late.granted(), "granted=" + late.granted());
+        check("perm：迟到回调没有释放第二轮的等待",
+                !late.await(30, TimeUnit.MILLISECONDS), "await=true");
+        check("perm：迟到回调之后，第二轮自己的回调仍然生效",
+                late.onResult(round2, true) && late.granted(), "granted=" + late.granted());
     }
 
     // ---------------- Selection ----------------
