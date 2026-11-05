@@ -92,8 +92,11 @@ adb shell am start -n com.rea.mtpimport/.Main
 adb logcat -s MTPIMPORT:*
 ```
 
-相机侧：`MENU → 设置 → USB连接 → MTP`（不是 PC 遥控）。插线系统会自动拉起本 App
-并自动授权（manifest 挂了 `USB_DEVICE_ATTACHED` + `res/xml/device_filter.xml`）。
+相机侧：`MENU → 设置 → USB连接 → MTP`（不是 PC 遥控）。插线自动拉起与自动授权
+都是**有条件的**：拉起依赖本包是该设备的默认处理者（`adb shell dumpsys usb` 的
+`device_preferences` 指向 `com.rea.mtpimport`）并已选「始终打开」；授权只在本包
+**已有该设备授权记录**时静默通过，首次或无授权记录时系统仍会弹「是否允许访问 MTP」，
+必须点「允许」（manifest 挂了 `USB_DEVICE_ATTACHED` + `res/xml/device_filter.xml`）。
 
 续传日志落在 `getFilesDir()/import-journal.txt`，可以直接看：
 
