@@ -6,12 +6,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Insets;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -105,9 +107,19 @@ public final class Main extends Activity {
     // ---------------- 界面 ----------------
 
     private View buildUi() {
+        // targetSdk 35 在 Android 15 上强制 edge-to-edge（窗口属性里能看到 EDGE_TO_EDGE_ENFORCED），
+        // 内容默认从 [0,0] 起排；这里显式关掉装饰拟合，并把 systemBars 让位加到根容器内边距上。
+        getWindow().setDecorFitsSystemWindows(false);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(24, 24, 24, 24);
+        final int padH = dp(16);
+        final int padV = dp(8);
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+            v.setPadding(padH + bars.left, padV + bars.top, padH + bars.right, padV + bars.bottom);
+            return insets;
+        });
 
         logView = new TextView(this);
         logView.setTextSize(10);
@@ -188,6 +200,11 @@ public final class Main extends Activity {
         root.addView(ops);
 
         return root;
+    }
+
+    /** dp → px：本工程 UI 全代码构建，尺寸一律走 dp，避免 560 dpi 之类的密度差异写死像素。 */
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     void logLine(String s) {
