@@ -227,7 +227,7 @@
 | `COLD` 未连接 | 冷启动且无已授权相机 | **缺**（本版按 `T-COLD` 补齐） | 见 `T-COLD` | `Connect camera`（等价于原「重新检测」行为）、返回退出 | 空白首屏；`Waiting` / `Loading` / 「等待开始」这类无对象状态词；主 CTA 被顶栏遮挡；插线后仍要求用户手动点 CTA（插线应自动触发，§0.2，已由 #17 接通） |
 | `PERMISSION_PENDING` 未授权 | 系统 USB 授权弹窗未返回 | **缺**（本版按 `T-PERMISSION` 补齐） | 见 `T-PERMISSION` | `Allow`（再次触发系统弹窗）、返回退出 | 静默等待（当前最长 120 s 无反馈，见 F13）；只给「去设置」而不给 `Allow`；中文说明句 |
 | `SCANNING` 扫描中 | 扫描线程启动 | **缺**（本版按 `T-SCANNING` 补齐） | 见 `T-SCANNING` | `Cancel` | 照片墙可操作（若显示上一轮，必须 `enabled=false` 置灰并标 `Last import`，见 §1.1 / U-43）；主 CTA 可点；显示速率或剩余时间 |
-| `CATALOG_READY` 日期分组 + 照片墙 | 扫描成功 | **有**（`library`，含 0 选 / ≥1 选 / 折叠三子态；CTA 切换需补齐） | 见 `T-CATALOG` | 折叠、过滤抽屉、点格选/取消、`Import all N` / `Import N` | **不得因未选**而禁用主 CTA（`P-09` 的空间预检除外；任务 A 要求 0 选择也能一键全导，§0.5）；同屏并置两个总量分母；网格内显示文件名/大小/徽标/勾选圈；已选数写进正文句 |
+| `CATALOG_READY` 日期分组 + 照片墙 | 扫描成功 | **有**（`library`，含 0 选 / ≥1 选 / 折叠三子态；CTA 切换需补齐） | 见 `T-CATALOG` | 折叠、过滤抽屉、点格选/取消、`Import all N` / `Import N` | **不得因未选**而禁用主 CTA（`P-09` 的空间预检除外；任务 A 要求 0 选择也能一键全导，§0.5）；同屏并置两个总量分母；网格内显示文件名/大小/徽标/勾选圈（仅两处例外：`V-19` 降级块的文件名、`V-11` 降级形态的复选框）；已选数写进正文句 |
 | `IMPORTING` 传输中 | 导入线程启动 | **有**（`transfer`，控件与无障碍不完整） | 见 `T-IMPORTING` | `Pause`、`Cancel`、顶部返回（关闭视图，见 §1.3） | 修改已选；返回键直接销毁任务；进度停在 0 不动；主视觉出现速率/剩余时间/协议 |
 | `PAUSED` 已暂停 | 用户暂停 | **缺**（本版按 `T-PAUSED` 补齐） | 见 `T-PAUSED` | `Resume`、`Cancel` | `Resume` 不可点；把暂停态显示成完成态；环数值继续变化 |
 | `DONE` 完成 | 全部结束且有成功项 | **缺**（本版按 `T-DONE` 补齐） | 见 `T-DONE` | `Open`、位置图标（进 `Location details`）、返回退出 | 四段统计（成功/跳过/失败/总数）；任务 ID、哈希、协议、内部编号；统计卡 |
@@ -567,7 +567,7 @@ Next:    <一个可执行动作>
   `N` 一律取**模型内数量**（不是已渲染行数，见 C-08）。已导入索引缺失时（§0.11 第 1 行），
   「新片」不可计算，CTA 同为 `Import all N`——这是唯一允许的降级写法，其余位置不得另造。
 - **`T-CATALOG` 的「主文案」列**同时列了徽标与 CTA：**徽标 / CTA 不属于状态主文案**（`C-01` 只约束状态主文案的一行 ≤20 字符），
-  本状态的主表达是照片墙；三者并列出现不违反 `C-01`。
+  本状态的主表达是照片墙首行；三者并列出现不违反 `C-01`，`U-03` 在该状态判「主按钮 + 照片墙首行同屏」。
 - **按钮词表（本文件唯一出处）**：状态模板与 `U-xx` 出现的按钮名一律以本表为准，其他章节直接引用、不复述。
 
   | 动作（文档内） | 按钮/图标文案 | 用在哪 |
@@ -666,23 +666,23 @@ Next:    <一个可执行动作>
 
 | 编号 | 状态 | 断言 | 验证方法 |
 |---|---|---|---|
-| U-01 | 保留 | 冷启动首屏存在唯一主按钮，且完全位于顶栏与状态栏之下 | dump：主按钮 `bounds` 与系统栏、系统 ActionBar（若存在）、`topBar` 三者交集均为空，且 `bounds.top` ≥ 顶栏 `bounds.bottom`；实心主按钮节点数 = 1 |
-| U-02 | 保留 | 可点击控件不得被系统栏或顶栏遮挡（顶栏自身控件除外） | dump 逐控件矩形检查：对每个 `clickable=true` 且**不是**顶栏后代的节点，其 `bounds` 与系统栏 / `action_bar` / `topBar` 的交集必须为空；顶栏后代的 `bounds` 必须完全落在顶栏内。状态栏底边取 `dumpsys window` 的 `mStatusBarHeight` 或 `status_bar` 节点 `bounds.bottom`，结论注明用了哪一种 |
-| U-03 | 保留 | 在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` / `ERROR` 下，不滚动即可看到主按钮与状态主文案 | dump：主按钮 `bounds.bottom` ≤ 屏幕高度 − 手势条高度、`bounds.top` ≥ 顶栏底边；状态主文案节点与主按钮同屏且两矩形不相交；首屏截图复核 |
+| U-01 | 改写 | 冷启动首屏存在唯一主按钮，且完全位于顶栏与状态栏之下 | dump：主按钮 `bounds` 与系统栏、系统 ActionBar（若存在）、`topBar` 三者交集均为空，且 `bounds.top` ≥ 顶栏 `bounds.bottom`；实心主按钮节点数 = 1 |
+| U-02 | 改写 | 可点击控件不得被系统栏或顶栏遮挡（顶栏自身控件除外） | dump 逐控件矩形检查：对每个 `clickable=true` 且**不是**顶栏后代的节点，其 `bounds` 与系统栏 / `action_bar` / `topBar` 的交集必须为空；顶栏后代的 `bounds` 必须完全落在顶栏内。状态栏底边取 `dumpsys window` 的 `mStatusBarHeight` 或 `status_bar` 节点 `bounds.bottom`，结论注明用了哪一种 |
+| U-03 | 改写 | 在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` 下，不滚动即可看到主按钮与该状态的**主表达**（`COLD` 为用户可见主文案 `No camera`；`PERMISSION_PENDING` 的主表达就是 `Allow` 主按钮本身；`CATALOG_READY` 为照片墙首行） | dump：主按钮 `bounds.bottom` ≤ 屏幕高度 − 手势条高度、`bounds.top` ≥ 顶栏底边；`COLD` / `CATALOG_READY` 另判主表达节点与主按钮同屏且两矩形不相交；`PERMISSION_PENDING` 两者是同一节点，只判主按钮矩形，不判「两矩形不相交」；首屏截图复核 |
 | U-04 | 改写 | 日志/明细默认收起，展开不挤压主操作；入口改为长按顶栏设备名 | 长按前后各 dump 一次：主按钮 `bounds` 四个值完全不变；抽屉容器 `bounds` 高度增大且上边不低于顶栏底边；默认 dump 中不得出现抽屉容器 |
 | U-06 | 保留 | 扫描可取消，取消后回到稳定状态 | 操作录屏/日志 + 状态截图 |
-| U-08 | 保留 | 分组可折叠/展开，折叠后可见单元数下降 | 操作前后 dump 计数对比 |
-| U-09 | 保留 | 可点目标 ≥48 dp；正文 ≥14 sp；说明/数字 ≥12 sp | dump bounds + 代码/资源核对 |
-| U-10 | 改写 | 日期组头与网格视觉可区分；`Folder` 只出现在 `Location details` | dump：组头文本匹配 `Date group` 前缀或组头格式；网格单元无文本；`Folder` 字面量只允许出现在 `Location details` 展开后的节点 |
+| U-08 | 改写 | 分组可折叠/展开，折叠后可见单元数下降 | 操作前后 dump 计数对比 |
+| U-09 | 改写 | 可点目标 ≥48 dp；正文 ≥14 sp；说明/数字 ≥12 sp | dump bounds + 代码/资源核对 |
+| U-10 | 改写 | 日期组头与网格视觉可区分；`Folder` 只出现在 `Location details` | dump：组头文本匹配 `Date group` 前缀或组头格式；网格单元无文本（`V-19` 降级块的文件名除外）；`Folder` 字面量只允许出现在 `Location details` 展开后的节点 |
 | U-12 | 改写 | 主 CTA 文案数与模型内已选数一致 | `Import N` 的 N = 模型已选数；已选 0 时必须是 `Import all N`，N = 模型照片总数；不要求渲染节点数与 N 相等 |
 | U-13 | 改写 | 未显示计数若出现，N = catalog 总数 − 已渲染数（1526/800 时为 726） | dump 文本 + catalog 总数；`1526` 的允许位置见 `C-09`（含 `T-SCANNING` 的进度分母） |
 | U-14 | 保留 | 容量无 `0.00 GB`；GB 2 位、MB 1 位；<0.1 GB 显示 MB | 截图/单测 |
-| U-17 | 改写 | 非传输态不出现 `Pause` / `Resume` / `Cancel` 传输控件 | dump：`IMPORTING` / `PAUSED` 以外状态的节点里不得有 `contentDescription` 为 `Pause` / `Resume` / `Cancel` 且属于传输区的控件 |
+| U-17 | 改写 | 非传输态不出现 `Pause` / `Resume` / `Cancel` 传输控件 | dump：`IMPORTING` / `PAUSED` 以外状态的节点里不得有 `contentDescription` 为 `Pause` / `Resume` / `Cancel` 且属于传输区的控件（`SCANNING` 的 `Cancel` 属扫描区，不在此判） |
 | U-21 | 改写 | 续传时 `Details` 抽屉出现 `Skipped N existing`，主视觉不出现该句 | 操作录屏 + 展开抽屉后 dump；首屏 dump 不匹配 `Skipped` |
 | U-24 | 保留 | 系统字号 1.3×/2.0× 无裁切/重叠 | 两种字号截图 + dump |
 | U-25 | 暂不适用 | 系统深色模式下背景/文字跟随 | 随 `V-08` 暂不适用；恢复时按 V-07 实算值判定 |
-| U-26 | 保留 | 正文对比度 ≥4.5:1 | 取色工具计算；配对与实算值见 V-07 |
-| U-27 | 保留 | TalkBack 可朗读状态、进度与网格层级 | TalkBack 操作录屏/日志 |
+| U-26 | 改写 | 正文对比度 ≥4.5:1 | 取色工具计算；配对与实算值见 V-07 |
+| U-27 | 改写 | TalkBack 可朗读状态、进度与网格层级 | TalkBack 操作录屏/日志 |
 | U-29 | 改写 | 一级为日期分组（组内聚合），组内为缩略图或 §0.7 降级块 | dump：组头含日期 + 组内张数 + 组内容量；组内节点为图片或「灰块 + 文件名」；原始 MTP 路径默认不可见，展开 `Location details` 后才出现 |
 
 ### 8.2 十态首屏断言（新增，`U-41`～`U-50`）
@@ -694,7 +694,7 @@ Next:    <一个可执行动作>
 | U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
 | U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏无数字徽标**（`1526` 只作进度分母，不与照片数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
-| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配）；同屏出现两个不同的总量分母 |
+| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个不同的总量分母 |
 | U-45 | `IMPORTING` | 文本匹配 `\d+%` 恰好 1 处、`\d+/\d+` 恰好 1 处；`Pause` 与 `Cancel` 各 1 个且 `clickable=true`；`round(已完成/总数×100)` 与百分比差 ≤1 | `MB/s`、`~\d+ min`、`MTP`、`USB`、第二个百分比；已选可修改；`Done` |
 | U-46 | `PAUSED` | 环内数值与暂停瞬间相同；`Resume` 与 `Cancel` 存在且可点 | 完成标记、`Done`；环数值继续变化；`Import` 可点 |
 | U-47 | `DONE` | `Done`；文本匹配 `\d+ · \d+(\.\d)? MB` 或 `\d+ · \d+\.\d{2} GB`（按 C-05）；`contentDescription` 含 `Location` 且 `clickable=true`；`Open` 存在 | `Imported\s*\d+`、`Skipped\s*\d+`、`Failed\s*\d+`、`total`、`TASK`、哈希、`§`；统计卡 |
@@ -711,15 +711,20 @@ Next:    <一个可执行动作>
 | U-53 | 徽标口径 | 顶栏徽标 = catalog 中 ARW 张数；与 `Import all N` 的 N 相等；同屏不出现第二个总量分母 | 读 catalog 总数与 ARW 数；dump 徽标文本；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 511 ARW / 12.75 GB | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列四个数一致（`demo_state` 入口**尚不存在**，PR-2 待建） |
 
-### 8.4 `U-xx` 变更对照（重写 / 废止 / 新增）
+### 8.4 `U-xx` 变更对照（改写 / 废止 / 挂起 / 新增）
 
 > **本轮不做整体重编号**：旧编号一律原位保留（改写或废止都在原号标注），避免历史 PR、issue 与代码注释里的引用失效。
 > 新增断言从 `U-41` 起连续编号。**`U-25` 的断言与恢复条件只定义在 §8.1，本表不重复**（§10 第 6 条）。
 
 | 旧编号 | 处理 | 承接 / 理由 |
 |---|---|---|
+| U-01 | 改写 | 措辞：`topBar`（若存在）→ `topBar`；判定对象不变，标准不降低 |
+| U-02 | 改写 | 措辞：`系统 action_bar` / `mStatusBarHeight（或 dump 中…）` 的括号写法改为固定取值路径 |
+| U-03 | 改写 | 判定对象：状态清单改为 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY`；`ERROR` 无实心主按钮（V-09），可见性由 `U-48` 承担 |
 | U-05 | 废止 | 原以全选/清空/导入主按钮判定扫描态；定稿无这些控件。并入 U-43，新增「禁速率/ETA」「禁旧墙可点」两条更严断言 |
 | U-07 | 废止 | 原要求扫描进度含预计剩余；定稿删除剩余时间，并入 U-43 并反转为「不得出现」 |
+| U-08 | 改写 | 判定对象：行数 → 单元数、dump 行数 → dump 计数 |
+| U-09 | 改写 | 判定对象：行高 ≥48 → **可点目标** ≥48（A-01 的 48 dp 收口） |
 | U-11 | 废止 | 定稿无目录树父子三态，判定对象不存在 |
 | U-15 | 废止 | 定稿无模态摘要，改为「点 CTA 直接开始」，承接编号 **P-10**（非 U-44）；U-44 只管组头与徽标 |
 | U-16 | 废止 | 并入 U-45；新增「百分比与 a/b 自洽」「禁主视觉速率」两条更严断言 |
@@ -728,7 +733,9 @@ Next:    <一个可执行动作>
 | U-20 | 废止 | 并入 U-48；三段式改到抽屉，首屏只留一行原因 + `Connect camera` |
 | U-22 | 废止 | 并入 U-42；`Allow` 为唯一主按钮，删去「去设置」 |
 | U-23 | 废止 | 并入 U-49；空态改 `No photos` + `Connect camera` 图标 |
-| U-28 | 挂起 | 定稿无清空入口，V-17 同步挂起。工作区已按本节前文删除，原断言要点：清空动作可撤销；清空后出现 `Undo`；撤销后 `checked=true` 的行集合须与清空前**逐条相等**（三次 dump 比对，不只看数量）；功能落地后按此恢复，基线原文见 `git show 73bbdc2:tools/android-mtp-import/UI-SPEC.md` 的 §8.1 |
+| U-26 | 改写 | 措辞：补「配对与实算值见 `V-07`」 |
+| U-27 | 改写 | 判定对象：行层级 → 网格层级 |
+| U-28 | 挂起 | 定稿无清空入口，V-17 同步挂起。该控件已按本节前文删除，原断言要点：清空动作可撤销；清空后出现 `Undo`；撤销后 `checked=true` 的行集合须与清空前**逐条相等**（三次 dump 比对，不只看数量）；功能落地后按此恢复，基线原文见 `git show 73bbdc2:tools/android-mtp-import/UI-SPEC.md` 的 §8.1 |
 | U-30 | 废止 | 首屏说明句删除，判定改由 `T-05` / `T-06` 承担 |
 | U-41～U-50 | 新增 | 10 态逐态首屏断言（8 态无设计稿，本版补齐） |
 | U-51～U-54 | 新增 | `photo` 页、过滤抽屉、徽标分母、假数据模式 |
