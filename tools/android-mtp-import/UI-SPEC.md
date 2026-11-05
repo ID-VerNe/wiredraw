@@ -255,7 +255,8 @@
   (a) `WindowCompat.setDecorFitsSystemWindows(false)` + 对内容容器（或根容器的 padding 内边界）施加 `WindowInsets`；
   (b) 使用无 ActionBar 主题（`Theme.Material.NoActionBar` 或等价）并自绘顶栏，再按 insets 让位。
   **`library` 与 `photo` 两页**必须显式施加上下 inset：顶栏吃 `statusBars`，底部 CTA/内容吃 `navigationBars`；
-  原型里 `library` 顶栏缺 `pt-safe`、`photo` 两处都缺——这两处**不得照抄**。
+  原型里 `library` / `photo` 的 `pt-safe`、`pb-safe` **类名存在，但本文件内没有对应的 `@supports` 定义**
+  （三页中只有 `transfer` 定义了），因此实际未生效——这两页的写法**不得照抄**。
 - **L-02** 可点击控件不得被系统栏与顶栏遮挡。任何 `clickable=true` 控件：
   (1) 与系统栏的矩形交集**必须**为空（交集高度 0）；
   (2) **不得**被顶栏遮挡——其 `bounds` 与顶栏 `bounds` 的交集**必须**为空；
@@ -301,7 +302,7 @@
 | 角色 | 字号 | 行高 | 字重 | 字距 | 用途 |
 |---|---|---|---|---|---|
 | `display` | 36 sp | 42 | 600 | -0.03em | 未使用（留给终态大数字） |
-| `display-sm` | 24 sp | 28 | 600 | -0.02em | 环内 `33%`、`DONE` 的 `36 · 871 MB` |
+| `display-sm` | 24 sp | 28 | 600 | -0.02em | 环内 `33%`、`DONE` 的 `36 · 871 MB`。**本文新增，非定稿 token**（定稿十个 typography token 无 24 px 一级） |
 | `headline-lg` | 28 sp | 34 | 600 | -0.025em | 未使用 |
 | `headline-md` | 22 sp | 28 | 500 | -0.02em | 未使用 |
 | `headline-sm` | 18 sp | 24 | 500 | -0.015em | 未使用 |
@@ -317,6 +318,7 @@
 - **V-03** 同一屏字号层级**不得**超过 3 级；主按钮与正文同级（14 sp）。
   **24 sp 必须来自 `display-sm`**，**不得**硬编码裸字号（原型 `text-[24px]` 属越级）。
 - 字体族**必须**统一为 Geist（含 `mono-data`）；**不得**再引入第二套字形假设。
+- 图标字形尺寸沿用定稿字面量（16 / 18 / 20 / 22 px），**不新增 token**，也**不得**新增第五个尺寸。
 
 ### 3.2 间距栅格
 
@@ -379,13 +381,15 @@
 | 语义 | `error-container` | `#ffdad6` |
 | 语义 | `on-error-container` | `#93000a` |
 
-**落地口径（解决定稿正文与 token 的三处漂移，以页面实际为准）**
+**落地口径（解决定稿正文、页面与 token 的五处漂移，以页面实际为准）**
 
 | 项 | 漂移 | 本文口径 |
 |---|---|---|
 | 画布底色 | `surface` / `background` 是 `#f9f9f9`，正文说「Pure White」 | 页面底用 `surface-container-lowest` `#ffffff`；`#f9f9f9` 只用于需要与画布区分的面板 |
+| 底色 token 值 | `library` 把 `background` 覆盖为 `#ffffff`，`transfer` / `photo` 仍是 `#f9f9f9` | 三页统一按画布 `#ffffff`；`#f9f9f9` 降为次级面板底（结论同上一行，本条只记值差） |
 | 主墨 | `primary` 是 `#000000`，正文说 `#111111` | 主墨与 CTA 底统一 `#111111`；白字压 `#111111` 为 18.9:1 |
 | 次级墨 | 页面用 `black/60`、`black/40`（`#000` 的 alpha），正文写 `#707070` | 次级文字用 `on-surface-variant` `#444748`（9.4:1）；`#666666` 仅作下限示例；`black/40`、`black/45` **只许装饰**，不得承载正文 |
+| 缩略图圆角 | DESIGN.md 写 `rounded-lg = 1rem`，页面 tailwind 覆盖为 `0.5rem`（8 px） | 以页面 8 dp 为准（`V-21`）；DESIGN 正文的 12–16 px **不采纳** |
 
 - **V-07** 正文与背景对比度**必须** ≥4.5:1；大字（≥18 sp 或 ≥14 sp Bold）≥3:1；图标/描边等图形 ≥3:1。
   实算值（WCAG 2.1 相对亮度，2026-11-05）：
@@ -397,7 +401,7 @@
   | `#666666` on `#ffffff` | 5.7:1 | 次级的对比度下限示例 |
   | `error` `#ba1a1a` on `#ffffff` | 6.5:1 | 错误文字 |
   | `on-primary` `#ffffff` on `#111111` | 18.9:1 | 主 CTA 文字 |
-  | `outline` `#747878` on `#ffffff` | 4.5:1 | 图标/描边下限 |
+  | `outline` `#747878` on `#ffffff` | 4.47:1 | 图标/描边下限（≥3:1） |
   | `#999999` on `#ffffff` | 2.8:1 | **仅装饰**，不得正文 |
   | `outline-variant` `#c4c7c7` on `#ffffff` | 1.7:1 | **仅分隔**，不得图标/文字 |
 
@@ -484,7 +488,10 @@
   与 `Import all N` 同分母；**不得**写「已渲染/总数」这类句子，**不得**同屏并置对象总数与照片数。
 - **C-09（改写）** 若出现「还有 N 未显示」这类提示，N **必须** = 全树 catalog 总数 − 已渲染数；
   **不得**用截断集合的差值（当前恒 ≤200，实际缺口 726，见 F6 / #15）。
-  `1526`（对象总数）**只允许**出现在此处或 `Location details`，不得与徽标同屏。
+  `1526`（对象总数）**只允许**出现在三处：上述「未显示计数」提示、`Location details` 展开后的详情、
+  或 `T-SCANNING` 的进度分母（`320/1526`，扫描进度按对象计数，见 §4.5）。
+  `SCANNING` 态顶栏**不显示**徽标（徽标只在 `CATALOG_READY` 出现，由 `U-43` / `U-44` 分别判定），
+  因此「对象总数」与「照片数徽标」在结构上**不可能同屏**。
 - **C-10（改写）** 已选数**只**出现在主 CTA（`Import N`）；**不得**写「已选 N 个文件（ARW N 张）· N 个文件夹」这类正文句，
   网格内不得标已选数。
 
@@ -631,7 +638,7 @@ Next:    <一个可执行动作>
 | U-09 | 保留 | 可点目标 ≥48 dp；正文 ≥14 sp；说明/数字 ≥12 sp | dump bounds + 代码/资源核对 |
 | U-10 | 改写 | 日期组头与网格视觉可区分；`Folder` 只出现在 `Location details` | dump：组头文本匹配 `Date group` 前缀或组头格式；网格单元无文本；`Folder` 字面量只允许出现在 `Location details` 展开后的节点 |
 | U-12 | 改写 | 主 CTA 文案数与模型内已选数一致 | `Import N` 的 N = 模型已选数；已选 0 时必须是 `Import all N`，N = 模型照片总数；不要求渲染节点数与 N 相等 |
-| U-13 | 改写 | 未显示计数若出现，N = catalog 总数 − 已渲染数（1526/800 时为 726） | dump 文本 + catalog 总数；`1526` 只允许出现在该提示或 `Location details` |
+| U-13 | 改写 | 未显示计数若出现，N = catalog 总数 − 已渲染数（1526/800 时为 726） | dump 文本 + catalog 总数；`1526` 的允许位置见 `C-09`（含 `T-SCANNING` 的进度分母） |
 | U-14 | 保留 | 容量无 `0.00 GB`；GB 2 位、MB 1 位；<0.1 GB 显示 MB | 截图/单测 |
 | U-17 | 改写 | 非传输态不出现 `Pause` / `Resume` / `Cancel` 传输控件 | dump：`IMPORTING` / `PAUSED` 以外状态的节点里不得有 `contentDescription` 为 `Pause` / `Resume` / `Cancel` 且属于传输区的控件 |
 | U-21 | 改写 | 续传时 `Details` 抽屉出现 `Skipped N existing`，主视觉不出现该句 | 操作录屏 + 展开抽屉后 dump；首屏 dump 不匹配 `Skipped` |
@@ -649,8 +656,8 @@ Next:    <一个可执行动作>
 |---|---|---|---|
 | U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
-| U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
-| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d+ GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d+ MB` | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标、勾选圈；同屏出现两个不同的总量分母 |
+| U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏无数字徽标**（`1526` 只作进度分母，不与照片数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
+| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标、勾选圈；同屏出现两个不同的总量分母 |
 | U-45 | `IMPORTING` | 文本匹配 `\d+%` 恰好 1 处、`\d+/\d+` 恰好 1 处；`Pause` 与 `Cancel` 各 1 个且 `clickable=true`；`round(已完成/总数×100)` 与百分比差 ≤1 | `MB/s`、`~\d+ min`、`MTP`、`USB`、第二个百分比；已选可修改；`Done` |
 | U-46 | `PAUSED` | 环内数值与暂停瞬间相同；`Resume` 与 `Cancel` 存在且可点 | 完成标记、`Done`；环数值继续变化；`Import` 可点 |
 | U-47 | `DONE` | `Done`；文本匹配 `\d+ · \d+(\.\d)? MB` 或 `\d+ · \d+\.\d{2} GB`（按 C-05）；`contentDescription` 含 `Location` 且 `clickable=true`；`Open` 存在 | `Imported\s*\d+`、`Skipped\s*\d+`、`Failed\s*\d+`、`total`、`TASK`、哈希、`§`；统计卡 |
@@ -670,7 +677,7 @@ Next:    <一个可执行动作>
 ### 8.4 `U-xx` 变更对照（重写 / 废止 / 新增）
 
 > **本轮不做整体重编号**：旧编号一律原位保留（改写或废止都在原号标注），避免历史 PR、issue 与代码注释里的引用失效。
-> 新增断言从 `U-41` 起连续编号。
+> 新增断言从 `U-41` 起连续编号。**`U-25` 的断言与恢复条件只定义在 §8.1，本表不重复**（§10 第 6 条）。
 
 | 旧编号 | 处理 | 承接 / 理由 |
 |---|---|---|
@@ -684,7 +691,6 @@ Next:    <一个可执行动作>
 | U-20 | 废止 | 并入 U-48；三段式改到抽屉，首屏只留一行原因 + 重试 |
 | U-22 | 废止 | 并入 U-42；`Allow` 为唯一主按钮，删去「去设置」 |
 | U-23 | 废止 | 并入 U-49；空态改 `No photos` + 重试图标 |
-| U-25 | 暂不适用 | 仅 light；恢复条件见 V-08 |
 | U-28 | 挂起 | 定稿无清空入口，V-17 同步挂起；功能落地后按原断言恢复 |
 | U-30 | 废止 | 首屏说明句删除，判定改由 `T-05` / `T-06` 承担 |
 | U-41～U-50 | 新增 | 10 态逐态首屏断言（8 态无设计稿，本版补齐） |
