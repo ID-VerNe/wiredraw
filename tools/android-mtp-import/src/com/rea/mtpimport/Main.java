@@ -87,7 +87,12 @@ public final class Main extends ComponentActivity {
             }
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
             if (um.hasPermission(dev)) {
-                log.line("点 Allow → 权限已经在手，扫描线程继续");
+                // 权限已经在手时不能只记日志：系统对话框的广播可能永远不来（用户先前已授权、
+                // 或授权发生在别的会话），扫描线程仍卡在 `permGate.await` 上，要空等 120 s 才超时。
+                // 这里按「内部已知事实」直接把本轮等待判成已授权（PR #41 第三轮评审小项 1）。
+                boolean released = permGate.resolve(true);
+                log.line("点 Allow → 权限已经在手，"
+                        + (released ? "放行扫描线程" : "本轮等待已结束"));
                 return;
             }
             int seq = requestPermission(um, dev);
@@ -132,24 +137,35 @@ public final class Main extends ComponentActivity {
 
         @Override
         public void onOpen() {
-            // `Open` 目前只记日志：打开系统相册属于后续版本（§0.4 明确不在此轮范围内）。
-            log.line("点 Open（本版本只记录，不跳相册）");
+            // `Open` 目前只记日志：打开系统相册属于后续版本，不在 `UI-SPEC.md` §0.4 的
+            // 「本轮不做」清单里（那里只列遥控 / 删除 / ARW 解码 / Wi-Fi / 云同步），
+            // 所以按「待建功能」处理，等后续 issue 排期。
+            log.line("点 Open（本版本只记录，不跳相册；待建清单项）");
         }
 
         @Override
         public void onBack() {
-            // 退出确认框开着时，返回键先关框（视同 `Resume`）。
+            // 浮层优先（PR #41 第三轮评审 P1）：确认框 → 抽屉（Filter / Details）→ 照片 → 传输 → 终态/启动态。
+            // 模态开着时返回键只关模态，不许顺带退出应用或关掉底下的页面：
+            // `CATALOG_READY` 开 Filter 后返回若落到 `finish()`，就是「模态没关、应用先退」。
+            // 这与 `UI-SPEC.md` §1.3 字面的「`CATALOG_READY` 直接退出」有张力，规范补充另开了
+            // 一张 documentation issue（见 PR 正文的 `#NN`），本 PR 不顺手改规范。
             if (model.getExitConfirmOpen()) {
                 model.setExitConfirm(false);
                 return;
             }
-            if (model.getOpenedPhoto() != null) {
-                model.closePhoto();
+            if (model.getFilterOpen()) {
+                model.setFilterOpen(false);
                 return;
             }
-            // 抽屉判断必须在传输态之前：传输中开着 Details 时按返回应当只关抽屉（B2 附带缺陷）。
+            // 抽屉判断必须在照片与传输态之前：照片页开 `Location` 后按返回应当只关抽屉
+            // （否则先关照片、抽屉继续盖在照片墙上），传输中同理（B2 附带缺陷）。
             if (model.getDetailsOpen()) {
                 model.setDetailsOpen(false);
+                return;
+            }
+            if (model.getOpenedPhoto() != null) {
+                model.closePhoto();
                 return;
             }
             // `IMPORTING` / `PAUSED` 下返回键不得销毁任务（§1.3）：弹 `Pause & exit` / `Resume`。

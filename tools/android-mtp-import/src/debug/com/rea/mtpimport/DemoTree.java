@@ -104,7 +104,8 @@ public final class DemoTree {
     }
 
     /**
-     * 某个状态的假载荷。目录态才带假树；其余态带该态需要的计数。
+     * 某个状态的假载荷。目录态与 `ERROR` 带假树（`ERROR` 要验「返回回照片墙、选择还在」），
+     * 其余态带该态需要的计数。
      * `IMPORTING` / `PAUSED` 用 12/36（百分比 33% 与定稿屏一致，U-45 的自洽要求）。
      */
     public static DemoPayload payload(UiState.State state) {
@@ -133,7 +134,9 @@ public final class DemoTree {
                         BATCH_PHOTOS, total);
             }
             case ERROR:
-                return new DemoPayload(state, null, 0, 0, 0, 0, 0, 0, 0,
+                // 必须带假树：`ERROR` 的返回键口径是「回照片墙且选择还在」（§1.3），
+                // 没有树时 `AppModel.backToCatalog()` 只能落到 `COLD`，这条口径无处可验。
+                return new DemoPayload(state, catalog(), 0, 0, 0, 0, 0, 0, 0,
                         ERROR_REASON, 0, 0);
             default:
                 // COLD / PERMISSION_PENDING / EMPTY_CATALOG / UNAVAILABLE：不带假树。

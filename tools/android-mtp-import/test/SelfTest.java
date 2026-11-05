@@ -30,6 +30,7 @@ public final class SelfTest {
         attachCases();
         permissionCases();
         allowCases();
+        resolveCases();
         selectionCases();
         planCases();
         progressCases();
@@ -293,6 +294,39 @@ public final class SelfTest {
                 "isAlive=" + scanner.isAlive() + " released=" + released.get()
                         + " granted=" + g.granted());
     }
+
+    // ---------------- PermGate 直接判定（PR #41 第三轮评审小项 1） ----------------
+
+    /**
+     * 墓碑：`PERMISSION_PENDING` 里点 `Allow` 时 `UsbManager.hasPermission()` 已经为真，
+     * 系统广播可能永远不会再来；只记日志会让扫描线程继续卡在 `await` 上直到 120 s 超时。
+     * `resolve(true)` 要把这一轮直接判成「已授权」并释放等待，重复调用不得改写结果。
+     */
+    static void resolveCases() throws InterruptedException {
+        PermGate g = new PermGate();
+        int seq = g.begin();
+        final AtomicBoolean released = new AtomicBoolean(false);
+        Thread scanner = new Thread(() -> {
+            try {
+                released.set(g.await(2, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "perm-resolve-waiter");
+        scanner.start();
+        Thread.sleep(100);
+
+        boolean resolved = g.resolve(true);
+        scanner.join(2_000);
+        check("resolve：直接判定已授权并释放等待（小项 1 的根因）",
+                resolved && !scanner.isAlive() && released.get() && g.granted(),
+                "resolved=" + resolved + " isAlive=" + scanner.isAlive()
+                        + " released=" + released.get() + " granted=" + g.granted());
+        check("resolve：已回答过的一轮不再被改写",
+                !g.resolve(false) && g.granted(), "granted=" + g.granted());
+        check("resolve：序号没被偷偷 +1", g.begin() == seq + 1, "seq 漂移");
+    }
+
 
     // ---------------- Selection ----------------
 
@@ -655,6 +689,10 @@ public final class SelfTest {
         check("ERROR 原因 ≤20 字且不提 Retry", error.errorReason.length() <= 20
                         && !error.errorReason.contains("Retry") && !error.errorReason.contains("重试"),
                 "实际「" + error.errorReason + "」长度 " + error.errorReason.length());
+        // ERROR 必须带假树：否则 `--es demo_state ERROR` 冷启动后按返回只能落到 COLD，
+        // 「回照片墙、选择还在」（§1.3）在唯一可用载体上不成立（PR #41 第三轮评审 P2）。
+        check("ERROR 载荷带假树（返回能回照片墙）", error.catalog != null,
+                "catalog=" + error.catalog);
     }
 
     // ---------------- 样本与工具 ----------------

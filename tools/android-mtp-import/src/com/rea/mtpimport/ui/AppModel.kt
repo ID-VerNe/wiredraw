@@ -253,8 +253,11 @@ class AppModel {
         demoActive = true
         transferViewClosed = false
         exitConfirmOpen = false
-        if (p.catalog != null) {
-            // 先装树，再覆盖状态：showCatalog 会把状态改成 CATALOG_READY。
+        if (p.catalog != null && catalog == null) {
+            // 只在还没有照片墙时才建树：从 READY 切 ERROR 等态必须保留已有 wall / selection，
+            // 否则「ERROR 返回照片墙、选择还在」（§1.3）演不出来。
+            // `Selection(p.catalog)` 初始是**空集**（Selection.java:20-22），不是全选；
+            // `showCatalog` 会把状态改成 CATALOG_READY，先记住原状态，装完树再覆盖回来。
             val prev = state
             showCatalog(p.catalog, Selection(p.catalog))
             if (prev != UiState.State.CATALOG_READY) state = prev

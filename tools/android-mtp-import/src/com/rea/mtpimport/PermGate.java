@@ -87,6 +87,21 @@ public final class PermGate {
         }
     }
 
+    /**
+     * 以「内部已知结果」直接结束本轮等待，不走回调序号校验。
+     *
+     * 用在 `PERMISSION_PENDING` 里点 `Allow`、而 `UsbManager.hasPermission()` 已经为真的情况
+     * （PR #41 第三轮评审小项 1）：广播可能不会再投递，只记日志会让扫描线程继续空等到 120 s。
+     * 本轮已回答过（`answered`）时返回 false，不改写已有结果。
+     */
+    public synchronized boolean resolve(boolean isGranted) {
+        if (answered) return false;
+        answered = true;
+        granted = isGranted;
+        latch.countDown();
+        return true;
+    }
+
     /** 本次申请是否真的拿到了权限（超时或拒绝都是 false）。 */
     public synchronized boolean granted() {
         return answered && granted;
