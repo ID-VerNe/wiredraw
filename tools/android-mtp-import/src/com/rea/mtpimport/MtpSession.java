@@ -82,23 +82,14 @@ public final class MtpSession {
     }
 
     /**
-     * 拿存储 ID，带唤醒重试。空数组表示彻底失败，调用点应提示用户拔插 USB 线。
+     * 拿存储 ID，带唤醒重试。空数组表示彻底失败 / 已取消，调用点应提示用户拔插 USB 线。
+     *
+     * 重试循环本身在纯 JDK 的 {@link StorageRetry} 里：每一轮都判 {@link ScanRun}，
+     * 取消后最多再睡 1 个 3 秒就退出（第五轮评审 B-1，原来会睡满约 24 秒）。
      */
-    public int[] storageIds(Log log) {
-        for (int attempt = 1; attempt <= STORAGE_RETRIES; attempt++) {
-            int[] sids = mtp.getStorageIds();
-            if (sids != null && sids.length > 0) return sids;
-            log.line("第 " + attempt + "/" + STORAGE_RETRIES
-                    + " 次 getStorageIds() 为空 —— 相机可能休眠了，"
-                    + "按一下相机按键唤醒；" + (STORAGE_RETRY_MS / 1000) + " 秒后重试");
-            try {
-                Thread.sleep(STORAGE_RETRY_MS);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-        return new int[0];
+    public int[] storageIds(Log log, ScanRun run) {
+        return StorageRetry.fetch(mtp::getStorageIds, Thread::sleep, run,
+                STORAGE_RETRIES, STORAGE_RETRY_MS, log);
     }
 
     public String describeStorage(int sid) {

@@ -32,6 +32,7 @@ public final class SelfTest {
         allowCases();
         resolveCases();
         scanCancelCases();
+        scanReleaseCases();
         selectionCases();
         planCases();
         progressCases();
@@ -369,6 +370,85 @@ public final class SelfTest {
                 "界面停在 " + liveScreen[0]);
         check("未取消时进度照常刷新", liveProgress[0] == 1,
                 "落地 " + liveProgress[0] + " 次");
+    }
+
+    // ---------------- 扫描锁与重试循环的取消交互（PR #41 第五轮评审 B-1） ----------------
+
+    /**
+     * 墓碑 B-1：取消必须让扫描线程**尽快退出**，否则 {@link AttachGate} 的扫描锁不释放，
+     * README 里「取消后再点 `Connect camera` 能重新开始扫描」就是假的。
+     *
+     * 钉三件事（旧实现全部不成立）：
+     * 1. `storageIds` 的重试循环在取消后最多只多睡一轮 —— 旧实现睡满 8 × 3 秒 ≈ 24 秒；
+     * 2. 已经取消的话一次都不取、一次都不睡（不再碰相机）；
+     * 3. `admit → 取消 → 工作线程收尾 finish() → admit` 必须重新拿到 `GO`。
+     *    原来只有 `ScanRun` 自身的 4 条用例，锁与重试循环的交互没人守（评审原话）。
+     */
+    static void scanReleaseCases() {
+        // 取消发生在第一次重试的等待里：只许 1 次取 + 1 次睡，然后返回空数组。
+        ScanRun run = new ScanRun();
+        int[] fetches = {0};
+        int[] sleeps = {0};
+        StorageRetry.Sleeper cancellingSleeper = ms -> {
+            sleeps[0]++;
+            run.cancel();          // 模拟 UI 线程在这 3 秒里点了 Cancel
+        };
+        int[] sids = StorageRetry.fetch(() -> {
+            fetches[0]++;
+            return new int[0];
+        }, cancellingSleeper, run, 8, 3000, Log.NOOP);
+        check("取消后第 1 次重试即返回空数组（不再睡满 8 轮 ≈ 24 秒）",
+                sids.length == 0 && fetches[0] == 1 && sleeps[0] == 1,
+                "sids=" + sids.length + " fetch=" + fetches[0] + " sleep=" + sleeps[0]);
+        check("取消后重试循环不再发起第 2 次取",
+                fetches[0] == 1, "fetch=" + fetches[0]);
+
+        // 已经取消：一次都不取、一次都不睡。
+        ScanRun dead = new ScanRun();
+        dead.cancel();
+        int[] fetches2 = {0};
+        int[] sleeps2 = {0};
+        int[] empty = StorageRetry.fetch(() -> {
+            fetches2[0]++;
+            return new int[0];
+        }, ms -> sleeps2[0]++, dead, 8, 3000, Log.NOOP);
+        check("已取消时 getStorageIds 一次都不调（不碰相机）",
+                empty.length == 0 && fetches2[0] == 0, "fetch=" + fetches2[0]);
+        check("已取消时一次都不睡（不等 3 秒）", sleeps2[0] == 0, "sleep=" + sleeps2[0]);
+
+        // onCancel 会 interrupt 扫描线程：等待被打断要立刻退出，不睡满一轮。
+        int[] fetches3 = {0};
+        int[] interrupted = StorageRetry.fetch(() -> {
+            fetches3[0]++;
+            return new int[0];
+        }, ms -> {
+            throw new InterruptedException("模拟 onCancel 的 interrupt");
+        }, new ScanRun(), 8, 3000, Log.NOOP);
+        Thread.interrupted();      // 清掉 StorageRetry 回写的标志，别影响后续用例
+        check("等待被 interrupt 时立即退出（不再睡满 8 轮）",
+                interrupted.length == 0 && fetches3[0] == 1, "fetch=" + fetches3[0]);
+
+        // 对照：没取消时必须照常重试满 8 轮，否则上面「只睡 1 轮」恒真、测不出回归。
+        int[] fetches4 = {0};
+        int[] sleeps4 = {0};
+        int[] exhausted = StorageRetry.fetch(() -> {
+            fetches4[0]++;
+            return new int[0];
+        }, ms -> sleeps4[0]++, new ScanRun(), 8, 3000, Log.NOOP);
+        check("未取消时重试满 8 轮（对照）",
+                exhausted.length == 0 && fetches4[0] == 8 && sleeps4[0] == 8,
+                "fetch=" + fetches4[0] + " sleep=" + sleeps4[0]);
+
+        // 扫描锁：取消 → 工作线程收尾 finish() → 再次 attach 必须重新准入（U-06 / P-02）。
+        AttachGate gate = new AttachGate();
+        check("取消前首次 attach 准入",
+                gate.admit(true, false) == AttachGate.Admit.GO, "未准入");
+        run.cancel();              // Main.onCancel
+        gate.finish();             // scanWorker 的 finally（此时工作线程已退出）
+        AttachGate.Admit again = gate.admit(true, false);
+        check("取消并收尾后再点 Connect camera 必须重新准入（不得停在 NOTHING_ALREADY_SCANNING）",
+                again == AttachGate.Admit.GO, "实际 " + again);
+        gate.finish();
     }
 
     // ---------------- Selection ----------------

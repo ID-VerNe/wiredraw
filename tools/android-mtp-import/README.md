@@ -40,6 +40,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
+├─ ScanRun           一轮扫描的取消令牌：取消后迟到回调不得改界面           [纯 JDK]
+├─ StorageRetry      getStorageIds 带唤醒重试：每轮判取消，最多多睡 1 个 3 秒 [纯 JDK]
 ├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
 ├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
 ├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
@@ -54,7 +56,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样，`Main` 只负责把系统事件翻译成
 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**十七个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**十八个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（其中 `DemoTree.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
@@ -87,7 +89,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；80 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；170 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -185,4 +187,4 @@ P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、�
 
 ## 待建清单（本轮不做，后续 issue 排期）
 
-- `DONE` 的 `Open` 只记日志（`Main.onOpen`，`Main.java:139-144`），不跳系统相册；需另接 `ACTION_VIEW` / 相册 intent。
+- `DONE` 的 `Open` 只记日志（`Main.onOpen`，`Main.java:158-164`），不跳系统相册；需另接 `ACTION_VIEW` / 相册 intent。
