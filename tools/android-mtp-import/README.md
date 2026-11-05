@@ -35,10 +35,11 @@ Main                 Activity：USB 权限/attach → 扫描 → 勾选 → 进�
 ├─ ImportService     编排：线程、暂停、取消、逐文件调 transfer            [纯 JDK]
 ├─ ResumableTransfer 传输契约 + NotImplemented 占位                     [纯 JDK]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
+├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 └─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
 ```
 
-标 `[纯 JDK]` 的**九个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**十个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`。
 
 这条边界是**编译期强制**的：`check.sh` 编译这批文件时**不给** `-classpath android.jar`，
@@ -112,7 +113,12 @@ adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
 
 ## 真机待验清单（验收前必须在 ILCE-7C 上跑）
 
-- [ ] 插线后 App 自动拉起、自动拿到 USB 权限（不弹窗）
+- [x] 插线后 App 自动拉起、自动拿到 USB 权限（不弹窗）；**首次**要在系统弹窗里勾一次「一律打开」，
+      应用侧没有正规接口能绕过这一步（#17）。实测 2026-11-05 18:48：插回后 `permissions_manager`
+      只有既有 `uids=10269`，日志无 `尚无 USB 权限，发起申请`
+- [x] 插线或冷启动时自动开始扫描，不需要点「重新检测」；同一次插拔重复投递两次也不得开两个会话（#17）。
+      实测 2026-11-05 18:48：广播路径 `→ 开始扫描`，attach intent 路径 `→ 扫描已在进行中，忽略本次重复事件`，
+      单次会话扫出 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`
 - [ ] 扫描完成，文件夹/文件数与卡内一致（探针对照值：1526 对象 / 503 文件夹 / 511 ARW）
 - [ ] 目录树层级正确（`DCIM/100MSDCF/...`），勾一个目录后「已勾选」计数与总量合理
 - [ ] 未显示全部行时的提示文案正确（超过 `MAX_ROWS = 800` 行）

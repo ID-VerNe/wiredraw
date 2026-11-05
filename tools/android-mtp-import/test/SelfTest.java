@@ -8,7 +8,8 @@ import java.util.List;
 /**
  * JVM 纯逻辑自检（不需要 Android SDK、不需要真机）。
  *
- * 覆盖 Catalog / Selection / ImportPlan / TransferProgress / Journal 五个纯 JDK 类；
+ * 覆盖 check.sh 的 `PURE` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
+ * TransferProgress / Journal / AttachGate 等，清单本身是唯一事实来源）；
  * 它们不 import android.*，所以能在普通 JVM 里直接跑，这也是骨架里唯一
  * 「能拿门禁守住」的部分。真机相关的 MtpSession / CatalogScanner / ImportService
  * 不在本自检的覆盖范围（需要设备），见 README 的真机待验清单。
@@ -24,6 +25,7 @@ public final class SelfTest {
     public static void main(String[] args) {
         catalogCases();
         truncationCases();
+        attachCases();
         selectionCases();
         planCases();
         progressCases();
@@ -119,6 +121,51 @@ public final class SelfTest {
                         && small.rows.get(1).handle == 2
                         && small.rows.get(2).handle == 3,
                 "total=" + small.total + " rows=" + small.rows);
+    }
+
+    // ---------------- AttachGate（#17 的墓碑） ----------------
+
+    /**
+     * 墓碑：#17 —— 插线事件必须收敛到同一个准入判定。
+     *
+     * 两个真实的回归点：
+     * 1. 同一次插拔可能从 intent 与广播两条路投递两次；第二次必须被拒，
+     *    否则会开两个 MTP 会话（相机同一时刻只接受一个）。
+     * 2. 拒绝路径不得占用扫描锁：一次「没设备」的 attach 若置了锁，
+     *    后面真正插上相机时会被永久拒掉。
+     */
+    static void attachCases() {
+        AttachGate g = new AttachGate();
+
+        // 每个用例只调一次 admit()：它有副作用（准入会置锁），重复调用会把用例自己搞脏。
+        AttachGate.Admit a = g.admit(false, false);
+        check("attach：没设备时拒绝", a == AttachGate.Admit.NOTHING_NO_DEVICE, "实际 " + a);
+        check("attach：没设备的拒绝不占用扫描锁（否则后续真 attach 被永久拒掉）",
+                !g.isScanning(), "isScanning=" + g.isScanning());
+
+        a = g.admit(true, false);
+        check("attach：没设备拒绝后，设备插上仍可准入", a == AttachGate.Admit.GO, "实际 " + a);
+        g.finish();
+
+        a = g.admit(true, true);
+        check("attach：传输进行中拒绝", a == AttachGate.Admit.NOTHING_TRANSFERRING, "实际 " + a);
+        check("attach：传输中的拒绝不占用扫描锁",
+                !g.isScanning(), "isScanning=" + g.isScanning());
+
+        a = g.admit(true, false);
+        check("attach：设备在线且空闲时准入", a == AttachGate.Admit.GO, "实际 " + a);
+        check("attach：准入后立即持有扫描锁", g.isScanning(), "isScanning=" + g.isScanning());
+
+        a = g.admit(true, false);
+        check("attach：准入后重复 attach 被拒（同一次插拔投递两次不得开两个会话）",
+                a == AttachGate.Admit.NOTHING_ALREADY_SCANNING, "实际 " + a);
+        check("attach：重复 attach 被拒不释放已有的扫描锁",
+                g.isScanning(), "isScanning=" + g.isScanning());
+
+        g.finish();
+        check("attach：finish() 释放锁", !g.isScanning(), "isScanning=" + g.isScanning());
+        a = g.admit(true, false);
+        check("attach：finish() 后可再次准入", a == AttachGate.Admit.GO, "实际 " + a);
     }
 
     // ---------------- Selection ----------------

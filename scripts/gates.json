@@ -42,7 +42,7 @@
     {
       "name": "android-import",
       "cmd": ["bash", "tools/android-mtp-import/check.sh"],
-      "why": "导片工具：先跑五个纯 JDK 类的 JVM 自检（Catalog/Selection/ImportPlan/TransferProgress/Journal，不需要真机），再构建 APK 并验签。需要 Android SDK 与 JDK，CI 跑不了，改动 tools/android-mtp-import/ 时必须本机手跑；SKIP_BUILD=1 可只跑自检"
+      "why": "导片工具：先跑纯逻辑 JVM 自检（清单是 check.sh 的 PURE 数组，唯一事实来源，不需要真机），再构建 APK 并验签。需要 Android SDK 与 JDK，CI 跑不了，改动 tools/android-mtp-import/ 时必须本机手跑；SKIP_BUILD=1 可只跑自检"
     }
   ],
   "support": [

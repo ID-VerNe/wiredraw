@@ -10,6 +10,7 @@
         <activity
             android:name=".Main"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize"
             android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
             <intent-filter>
