@@ -231,7 +231,7 @@
 | `IMPORTING` 传输中 | 导入线程启动 | **有**（`transfer`，控件与无障碍不完整） | 见 `T-IMPORTING` | `Pause`、`Cancel`、顶部返回（关闭视图，见 §1.3） | 修改已选；返回键直接销毁任务；进度停在 0 不动；主视觉出现速率/剩余时间/协议 |
 | `PAUSED` 已暂停 | 用户暂停 | **缺**（本版按 `T-PAUSED` 补齐） | 见 `T-PAUSED` | `Resume`、`Cancel` | `Resume` 不可点；把暂停态显示成完成态；环数值继续变化 |
 | `DONE` 完成 | 全部结束且有成功项 | **缺**（本版按 `T-DONE` 补齐） | 见 `T-DONE` | `Open`、位置图标（进 `Location details`）、返回退出 | 四段统计（成功/跳过/失败/总数）；任务 ID、哈希、协议、内部编号；统计卡 |
-| `ERROR` 错误 | 相机相关失败：可恢复错误与 USB 挂起（**不可恢复**）都归此态 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | `Connect camera`、返回、`Details` 抽屉；**不可恢复（USB 挂起）时唯一动作 = 拔插数据线后点 `Connect camera`** | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉；把 USB 挂起描述成应用内再点一次即可 |
+| `ERROR` 错误 | 相机相关失败：可恢复错误与 USB 挂起（**不可恢复**）都归此态 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | `Connect camera`、返回、`Details` 抽屉；**不可恢复（USB 挂起）时唯一恢复动作 = 拔插数据线后点 `Connect camera`**（`返回` 与 `Details` 仍是允许操作，见 §1.3） | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉；把 USB 挂起描述成应用内再点一次即可 |
 | `EMPTY_CATALOG` 相机内为空 | 扫描成功但 0 个照片 | **缺**（本版按 `T-EMPTY` 补齐） | 见 `T-EMPTY` | `Connect camera`（重新扫描）、返回退出 | 显示空网格或 `0 GB` 的占位；把空态显示成加载中 |
 | `UNAVAILABLE` 功能未实现（**内部标签**） | 传输层未就绪 | **缺**（本版按 `T-UNAVAILABLE` 补齐） | 见 `T-UNAVAILABLE` | `OK`、返回（按 §1.3 直接退出） | 显示 0% 进度；显示 `Imported 0 · Failed 0` 式统计；出现 `NOT_IMPLEMENTED` 等枚举；用户可见文案出现「未实现」（状态名只是内部标签，见 C-18） |
 
@@ -628,7 +628,7 @@ Next:    <一个可执行动作>
 
 - **E-01（改写）** 空态**必须**是「一个图标 + 一个主动作」（`T-COLD` / `T-EMPTY`）；**不得**加解释句。
 - **E-02** 错误**必须**就地显示，**不得**只写日志或只弹 Toast；错误态**必须**保留用户选择。
-- **E-03** 不可恢复态（相机休眠 / USB 挂起）**必须**归入 `ERROR`（`T-ERROR`；进入条件与「唯一动作 = 拔插数据线后点 `Connect camera`」见 §1.2），
+- **E-03** 不可恢复态（相机休眠 / USB 挂起）**必须**归入 `ERROR`（`T-ERROR`；进入条件与「唯一恢复动作 = 拔插数据线后点 `Connect camera`」见 §1.2），
   并给出「拔插数据线」的明确步骤；**不得**让应用在后台自行反复尝试 8 次却不告诉用户
   （项目实测：会话结束后相机挂起 USB，应用内 8 次 / 约 70 秒尝试唤不醒，必须拔插数据线，见 `AGENTS.md` §4）。
 - **E-04** 功能未实现态**必须**用 `UNAVAILABLE` 状态表达，**不得**伪装成进行中、失败或完成（见 C-16）。
@@ -668,7 +668,7 @@ Next:    <一个可执行动作>
 
 | 编号 | 状态 | 断言 | 验证方法 |
 |---|---|---|---|
-| U-01 | 改写 | 冷启动首屏存在唯一主按钮，且完全位于顶栏与状态栏之下 | dump：主按钮 `bounds` 与系统栏、系统 ActionBar（若存在）、`topBar` 三者交集均为空，且 `bounds.top` ≥ 顶栏 `bounds.bottom`；实心主按钮节点数 = 1 |
+| U-01 | 改写 | 在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` 下（与 `U-03` 同一状态范围），冷启动首屏存在唯一主按钮，且完全位于顶栏与状态栏之下；冷启动直接进入无实心主按钮的态时（`SCANNING`：`T-SCANNING` 只有 `Cancel` 图标；`ERROR` / `EMPTY_CATALOG`：`V-09`）本条不判 | dump：主按钮 `bounds` 与系统栏、系统 ActionBar（若存在）、`topBar` 三者交集均为空，且 `bounds.top` ≥ 顶栏 `bounds.bottom`；实心主按钮节点数 = 1 |
 | U-02 | 改写 | 可点击控件不得被系统栏或顶栏遮挡（顶栏自身控件除外） | dump 逐控件矩形检查：对每个 `clickable=true` 且**不是**顶栏后代的节点，其 `bounds` 与系统栏 / `action_bar` / `topBar` 的交集必须为空；顶栏后代的 `bounds` 必须完全落在顶栏内。状态栏底边取 `dumpsys window` 的 `mStatusBarHeight` 或 `status_bar` 节点 `bounds.bottom`，结论注明用了哪一种 |
 | U-03 | 改写 | 在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` 下，不滚动即可看到主按钮与该状态的**主表达**（`COLD` 为用户可见主文案 `No camera`；`PERMISSION_PENDING` 的主表达就是 `Allow` 主按钮本身；`CATALOG_READY` 为照片墙首行） | dump：主按钮 `bounds.bottom` ≤ 屏幕高度 − 手势条高度、`bounds.top` ≥ 顶栏底边；`COLD` / `CATALOG_READY` 另判主表达节点与主按钮同屏且两矩形不相交；`PERMISSION_PENDING` 两者是同一节点，只判主按钮矩形，不判「两矩形不相交」；首屏截图复核 |
 | U-04 | 改写 | 日志/明细默认收起，展开不挤压主操作；入口改为长按顶栏设备名 | 长按前后各 dump 一次：主按钮 `bounds` 四个值完全不变；抽屉容器 `bounds` 高度增大且上边不低于顶栏底边；默认 dump 中不得出现抽屉容器 |
@@ -696,7 +696,7 @@ Next:    <一个可执行动作>
 | U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
 | U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏无数字徽标**（`1526` 只作进度分母，不与照片数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
-| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个不同的总量分母 |
+| U-44 | `CATALOG_READY` | 顶栏徽标数字恰好 1 个且 = 照片数（设备短名里的数字，如 `a7C` 的 `7`，不计入徽标数字）；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个不同的总量分母 |
 | U-45 | `IMPORTING` | 文本匹配 `\d+%` 恰好 1 处、`\d+/\d+` 恰好 1 处；`Pause` 与 `Cancel` 各 1 个且 `clickable=true`；`round(已完成/总数×100)` 与百分比差 ≤1 | `MB/s`、`~\d+ min`、`MTP`、`USB`、第二个百分比；已选可修改；`Done` |
 | U-46 | `PAUSED` | 环内数值与暂停瞬间相同；`Resume` 与 `Cancel` 存在且可点 | 完成标记、`Done`；环数值继续变化；`Import` 可点 |
 | U-47 | `DONE` | `Done`；文本匹配 `\d+ · \d+(\.\d)? MB` 或 `\d+ · \d+\.\d{2} GB`（按 C-05）；`contentDescription` 含 `Location` 且 `clickable=true`；`Open` 存在 | `Imported\s*\d+`、`Skipped\s*\d+`、`Failed\s*\d+`、`total`、`TASK`、哈希、`§`；统计卡 |
@@ -708,8 +708,8 @@ Next:    <一个可执行动作>
 
 | 编号 | 对象 | 断言 | 验证方法 |
 |---|---|---|---|
-| U-51 | `photo` 页 | 全幅照片（或 §0.7 降级时的同尺寸块）+ 返回图标 + 单行 `ARW · 24.6 MB` + 位置图标；返回图标热区 ≥48 dp | dump：`contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
-| U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / 日期三项；抽屉打开不推挤主 CTA（L-09） | dump：三个过滤项各 1 个；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
+| U-51 | `photo` 页 | 全幅照片；ARW 内嵌预览不可得时按 §0.7 第 2 行只显示单行 `ARW · 24.6 MB` 胶囊，**不显示占位块/假图**；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：`contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
+| U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / 日期三项；抽屉打开不推挤主 CTA（L-03） | dump：三个过滤项各 1 个；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
 | U-53 | 徽标口径 | 顶栏徽标 = catalog 中 ARW 张数；与 `Import all N` 的 N 相等；同屏不出现第二个总量分母 | 读 catalog 总数与 ARW 数；dump 徽标文本；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 511 ARW / 12.75 GB | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列四个数一致（`demo_state` 入口**尚不存在**，PR-2 待建） |
 
