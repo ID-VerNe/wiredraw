@@ -411,8 +411,12 @@ public final class Main extends Activity {
         // 序号判定被绕过，又回到「迟到回调被当成当前回调」。每条申请一条独立记录后，
         // 迟到回调只会携带它自己那一轮的 seq，被 PermGate.onResult 丢弃。
         Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName()).putExtra(EXTRA_PERM_SEQ, seq);
-        // 记录已按 seq 唯一，不需要 UPDATE_CURRENT；Intent 只由系统回填授权结果，用 IMMUTABLE。
-        um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_IMMUTABLE));
+        // 必须 MUTABLE，别改成 IMMUTABLE（#11 复评，防复发）：系统是拿 fillIn 把
+        // EXTRA_PERMISSION_GRANTED 塞进这条广播的，PendingIntentRecord.sendInner 在
+        // immutable 时会跳过 fillIn —— 那样即使用户点「允许」，回调读到的也恒为 false，
+        // 授权永远失败。记录已按 seq 唯一，不需要 FLAG_UPDATE_CURRENT；
+        // 也不要把 MUTABLE 与 IMMUTABLE 同时给，会抛 IllegalArgumentException。
+        um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_MUTABLE));
         permGate.await(120, TimeUnit.SECONDS);
         return permGate.granted();
     }
