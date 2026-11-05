@@ -129,6 +129,50 @@ public final class Catalog {
         return childrenOf(0);
     }
 
+    /**
+     * 树视图渲染窗口：只收集前 {@code limit} 行，同时给出**全树节点总数**。
+     *
+     * 渲染上限与计数必须分开：底部「还有 N 项未显示」的 N = {@link #total} − {@link #rows}.size()，
+     * 不能拿截断集合的差值（UI-SPEC 的 C-09 / U-13）。issue #15 曾因两者混在一起，
+     * 提示恒显示「还有 200 项未显示」，而真实缺口是 726。
+     */
+    public static final class Flat {
+        /** 实际要渲染的行，最多 limit 条，深度优先、父项先于子项。 */
+        public final List<Entry> rows;
+        /** 全树节点数，不受 limit 截断影响。 */
+        public final int total;
+
+        Flat(List<Entry> rows, int total) {
+            this.rows = rows;
+            this.total = total;
+        }
+
+        /** 未渲染的节点数；底部「还有 N 项未显示」的 N 必须取它（#15）。 */
+        public int remaining() {
+            return total - rows.size();
+        }
+    }
+
+    /**
+     * 深度优先摊平目录树。遍历不会在 limit 处提前停止——只有「收集」受 limit 约束，
+     * 计数必须走完全树，否则又回到 #15 的截断差值。
+     */
+    public Flat flatten(int limit) {
+        List<Entry> rows = new ArrayList<>();
+        int total = collect(roots(), limit, rows);
+        return new Flat(rows, total);
+    }
+
+    private int collect(List<Entry> list, int limit, List<Entry> rows) {
+        int n = 0;
+        for (Entry e : list) {
+            n++;
+            if (rows.size() < limit) rows.add(e);
+            if (e.isFolder()) n += collect(childrenOf(e.handle), limit, rows);
+        }
+        return n;
+    }
+
     public int folderCount() {
         int n = 0;
         for (Entry e : entries) if (e.isFolder()) n++;
