@@ -20,8 +20,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -221,20 +219,19 @@ public final class Main extends Activity {
                 catalog.fileBytes() / 1073741824.0, files, bytes / 1073741824.0));
     }
 
-    /** 把目录树摊平成一行行 CheckBox；超过 MAX_ROWS 就截断，避免上千个 View 卡死界面。 */
+    /** 把目录树摊平成一行行 CheckBox；只渲染前 MAX_ROWS 行，避免上千个 View 卡死界面。 */
     private void renderRows() {
         if (catalog == null) return;
         rowBox.removeAllViews();
-        List<Catalog.Entry> flat = new ArrayList<>();
-        flatten(catalog.roots(), 0, flat);
-        int shown = Math.min(flat.size(), MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
-            Catalog.Entry e = flat.get(i);
+        Catalog.Flat flat = catalog.flatten(MAX_ROWS);
+        for (Catalog.Entry e : flat.rows) {
             rowBox.addView(makeRow(e));
         }
-        if (flat.size() > MAX_ROWS) {
+        // 未显示数必须按全树总数算，不能用截断集合的差值（#15：曾恒显示 200，真实缺口 726）
+        int remaining = flat.remaining();
+        if (remaining > 0) {
             TextView more = new TextView(this);
-            more.setText("…… 还有 " + (flat.size() - MAX_ROWS) + " 项未显示（可先勾上层目录）");
+            more.setText("…… 还有 " + remaining + " 项未显示（可先勾上层目录）");
             more.setTextSize(10);
             rowBox.addView(more);
         }
@@ -267,14 +264,6 @@ public final class Main extends Activity {
         int d = 0;
         for (int i = 0; i < p.length(); i++) if (p.charAt(i) == '/') d++;
         return d;
-    }
-
-    private void flatten(List<Catalog.Entry> list, int depth, List<Catalog.Entry> out) {
-        for (Catalog.Entry e : list) {
-            if (out.size() >= MAX_ROWS + 200) return;
-            out.add(e);
-            if (e.isFolder()) flatten(catalog.childrenOf(e.handle), depth + 1, out);
-        }
     }
 
     // ---------------- 动作 ----------------

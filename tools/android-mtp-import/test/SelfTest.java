@@ -23,6 +23,7 @@ public final class SelfTest {
 
     public static void main(String[] args) {
         catalogCases();
+        truncationCases();
         selectionCases();
         planCases();
         progressCases();
@@ -73,6 +74,51 @@ public final class SelfTest {
         check("folderCount()/fileCount() 分类正确",
                 c.folderCount() == 2 && c.fileCount() == 4,
                 "folder=" + c.folderCount() + " file=" + c.fileCount());
+    }
+
+    // ---------------- 截断计数（#15 的墓碑） ----------------
+
+    /**
+     * 墓碑：#15 —— 底部「还有 N 项未显示」的 N 必须是全树总数 − 已渲染行数，
+     * 不能是截断集合的差值。旧实现把遍历卡在 MAX_ROWS + 200，导致 N 恒 ≤200。
+     */
+    static void truncationCases() {
+        Catalog big = flatCatalog(503, 1023);          // 与真机一致：1526 个对象
+        Catalog.Flat f = big.flatten(800);
+        check("flatten：1526 节点 / 上限 800 时总数仍为 1526", f.total == 1526, "实际 " + f.total);
+        check("flatten：1526 节点 / 上限 800 时只渲染 800 行", f.rows.size() == 800,
+                "实际 " + f.rows.size());
+        check("flatten：1526 节点 / 上限 800 时真实缺口为 726（#15）",
+                f.remaining() == 726, "实际 " + f.remaining());
+
+        // 边界：恰好 800 不提示；801 提示 1；1001 提示 201（旧实现从 1001 起恒显示 200）
+        Catalog exact = flatCatalog(1, 799);
+        Catalog.Flat fe = exact.flatten(800);
+        check("flatten：恰好 800 行时缺口为 0",
+                fe.total == 800 && fe.rows.size() == 800 && fe.total - fe.rows.size() == 0,
+                "total=" + fe.total + " rows=" + fe.rows.size());
+
+        Catalog over = flatCatalog(1, 800);
+        Catalog.Flat fo = over.flatten(800);
+        check("flatten：801 行时缺口为 1",
+                fo.total == 801 && fo.rows.size() == 800 && fo.total - fo.rows.size() == 1,
+                "total=" + fo.total + " rows=" + fo.rows.size());
+
+        Catalog over1000 = flatCatalog(1, 1000);
+        Catalog.Flat f1000 = over1000.flatten(800);
+        check("flatten：1001 行时缺口为 201（#15 的旧实现在这里恒显示 200）",
+                f1000.total == 1001 && f1000.rows.size() == 800
+                        && f1000.total - f1000.rows.size() == 201,
+                "total=" + f1000.total + " rows=" + f1000.rows.size()
+                        + " gap=" + (f1000.total - f1000.rows.size()));
+
+        Catalog.Flat small = sample().flatten(3);
+        check("flatten：保持父项先于子项的深度优先顺序",
+                small.total == 6 && small.rows.size() == 3
+                        && small.rows.get(0).handle == 1
+                        && small.rows.get(1).handle == 2
+                        && small.rows.get(2).handle == 3,
+                "total=" + small.total + " rows=" + small.rows);
     }
 
     // ---------------- Selection ----------------
@@ -257,6 +303,22 @@ public final class SelfTest {
         c.add(new Catalog.Entry(4, 2, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
         c.add(new Catalog.Entry(6, 1, Catalog.FMT_ARW, 50, "DSC02999.ARW"));
         c.add(new Catalog.Entry(5, 0, Catalog.FMT_JPEG, 60, "C0001.JPG"));
+        return c.build();
+    }
+
+    /**
+     * 造一棵「每个文件夹下挂若干个文件」的大树，用于截断计数用例。
+     * 所有对象直接挂在 0 号根或根文件夹下，深度优先顺序稳定。
+     */
+    static Catalog flatCatalog(int folders, int files) {
+        Catalog c = new Catalog();
+        for (int i = 0; i < folders; i++) {
+            c.add(new Catalog.Entry(1000 + i, 0, Catalog.FMT_FOLDER, 0, String.format("D%04d", i)));
+        }
+        for (int i = 0; i < files; i++) {
+            c.add(new Catalog.Entry(2000 + i, 1000 + (i % folders), Catalog.FMT_ARW, 24_000_000L,
+                    String.format("P%04d.ARW", i)));
+        }
         return c.build();
     }
 
