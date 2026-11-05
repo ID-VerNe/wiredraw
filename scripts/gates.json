@@ -41,8 +41,8 @@
     },
     {
       "name": "android-import",
-      "cmd": ["bash", "tools/android-mtp-import/gradlew", "-p", "tools/android-mtp-import", "selfTest", "assembleDebug"],
-      "why": "导片工具：先跑纯逻辑 JVM 自检（清单是 build.gradle.kts 的 pureJdkClasses，唯一事实来源，不需要真机），再构建 APK（产物 tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk）并由 Gradle 用 rea-debug.keystore 签名。需要 Android SDK 与 JDK，CI 跑不了，改动 tools/android-mtp-import/ 时必须本机手跑；只要自检可加 `selfTest` 单独调用"
+      "cmd": ["bash", "tools/android-mtp-import/gradlew", "-p", "tools/android-mtp-import", "selfTest", "assembleDebug", "verifyApk"],
+      "why": "导片工具：先跑纯逻辑 JVM 自检（清单是 build.gradle.kts 的 pureJdkClasses，唯一事实来源，不需要真机），再构建 APK（产物 tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk），最后由 SDK 的 apksigner 实测验签（原 check.sh 的断言）。需要 Android SDK 与 JDK，CI 跑不了，改动 tools/android-mtp-import/ 时必须本机手跑；只要自检可加 `selfTest` 单独调用"
     }
   ],
   "support": [

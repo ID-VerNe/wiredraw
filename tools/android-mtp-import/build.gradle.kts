@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 // 导片工具构建（issue #36）：AGP + Kotlin + Compose 编译器。
 //
@@ -129,6 +130,7 @@ val compilePureJdkJava = tasks.register<JavaCompile>("compilePureJdkJava") {
     classpath = files()
     destinationDirectory.set(pureJdkOutput)
     options.encoding = "UTF-8"
+    options.compilerArgs.add("-Xlint:all")
 }
 
 val compileSelfTestJava = tasks.register<JavaCompile>("compileSelfTestJava") {
@@ -139,6 +141,42 @@ val compileSelfTestJava = tasks.register<JavaCompile>("compileSelfTestJava") {
     classpath = files(pureJdkOutput)
     destinationDirectory.set(selfTestOutput)
     options.encoding = "UTF-8"
+    options.compilerArgs.add("-Xlint:all")
+}
+
+// 验签：base 的 check.sh 里有 `apksigner verify`，迁移后不能静默丢掉。
+// validateSigningDebug 只校验签名配置可读，不等于产物真的被签过 —— 这里对产物实测。
+// 仓库只在 Windows 上做 Android 构建（AGENTS.md §4），所以用 cmd 调 SDK 的 apksigner.bat。
+fun versionParts(name: String): List<Int> = name.split('.').map { it.toIntOrNull() ?: 0 }
+
+fun compareBuildTools(a: File, b: File): Int {
+    val pa = versionParts(a.name)
+    val pb = versionParts(b.name)
+    for (i in 0 until maxOf(pa.size, pb.size)) {
+        val diff = pa.getOrElse(i) { 0 } - pb.getOrElse(i) { 0 }
+        if (diff != 0) return diff
+    }
+    return 0
+}
+
+val verifyApk = tasks.register<Exec>("verifyApk") {
+    group = "verification"
+    description = "用 SDK 的 apksigner 校验 debug APK 签名（原 check.sh 的验签断言）"
+    dependsOn("assembleDebug")
+
+    val localProperties = Properties()
+    file("local.properties").inputStream().use { localProperties.load(it) }
+    val sdkDir = File(localProperties.getProperty("sdk.dir"))
+    val buildTools = sdkDir.resolve("build-tools")
+        .listFiles { f: File -> f.isDirectory }
+        ?.maxWithOrNull(::compareBuildTools)
+        ?: throw GradleException("SDK 下没有 build-tools：$sdkDir")
+    val apksigner = buildTools.resolve("apksigner.bat")
+    if (!apksigner.isFile) throw GradleException("找不到 $apksigner")
+
+    val apk = layout.buildDirectory.file("outputs/apk/debug/${rootProject.name}-debug.apk").get().asFile
+    executable = "cmd.exe"
+    args("/c", apksigner.absolutePath, "verify", "--print-certs", apk.absolutePath)
 }
 
 tasks.register<JavaExec>("selfTest") {
