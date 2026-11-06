@@ -14,6 +14,7 @@
 用法：
     python probe.py 192.168.3.17
     python probe.py 192.168.3.17 --limit 80
+    python probe.py 192.168.3.17 --replay <IED 握手 payload 文件>   # 见 README §6
 """
 import socket
 import struct
@@ -270,9 +271,29 @@ def main():
 
     replay = None
     if "--replay" in argv:
-        p = argv[argv.index("--replay") + 1] if len(argv) > argv.index("--replay") + 1 else "captures/init_ied.txt"
-        replay = open(p).read().strip()
-        print(f"[0] 用 IED 原始握手 payload 重放（{len(bytes.fromhex(replay))} 字节）")
+        i = argv.index("--replay")
+        if len(argv) <= i + 1:
+            print("用法：python probe.py <相机IP> [--limit N] [--replay <IED 握手 payload 文件>]")
+            print("--replay 必须显式给路径，仓库里没有默认文件。")
+            print("文件内容 = Init_Command_Request 的 data 段，去掉空白后的连续十六进制字符串")
+            print("（无 0x 前缀）。它含配对凭据，不随仓库分发；生成方法见 README §6。")
+            return 2
+        p = argv[i + 1]
+        try:
+            replay = open(p).read().strip()
+            size = len(bytes.fromhex(replay))
+        except OSError as e:
+            print(f"找不到 replay 文件：{p}（{e}），生成方法见 README §6")
+            return 2
+        except ValueError as e:
+            print(f"replay 文件内容不是有效十六进制：{p}（{e}），生成方法见 README §6")
+            return 2
+        # 空文件不抛异常：bytes.fromhex("") 返回 0 字节，会一路进握手重试。
+        # 与其让相机端超时 6 次，不如当场判空并给指引。
+        if not replay:
+            print(f"replay 文件内容为空：{p}，生成方法见 README §6")
+            return 2
+        print(f"[0] 用 IED 原始握手 payload 重放（{size} 字节）")
 
     # 相机偶尔会因为上一轮的残留会话直接拒握手，退避重试几次。
     c, conn, cam = None, None, None

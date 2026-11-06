@@ -88,8 +88,8 @@ tools/
   android-mtp-probe/                 ★ MTP 探针 APK 工程（手搓构建，无 Gradle）
   sony-ptpip/                        PTP/IP 直连相机探针 + 抓包解析器
   pe/                                Lja_PTP_IP.dll 静态分析工具
-captures/                            抓包派生的可读流水（原始 pcapng 未入库）
-out/                                 手机侧报告与截图（ARW 样本未入库）
+captures/                            抓包派生的可读流水（本地证据，未随仓库分发）
+out/                                 手机侧报告与截图（本地证据，未随仓库分发）
 ```
 
 ## 怎么协作
@@ -141,7 +141,8 @@ python scripts/run_gates.py manual      # Android 构建档（需要 SDK + JDK�
 - 本仓库不含任何第三方参考项目。早期审计过的 15 个开源仓库已从版本控制中排除。
 - `tools/android-mtp-probe/rea-debug.keystore` 是**调试用**签名密钥（口令 `android`），
   仅为让 `adb install -r` 可复现，不含任何真实凭据。
-- `captures/*.pcapng`（142 MB）与 `out/*.ARW`（各 24 MB）未入库，可按工具 README 重新生成。
+- `captures/*.pcapng`（体积实测见 `docs/archive/INDEX.md`）、`captures/*.txt`、`out/*` 与 `out/*.ARW`（各 24 MB）均为本地证据，
+  未随仓库分发；结论归档在 `docs/archive/INDEX.md`，可按工具 README 重新生成。
 
 ---
 

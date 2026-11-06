@@ -15,12 +15,12 @@
 /sonypy/
 /sony-remote/
 
-# ---- 大文件：原始抓包 142 MB，超出 GitHub 单文件 100 MB 限制 ----
+# ---- 开发期证据（抓包流水、手机侧报告与截图、RAW 样本）：只留本地，结论写进 docs/archive/ ----
+# 原始 pcapng（体积实测见 docs/archive/INDEX.md，超出 GitHub 单文件 100 MB 限制）
+# 与校验用 ARW（各 24 MB）都包含在内；
 # 需要时用 tools/sony-ptpip/README.md 重新抓
-/captures/*.pcapng
-
-# ---- 校验用 RAW 样本：各 24 MB，可随时从相机重新导出 ----
-/out/*.ARW
+/captures/
+/out/
 
 # ---- 构建产物 ----
 /tools/android-mtp-probe/build/
@@ -36,19 +36,29 @@
 # 由 generateDemoPhotos 从本机素材降采样生成，产物随构建重建，不入库
 /tools/android-mtp-import/src/debug/assets/demo/
 
-# ---- 2026-11-04 早期工作区：里面的产出已整理进 docs/history/，剩下的是第三方源码 ----
-# （libgphoto2 的 gphoto_ptp*.c 与 sonyalphapy 轮子，只作本地参考）
-/2026-11-04/
+# ---- 开发期日期工作区（2026-11-04 / 2026-11-05 / 2026-11-06 …）：产出整理进 docs/archive/
+#      后只留本地，剩下的是第三方源码与过程证据。
+#      `[0-9]` 是 fnmatch 字符类，不是正则；改完用 git check-ignore -v 验证确实命中 ----
+/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 
-# ---- 2026-11-05 本次会话证据目录：评审派发/验收/基线/诊断等中间产物，只留本地 ----
-/2026-11-05/
+# ---- 设计稿与中间产物：只留本地 ----
+/.design/
+
+# ---- 归档区只收文本记录（.md / .txt）：原始 logcat / dump / 截图 / pcapng / APK 一律只留本地 ----
+# 第二行必须先重新包含子目录，否则被忽略目录内部的文本无法再被白名单召回。
+# 放行 .txt 是为了防静默丢记录：审计产物里有纯文本清单（如 docs/archive/2026-11-audit/），
+# 只放行 .md 的话，以后新加的 .txt 会被无声忽略——比目录里多一个文本危险得多（issue #94）。
+/docs/archive/**
+!/docs/archive/**/
+!/docs/archive/**/*.md
+!/docs/archive/**/*.txt
 
 # ---- 临时目录（worktree 约定放在仓库外，万一放里面也别入库） ----
 /.tmp/
 
 # ---- 本地记忆与交接文档不入库 ----
 # `.workbuddy/` 是本地过程记忆、`.handoffs/` 是会话交接；它们每天新增，对协作者无可复用价值，
-# 且交接里含会话上下文。和 `/2026-11-04/` 一样只留本地（issue #12）。
+# 且交接里含会话上下文，只留本地（issue #12）。
 /.workbuddy/
 /.handoffs/
 
