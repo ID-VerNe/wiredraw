@@ -65,7 +65,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | # | 分片 | 门禁 | 防什么 |
 |---|---|---|---|
 | 1 | `static` | `check_gates_manifest.py` | 元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红 |
-| 2 | `static` | `check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（142 MB 抓包就是这样挡在外面的） |
+| 2 | `static` | `check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
 | 3 | `static` | `check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
 | 4 | `static` | `py_compile` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 
@@ -104,7 +104,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 2. **探针只读**。`tools/` 下连相机的代码**不得下发任何写操作**——不删除、不格式化、
    不改相机设置、不触发快门。只允许 OpenSession / 枚举 / 取值这类只读 opcode。
    要加写操作，先开会话讨论并落进 issue，不在 PR 里顺手加。
-3. **大文件不进版本控制**。RAW 样本（24 MB/张）、原始抓包（142 MB）、构建产物一律 gitignore。
+3. **大文件不进版本控制**。RAW 样本（24 MB/张）、原始抓包（实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)）、构建产物一律 gitignore。
    由 `check_no_vendored.py` 兜底（>5 MB 的被跟踪文件即红）。
 4. **15 个第三方参考仓库不入库**。它们在本地磁盘上随你参考，但 `git ls-files` 里出现即红。
 5. **逐个 `git add <file>`**，禁止 `git add .` / `-A` / 目录批量。

@@ -288,6 +288,11 @@ def main():
         except ValueError as e:
             print(f"replay 文件内容不是有效十六进制：{p}（{e}），生成方法见 README §6")
             return 2
+        # 空文件不抛异常：bytes.fromhex("") 返回 0 字节，会一路进握手重试。
+        # 与其让相机端超时 6 次，不如当场判空并给指引。
+        if not replay:
+            print(f"replay 文件内容为空：{p}，生成方法见 README §6")
+            return 2
         print(f"[0] 用 IED 原始握手 payload 重放（{size} 字节）")
 
     # 相机偶尔会因为上一轮的残留会话直接拒握手，退避重试几次。
