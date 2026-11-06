@@ -16,7 +16,7 @@
 #     printf "refs/heads/x 111 refs/heads/x 222\n" | ./.githooks/pre-push | head -n 1; echo "hook_exit=${PIPESTATUS[1]}"
 #
 # 跳过：SKIP_GATES=1 git push —— 会打印醒目横幅，且不是静默绕过；双流都被关闭时
-# 横幅看不见，但这次绕过会由 audit_skip() 落到 git dir 内（issue #118）。
+# 横幅看不见，但这次绕过会由 audit_skip() 落到 git 的 common dir 内（issue #118）。
 
 # 输出管道被提前关闭时本 sh 会收到 SIGPIPE 直接退出（实测 141）。忽略它，
 # 让写失败退化成普通返回码，由 say() 吞掉，不参与结论。
@@ -28,13 +28,21 @@ say() {
 }
 
 # SKIP_GATES 的审计落盘（issue #118）：横幅只对看得见终端的人有效，双流关闭时
-# 必须另留一份机器可读的记录。路径由 `git rev-parse --git-path` 给出——主工作区是
-# .git/skip-gates.log，linked worktree 是 .git/worktrees/<name>/skip-gates.log，
-# 都在 git dir 内，不进版本库也不进工作区，`git status` 不会因此变脏。
+# 必须另留一份机器可读的记录。路径必须取 git 的 **common dir**，不能用 `--git-path`：
+# 本仓库所有改动都强制走 `git worktree`（AGENTS.md §2.7），`--git-path` 在 linked
+# worktree 下落在 `.git/worktrees/<name>/`，`git worktree remove --force` 会把审计
+# 记录一并删掉——那样这个功能在真实流程里等于不存在。common dir 是所有 worktree
+# 共用、且不被 worktree 清理影响的位置；文件在 git dir 内，不进版本库也不进工作区，
+# `git status` 不会因此变脏。
 # 审计是旁路：每一步失败都吞掉，绝不改变退出码（日志写不进去也必须能推）。
 audit_skip() {
-  log_path=$(git rev-parse --git-path skip-gates.log 2>/dev/null) || return 0
-  [ -n "$log_path" ] || return 0
+  # --path-format=absolute 需要 git ≥ 2.31；更老的 git 退回普通形式（主工作区返回
+  # 相对的 `.git`，而 pre-push 的 cwd 就是工作区根，仍然正确）。bare 仓 / 子模块
+  # （`.git` 是文件）下 common dir 由 git 自己解析，不在这里做特殊处理。
+  common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) ||
+    common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || return 0
+  [ -n "$common_dir" ] || return 0
+  log_path="${common_dir%/}/skip-gates.log"
   # 一行 TSV：ISO 时间 / 用户 / 分支 / HEAD 短 SHA / PR-或-CI 上下文
   # 直接跑钩子（issue #118 的复现命令）时 PATH 里可能没有 Git 的 usr/bin，date 找不到；
   # 退回 bash 内建的时间格式化（Git for Windows 的 sh 就是 bash），再不行才写 unknown-time。
