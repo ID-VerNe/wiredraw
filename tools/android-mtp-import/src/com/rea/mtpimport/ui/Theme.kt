@@ -20,6 +20,9 @@ object UiColors {
     /** 主文字与已选描边。 */
     val ink = Color(0xFF111111)
 
+    /** 正文/顶栏文字与图标（on-surface，白底 17.1:1）。 */
+    val onSurface = Color(0xFF1A1C1C)
+
     /** 正文与组头（≥4.5:1）。 */
     val secondary = Color(0xFF444748)
 
@@ -38,11 +41,18 @@ object UiColors {
     /** `ERROR` 的错误色。 */
     val error = Color(0xFFBA1A1A)
 
-    /** 抽屉遮罩。 */
-    val scrim = Color(0x66000000)
+    /**
+     * 抽屉遮罩。底子与画布黑同一个色相，只是带 40% 透明（issue #44 决策：全仓不许再用纯黑）。
+     */
+    val scrim = Color(0x661D1D1F)
 
-    /** 照片页画布与胶囊。 */
-    val photoCanvas = Color(0xFF000000)
+    /**
+     * 画布黑（`#1d1d1f`）：`photo` 页底与深色容器。与文字近黑 `ink`（`#111111`）是两个显式
+     * token，不得互换——`ink` 压在 `#1d1d1f` 上对比度只有约 1.12:1，深色面上只能用 `canvas`。
+     */
+    val photoCanvas = Color(0xFF1D1D1F)
+
+    /** 照片页胶囊底色（白色 12%）。 */
     val photoCapsule = Color(0x1FFFFFFF)
 }
 
@@ -61,7 +71,7 @@ val TextDisplay = TextStyle(
     lineHeight = 28.sp,
     fontWeight = FontWeight.SemiBold,
     color = UiColors.ink,
-    // display-sm 用在环内百分比与 DONE 的 `36 · 871 MB`，等宽数字避免进度跳动。
+    // display-sm 用在状态主文案、环内百分比与 DONE 的 `36 · 871 MB`，等宽数字避免进度跳动。
     fontFeatureSettings = "tnum"
 )
 

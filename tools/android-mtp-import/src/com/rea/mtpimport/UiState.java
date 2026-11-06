@@ -29,7 +29,7 @@ public final class UiState {
         PAUSED,
         /** 完成：完成标记 + `Done` + 数量/容量 + 位置图标 + `Open`。 */
         DONE,
-        /** 出错：一行中文原因 + `Connect camera` + 详情抽屉。 */
+        /** 出错：一行中文原因 + `Reconnect`（顶栏标签与内容区插头图标）+ 详情抽屉。 */
         ERROR
     }
 
@@ -85,11 +85,13 @@ public final class UiState {
     }
 
     /**
-     * 是否渲染顶栏。只有照片墙需要它（设备短名 + 徽标 + 过滤）；
-     * 其余状态的主表达是「图标 + 一行字 + 一个动作」，多一条顶栏只会多一个抢焦点的控件。
-     * 扫描态尤其不能有数字徽标（U-43：`1526` 只作进度分母）。
+     * 顶栏在全部 10 个状态下常驻（issue #44 决策 2），内容按 UI-SPEC §2.2 的**逐态分化**表
+     * （`COLD` / `ERROR` / `CATALOG_READY` 各有形态，计数胶囊只在 `CATALOG_READY` 出现）；
+     * `photo` / `transfer` 页复用同一个 `topBar` 容器。
+     *
+     * 判定本身归 {@link TopBarSpec}（唯一归属，N-1），这里只保留旧调用点。
      */
     public static boolean hasTopBar(State s) {
-        return s == State.CATALOG_READY;
+        return TopBarSpec.hasBar(s);
     }
 }

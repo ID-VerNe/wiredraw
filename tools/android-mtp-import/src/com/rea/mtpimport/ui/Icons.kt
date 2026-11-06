@@ -59,6 +59,64 @@ fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * `ERROR` 顶栏的断线图标（UI-SPEC `V-28`）：插头与插座之间留一道空隙，读作「线没插上」。
+ *
+ * 与 [CameraGlyph] 同族：同一 1.5 dp stroke、同一 24 dp 坐标系、不填充底色、圆头描边。
+ * 替代旧的「相机线稿压斜线」画法；不画斜线也不画叉号，靠「插针没进插座」表达断开。
+ */
+@Composable
+fun UnpluggedGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val s = strokePx()
+        // 插头机身
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.14f, h * 0.34f),
+            size = Size(w * 0.38f, h * 0.32f),
+            cornerRadius = CornerRadius(w * 0.05f),
+            style = Stroke(s)
+        )
+        // 两根插针（向右，未进入插座；留 0.14 w 的空隙，约 2 个 stroke）
+        drawLine(tint, Offset(w * 0.52f, h * 0.44f), Offset(w * 0.60f, h * 0.44f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.52f, h * 0.56f), Offset(w * 0.60f, h * 0.56f), s, StrokeCap.Round)
+        // 线尾
+        drawLine(tint, Offset(w * 0.04f, h * 0.50f), Offset(w * 0.14f, h * 0.50f), s, StrokeCap.Round)
+        // 插座：开口向左的 C 形括号，与插针之间留 0.14 w 的空隙（≥1 个 stroke）
+        drawLine(tint, Offset(w * 0.74f, h * 0.32f), Offset(w * 0.88f, h * 0.32f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.88f, h * 0.32f), Offset(w * 0.88f, h * 0.68f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.88f, h * 0.68f), Offset(w * 0.74f, h * 0.68f), s, StrokeCap.Round)
+    }
+}
+
+/**
+ * `Connect camera` 的动作图标：USB 插头（机身 + 两根插针 + 线尾），
+ * 不用循环箭头（§4.5 按钮词表：重连语义不能表达成「再试一次」，见 issue #44 决策）。
+ */
+@Composable
+fun PlugGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val s = strokePx()
+        // 插头机身
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.24f, h * 0.34f),
+            size = Size(w * 0.34f, h * 0.32f),
+            cornerRadius = CornerRadius(w * 0.06f),
+            style = Stroke(s)
+        )
+        // 两根插针
+        drawLine(tint, Offset(w * 0.58f, h * 0.44f), Offset(w * 0.76f, h * 0.44f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.58f, h * 0.56f), Offset(w * 0.76f, h * 0.56f), s, StrokeCap.Round)
+        // 线尾
+        drawLine(tint, Offset(w * 0.10f, h * 0.50f), Offset(w * 0.24f, h * 0.50f), s, StrokeCap.Round)
+    }
+}
+
 @Composable
 fun BackGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size)) {

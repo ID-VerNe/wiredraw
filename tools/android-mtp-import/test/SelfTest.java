@@ -57,6 +57,8 @@ public final class SelfTest {
         pauseCancelCases();
         partialResumeCases();
         uiStateCases();
+        importGateCases();
+        topBarSpecCases();
         backNavCases();
         uiTextCases();
         photoWallCases();
@@ -1458,11 +1460,47 @@ public final class SelfTest {
                 UiState.showsLibrary(UiState.State.CATALOG_READY)
                         && !UiState.showsLibrary(UiState.State.SCANNING),
                 "showsLibrary 判定不符");
-        check("扫描态不渲染顶栏（U-43：1526 只作分母）",
-                !UiState.hasTopBar(UiState.State.SCANNING)
-                        && !UiState.hasTopBar(UiState.State.DONE)
-                        && UiState.hasTopBar(UiState.State.CATALOG_READY),
-                "hasTopBar 判定不符");
+        check("顶栏在全部 10 态常驻（#44 决策 2）",
+                java.util.Arrays.stream(UiState.State.values()).allMatch(UiState::hasTopBar),
+                "任何状态都不得去掉顶栏；内容按 UI-SPEC §2.2 的方案 A 逐态表");
+    }
+
+    // ---------------- 主 CTA 准入与顶栏形态（N-1：Compose 与自检共用同一判定） ----------------
+
+    /**
+     * `ImportGate` 是 `LibraryScreen` 里 `enabled = ...` 的唯一出处。
+     * 两个条件都必须有用例守着：变异掉任意一个都必须让本段变红（review N-1 的变异实验）。
+     */
+    static void importGateCases() {
+        check("ImportGate：空闲且有空间时可点", ImportGate.enabled(false, false),
+                "enabled=false");
+        check("ImportGate：渐进扫描中禁用（不能丢 !backgroundScanning）",
+                !ImportGate.enabled(true, false), "enabled=true");
+        check("ImportGate：空间不足时禁用（不能丢 !lowSpace）",
+                !ImportGate.enabled(false, true), "enabled=true");
+        check("ImportGate：两个条件同时成立也禁用", !ImportGate.enabled(true, true),
+                "enabled=true");
+    }
+
+    /**
+     * `TopBarSpec` 是「哪些状态有顶栏 / 哪个状态出计数胶囊」的唯一出处，
+     * Compose 页面（LibraryScreen / StatusScreen / TransferScreen / PhotoScreen / LibraryTopBar）共用。
+     */
+    static void topBarSpecCases() {
+        check("TopBarSpec：10 态都有顶栏",
+                java.util.Arrays.stream(UiState.State.values()).allMatch(TopBarSpec::hasBar),
+                "任何状态都不得去掉顶栏");
+        check("TopBarSpec：计数胶囊在 CATALOG_READY 且计数非零时出现",
+                TopBarSpec.showsCountPill(UiState.State.CATALOG_READY, 511),
+                "READY / 511 未出胶囊");
+        check("TopBarSpec：CATALOG_READY 计数为 0 时不出胶囊",
+                !TopBarSpec.showsCountPill(UiState.State.CATALOG_READY, 0),
+                "空目录仍出胶囊");
+        check("TopBarSpec：除 CATALOG_READY 外的状态一律不出计数胶囊",
+                java.util.Arrays.stream(UiState.State.values())
+                        .filter(s -> s != UiState.State.CATALOG_READY)
+                        .noneMatch(s -> TopBarSpec.showsCountPill(s, 511)),
+                "非 READY 状态出现了计数胶囊");
     }
 
     // ---------------- 系统返回键路由（BackNav，issue #48） ----------------
@@ -1671,7 +1709,7 @@ public final class SelfTest {
                 "实际 " + rawBytes);
 
         PhotoWall wall = PhotoWall.of(demo);
-        check("徽标 511 与 Import all 511 同分母",
+        check("假树 511 与 Import all 511 同分母",
                 wall.photoCount() == 511 && "Import all 511".equals(UiText.importCta(0, wall.photoCount())),
                 "实际 " + wall.photoCount());
         check("假树 12 个日期组", wall.groups().size() == 12, "实际 " + wall.groups().size());

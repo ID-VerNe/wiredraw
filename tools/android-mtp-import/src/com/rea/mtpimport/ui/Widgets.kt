@@ -90,13 +90,17 @@ fun PrimaryButton(
     }
 }
 
-/** 次按钮：只有文字，热区同样 ≥48 dp（A-01）。 */
+/**
+ * 次按钮：文字 + 1 dp 描边（§3.4「线性图标（无文字）或 1 px 描边」），热区同样 ≥48 dp（A-01）。
+ * 描边取 `outline`（#747878 on #FFFFFF ≈ 4.47:1），满足图形 ≥3:1。
+ */
 @Composable
 fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(24.dp))
+            .border(1.dp, UiColors.outline, RoundedCornerShape(24.dp))
             .tappable(onClick = onClick)
             .semantics { role = Role.Button }
             .padding(horizontal = 20.dp, vertical = 12.dp),
@@ -191,15 +195,17 @@ fun Scrim(onDismiss: () -> Unit) {
 }
 
 /**
- * 小圆角容器（徽标、照片页胶囊共用）。
- *
- * 13 sp（`label-md`）：按 §3.1 只允许出现在环下 `12/36` 与 `photo` 页的
- * `ARW · 24.6 MB` 胶囊（含顶栏徽标，同属 `label-md`）（PR #41 第四轮评审 B2）。
+ * 小圆角胶囊：`photo` 页的 `ARW · 24.6 MB` 与 `CATALOG_READY` 顶栏计数胶囊（`V-27`），
+ * 统一 `mono-data` 12 sp、等宽数字。顶栏只在 `CATALOG_READY` 复用本组件，其它状态不出现数字。
  */
 @Composable
-fun Pill(text: String, modifier: Modifier = Modifier, onDark: Boolean = false) {
+fun Pill(
+    text: String,
+    modifier: Modifier = Modifier,
+    onDark: Boolean = false
+) {
     val bg = if (onDark) UiColors.photoCapsule else UiColors.container
-    val fg = if (onDark) UiColors.canvas else UiColors.ink
+    val fg = if (onDark) UiColors.canvas else UiColors.onSurface
     Box(
         modifier
             .clip(CircleShape)
@@ -207,7 +213,7 @@ fun Pill(text: String, modifier: Modifier = Modifier, onDark: Boolean = false) {
             .padding(horizontal = 10.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center
     ) {
-        BasicText(text, style = TextLabel.copy(color = fg))
+        BasicText(text, style = TextMonoData.copy(color = fg))
     }
 }
 

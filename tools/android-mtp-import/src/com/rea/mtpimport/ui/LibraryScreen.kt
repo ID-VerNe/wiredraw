@@ -8,16 +8,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -53,7 +50,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.Catalog
+import com.rea.mtpimport.ImportGate
 import com.rea.mtpimport.PhotoWall
+import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -62,7 +61,7 @@ import kotlinx.coroutines.withContext
 /**
  * 照片墙（`CATALOG_READY`）。
  *
- * 顶栏：相机图标 + 设备短名 + 徽标（ARW 张数 = `Import all N` 的 N，U-53）+ 过滤入口。
+ * 顶栏：相机线稿 + 设备短名 + 12 sp 计数胶囊 + 过滤入口（`CATALOG_READY` 形态，UI-SPEC §2.2 / `V-27`）。
  * 内容：按日期分组的缩略图网格；缩略图由 `ThumbnailStore` 在 IO 线程异步取（#59），
  * 取不到时按 §0.7 / V-19 用**同尺寸灰块 + 文件名 12 sp** 降级。
  * 底部：单一主 CTA，48 dp，文案唯一出处是 §4.5 `T-CATALOG`。
@@ -70,7 +69,10 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LibraryScreen(model: AppModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        TopBar(model)
+        // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 逐态分化，本页是 CATALOG_READY 形态。
+        // 「哪些状态有顶栏」与 SelfTest 共用 `TopBarSpec.hasBar`（N-1）。
+        if (TopBarSpec.hasBar(model.state)) LibraryTopBar(model)
+        // 渐进态（issue #60 / UI-SPEC V-23）：后台补齐时顶栏下方加 2 dp 进度细线，完成后消失。
         if (model.backgroundScanning) ScanLine(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PhotoGrid(model)
@@ -104,57 +106,6 @@ private fun ScanLine(model: AppModel) {
                 .height(2.dp)
                 .background(UiColors.ink)
         )
-    }
-}
-
-@Composable
-private fun TopBar(model: AppModel) {
-    Row(
-        // 顶栏容器的语义标签固定为 `topBar`、高度 56 dp（§2 顶栏定义 (a)，U-01 / U-02 靠它定位）。
-        // `testTagsAsResourceId(true)` 在 `ImportApp` 的根节点上，dump 里它以 resource-id 出现。
-        Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .testTag("topBar")
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        CameraGlyph(20.dp, UiColors.ink)
-        Spacer(Modifier.width(8.dp))
-        // 设备短名只作标识（§1.1）；长按它打开详情抽屉（L-05 的入口之一）。
-        // 热区挂在 ≥48×48 dp 的容器上（A-01 / U-09），外观是正文 14 sp（V-01 / U-09）；
-        // `onLongClick` 语义让 dump 能读到 `long-clickable`，TalkBack 也有动作可走（A-03）。
-        Box(
-            Modifier
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { model.detailsOpen = true })
-                }
-                .clearAndSetSemantics {
-                    contentDescription = model.deviceName
-                    role = Role.Button
-                    onLongClick("Details") {
-                        model.detailsOpen = true
-                        true
-                    }
-                },
-            contentAlignment = Alignment.CenterStart
-        ) {
-            BasicText(model.deviceName, style = TextBody)
-        }
-        Spacer(Modifier.weight(1f))
-        Pill(model.photoCount.toString())
-        Spacer(Modifier.width(4.dp))
-        // 渐进态的唯一临时动作（issue #60）：后台补齐时仍要能取消扫描。
-        // 完成后消失，不成为常驻控件；热区 48 dp（A-01）。
-        if (model.backgroundScanning) {
-            IconAction(desc = "Cancel", onClick = { model.callbacks?.onCancel() }) {
-                CloseGlyph(20.dp, UiColors.ink)
-            }
-        }
-        IconAction(desc = "Filter", onClick = { model.filterOpen = true }) {
-            FilterGlyph(20.dp, UiColors.outline)
-        }
     }
 }
 
@@ -345,8 +296,9 @@ private fun ImportBar(model: AppModel) {
             text = UiText.importCta(selected, model.photoCount),
             onClick = { model.callbacks?.onImport() },
             // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
-            // P-09：空间不足时同样禁用，两个条件都必须生效。
-            enabled = !model.backgroundScanning && !model.lowSpace
+            // P-09：空间不足时同样禁用。两个条件都必须生效——判定归 `ImportGate`（N-1），
+            // 页面里不再写 `enabled = ...` 表达式，SelfTest 直接断言同一个函数。
+            enabled = ImportGate.enabled(model.backgroundScanning, model.lowSpace)
         )
     }
 }

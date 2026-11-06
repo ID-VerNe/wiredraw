@@ -23,7 +23,7 @@ import com.rea.mtpimport.UiState
  * 根 composable：按 `UiState` 三屏分流。
  *
  * - `photo` 页是详情视图，优先级最高（由 `CATALOG_READY` 的格子**长按**进入；
- *   `L-08` 规定点格切换已选，`UI-SPEC.md:223` 的「点击进入」与之冲突，见 issue #43）。
+ *   `L-08` 规定点格切换已选，口径见 `UI-SPEC.md` §1.2）。
  * - `IMPORTING` / `PAUSED` → 传输屏；`CATALOG_READY` → 照片墙；其余 → 状态屏。
  * - 详情抽屉与过滤抽屉是覆盖层，不改变上面的内容（L-05 / L-09）。
  */
