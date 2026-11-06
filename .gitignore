@@ -44,11 +44,14 @@
 # ---- 设计稿与中间产物：只留本地 ----
 /.design/
 
-# ---- 归档区只收 Markdown：原始 logcat / dump / 截图 / pcapng / APK 一律只留本地 ----
-# 第二行必须先重新包含子目录，否则被忽略目录内部的 md 无法再被白名单召回
+# ---- 归档区只收文本记录（.md / .txt）：原始 logcat / dump / 截图 / pcapng / APK 一律只留本地 ----
+# 第二行必须先重新包含子目录，否则被忽略目录内部的文本无法再被白名单召回。
+# 放行 .txt 是为了防静默丢记录：审计产物里有纯文本清单（如 docs/archive/2026-11-audit/），
+# 只放行 .md 的话，以后新加的 .txt 会被无声忽略——比目录里多一个文本危险得多（issue #94）。
 /docs/archive/**
 !/docs/archive/**/
 !/docs/archive/**/*.md
+!/docs/archive/**/*.txt
 
 # ---- 临时目录（worktree 约定放在仓库外，万一放里面也别入库） ----
 /.tmp/
