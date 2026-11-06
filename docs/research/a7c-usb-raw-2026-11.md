@@ -352,7 +352,7 @@ JPEG 几 MB，一眼就能确认 IED 取的是哪种。
 ### 10.6 实测结果（2026-11-04 晚，已抓包验证）
 
 用 a7C + 家庭路由器（Wi-Fi Access Point 模式）+ IED 实测一遍，148 MB 抓包解析完毕。
-详细流水见 `tools/sony-ptpip/FINDINGS-a7c-ptpip-session.md`。三条重要修正：
+详细流水见 `docs/research/a7c-ptpip-session.md`。三条重要修正：
 
 1. **a7C 不走 SSH。** 全流程 0 个 22 端口连接，`DigitalImagingDesc.xml` 里没有
    `X_SSH_Support` 字段。10.3 里从 `Lja_PTP_IP.dll` 推出的 libssh2 隧道只适用于其他机型。
