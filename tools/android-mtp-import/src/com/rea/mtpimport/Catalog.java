@@ -48,7 +48,7 @@ public final class Catalog {
             return format == FMT_FOLDER;
         }
 
-        /** ARW 按格式码判，同时兼容后缀——探针实测两者都有用（见 Main.java:258 的同款判断）。 */
+        /** ARW 按格式码判，同时兼容后缀——探针实测两者都有用（见探针 `com.rea.mtpprobe.Main#probe()` 的同款判断）。 */
         public boolean isRaw() {
             return format == FMT_ARW || name.toUpperCase(Locale.US).endsWith(".ARW");
         }
