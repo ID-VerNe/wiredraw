@@ -19,7 +19,7 @@
 |---|---|
 | Python 工具与门禁 | Python 3，**只用标准库**，不引入第三方包 |
 | 探针 / 导片工具构建（`manual` 档） | Android SDK + JDK；导片工具用仓库自带的 Gradle wrapper |
-| 真机验证 | ILCE-7C 固件 2.00 + 魅族 20 Infinity / Android 15 (API 35)，USB MTP 连接 |
+| 真机验证 | ILCE-7C 固件 2.00 + 两台测试机（E1 魅族 20 Infinity / E2 MI 9），均 Android 15 (API 35)，USB MTP 连接；结论归属见[验证环境矩阵](docs/verification-matrix.md) |
 
 没有真机也能做文档、门禁与静态分析；但任何涉及相机的结论都必须标注机型、固件、
 手机与 Android 版本、连接方式（USB 还是 Wi-Fi），否则别人无法复现。

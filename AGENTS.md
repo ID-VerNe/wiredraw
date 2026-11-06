@@ -86,6 +86,8 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
   不采信转述。
 - **真机结论必须标注环境**：机型 / 固件版本 / 手机型号 / Android API / 连接方式（USB 还是 Wi-Fi）。
   本项目的每一条结论都强依赖这些，缺了就无法复现。
+- **结论归属到环境编号**：真机结论除五项环境外，还要能对上
+  [`docs/verification-matrix.md`](docs/verification-matrix.md) 的 E 编号；矩阵里没有的组合按「未验证」处理。
 - **红了先归因**：用 pristine HEAD 的 worktree 对照跑一遍，分清代码问题还是环境抖动，再动手。
 - **PR 正文与评论也在脱敏扫描范围内**：`support` 档的
   [`scripts/check_pr_body.py`](scripts/check_pr_body.py) 会扫 PR 正文与评论，
@@ -106,7 +108,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 包管理器 | Python 侧仍零依赖；Android 导片工具用 Gradle（Kotlin + Compose），探针 APK 仍手搓 |
 | 主开发线 | `main`（不再直接提交，见 §0） |
 | 目标设备 | ILCE-7C，固件 2.00 |
-| 测试机 | 魅族 20 Infinity / Android 15 (API 35) |
+| 测试机 | E1 魅族 20 Infinity / E2 MI 9（小米 9）；均 Android 15 (API 35)，见[验证环境矩阵](docs/verification-matrix.md) |
 
 ## 2. 红线（违反任何一条都不算完成任务）
 

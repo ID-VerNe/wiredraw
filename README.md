@@ -10,19 +10,19 @@
 | USB 有线枚举整卡、下载历史 RAW（包括旧照片） | PTP / PTP‑IP 会话只能取最新一张（`0xFFFFC001`） |
 | 免 root、免协议逆向：用 Android 自带的 `android.mtp.MtpDevice` | **不免授权**：首次插线要在系统弹窗里勾一次「一律打开」，之后静默 |
 | 记录完整性可校验：字节数 + MD5 + TIFF 文件头 | 不提供相机遥控 / 边拍边传（那需要写操作，探针只读） |
-| 单机实测吞吐 21.43 MB/s（三张 24 MP RAW） | 只在下面这一套真机环境验证过；其他机型与固件未验证 |
+| 单环境实测吞吐 21.43 MB/s（三张 24 MP RAW，矩阵 E1） | 只在[验证环境矩阵](docs/verification-matrix.md)列出的 E1 / E2 验证过；其他机型与固件未验证 |
 
 ## 支持环境
 
 | 能力 | 环境 | 状态 |
 |---|---|---|
-| MTP 枚举 + 下载 | ILCE-7C 固件 2.00 / 魅族 20 Infinity / Android 15 (API 35) / USB 有线 | 通过（2026-11-04，证据见[主报告](docs/research/a7c-usb-raw-2026-11.md) §12） |
+| MTP 枚举 + 下载 | ILCE-7C 固件 2.00 / 魅族 20 Infinity / Android 15 (API 35) / USB 有线（矩阵 E1） | 通过（2026-11-04，证据见[主报告](docs/research/a7c-usb-raw-2026-11.md) §12） |
 | PTP‑IP 握手 + 取最新一张 | ILCE-7C / Wi‑Fi PTP‑IP（复刻 IED 协议） | 通过；同一会话下存储枚举 `AccessDenied` |
-| 导片工具（照片墙 / 选择 / 进度 / 续传） | 同第一行环境 | 实现状态与真机待验项见[导片工具 README](tools/android-mtp-import/README.md) |
+| 导片工具（照片墙 / 选择 / 进度 / 续传） | 矩阵 E1 + E2（魅族 20 Infinity / MI 9，均 Android 15 API 35，USB） | 实现状态与真机待验项见[导片工具 README](tools/android-mtp-import/README.md) |
 | 安装最低版本 | Android 12（API 31）及以上 | 两个 APK 均 `minSdk = 31`、`targetSdk = 35`（[探针构建脚本](tools/android-mtp-probe/build.sh)、[导片工具构建配置](tools/android-mtp-import/build.gradle.kts)） |
 | 其他机型 / 固件 | — | 未验证 |
 
-单机结论不外推：表里没列出的环境一律按「未验证」处理。
+单环境结论不外推：表里没列出的环境一律按「未验证」处理。
 
 ## 快速开始
 
