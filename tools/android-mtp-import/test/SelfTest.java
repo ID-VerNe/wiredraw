@@ -55,6 +55,7 @@ public final class SelfTest {
         cancelTokenCases();
         importServiceCases();
         pauseCancelCases();
+        resumePlanCases();
         importServicePauseClockCases();
         partialResumeCases();
         uiStateCases();
@@ -713,6 +714,41 @@ public final class SelfTest {
 
         ImportPlan none = ImportPlan.of(c, s, List.of(), PhotoWall.Export.RAW);
         check("可见集合为空时计划为空（不产生 Import 0）", none.isEmpty(), "实际 " + none.count());
+
+        // issue #57：恢复暂停轮次前必须判断两份计划是不是同一批文件。
+        ImportPlan p2 = ImportPlan.of(c, s, wall.units(), PhotoWall.Export.JPG_FIRST);
+        check("同一清单按值比较为真（不靠对象身份，#57）",
+                ImportPlan.sameFileSet(p, p), "实际 false");
+        check("同勾选重算出的清单仍视为同一批（#57）",
+                ImportPlan.sameFileSet(p, p2), "实际 false");
+        check("条数不同不是同一批（#57）",
+                !ImportPlan.sameFileSet(p, all), "实际 true");
+        Selection other = new Selection(c);
+        other.setChecked(5, true);   // C0001.JPG（60）
+        other.setChecked(6, true);   // DSC02999.ARW（50）：条数与 p 相同，但 C0001 不在 p 里
+        ImportPlan otherPlan = ImportPlan.of(c, other, wall.units(), PhotoWall.Export.JPG_FIRST);
+        check("条数相同但文件不同也不是同一批（#57）",
+                p.count() == otherPlan.count() && !ImportPlan.sameFileSet(p, otherPlan),
+                "p=" + p.count() + " other=" + otherPlan.count());
+        check("档位变化导致载荷文件不同，也不是同一批（#57）",
+                !ImportPlan.sameFileSet(p, ImportPlan.of(c, s, wall.units(), PhotoWall.Export.RAW)),
+                "实际 true");
+        // 主键是 relPath + size：同名同路径但字节数变了（换卡 / 重新编码）也不能算同一批。
+        Catalog variant = new Catalog();
+        variant.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        variant.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        variant.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
+        variant.add(new Catalog.Entry(4, 2, Catalog.FMT_JPEG, 101, "DSC02183.JPG"));
+        variant.add(new Catalog.Entry(6, 1, Catalog.FMT_ARW, 50, "DSC02999.ARW"));
+        variant.add(new Catalog.Entry(5, 0, Catalog.FMT_JPEG, 60, "C0001.JPG"));
+        Catalog cv = variant.build();
+        ImportPlan otherSize = ImportPlan.of(cv, s, PhotoWall.of(cv).units(),
+                PhotoWall.Export.JPG_FIRST);
+        check("relPath 相同但字节数变了也不是同一批（#57）",
+                !ImportPlan.sameFileSet(p, otherSize), "实际 true");
+        check("任一侧为 null 时不是同一批（#57）",
+                !ImportPlan.sameFileSet(p, null) && !ImportPlan.sameFileSet(null, p),
+                "实际 true");
     }
 
     // ---------------- SpaceCheck（PD / P-09） ----------------
@@ -1443,6 +1479,47 @@ public final class SelfTest {
         check("PD onDestroy：worker 退出后 awaitWorker 返回 true",
                 svc3.awaitWorker(5000), "实际返回 false");
         deleteTree(out3);
+    }
+
+    // ---------------- 恢复前比较暂停轮次的清单（issue #57） ----------------
+
+    /**
+     * 暂停轮次只认自己那份清单：同一批文件可恢复，勾选 / 档位 / filter 变了必须按新计划重开。
+     * 这里直接验证 {@link ImportService#canResumeWith(ImportPlan)} 的判定，不模拟 Main 的界面分支。
+     */
+    static void resumePlanCases() throws Exception {
+        Catalog c = sample();
+        PhotoWall wall = PhotoWall.of(c);
+        Selection sa = new Selection(c);
+        sa.setChecked(3, true);   // DSC02183 单元，JPG 优先 → 1 个文件
+        ImportPlan planA = ImportPlan.of(c, sa, wall.units(), PhotoWall.Export.JPG_FIRST);
+        Selection sb = new Selection(c);
+        sb.setChecked(6, true);   // DSC02999 仅 ARW → 1 个文件，与 planA 不同
+        ImportPlan planB = ImportPlan.of(c, sb, wall.units(), PhotoWall.Export.JPG_FIRST);
+        check("issue #57 用例：两份清单条数相同但文件不同",
+                planA.count() == planB.count() && !ImportPlan.sameFileSet(planA, planB),
+                "A=" + planA.count() + " B=" + planB.count());
+
+        File out = Files.createTempDirectory("wiredraw-57-resume").toFile();
+        GatedTransfer g = new GatedTransfer();
+        FinishRecorder r = new FinishRecorder();
+        ImportService svc = new ImportService(Log.NOOP, g, out);
+        svc.start(planA, r);
+        check("issue #57：start() 固化的清单可由 plan() 读出",
+                svc.plan() != null && svc.plan().count() == planA.count(),
+                "实际 " + (svc.plan() == null ? "null" : svc.plan().count()));
+        check("issue #57：第一个文件已进入传输", g.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+        svc.pause();
+        check("issue #57：暂停轮次可用同一清单恢复", svc.canResumeWith(planA), "实际 false");
+        check("issue #57：暂停轮次不可用不同清单恢复", !svc.canResumeWith(planB), "实际 true");
+        check("issue #57：next=null 不可恢复", !svc.canResumeWith(null), "实际 true");
+        g.releaseFirst.countDown();
+        svc.cancel();
+        check("issue #57：取消后 worker 在 5 秒内退出", svc.awaitWorker(5000), "等待超时");
+        check("issue #57：轮次结束后 canResumeWith 为 false",
+                !svc.canResumeWith(planA), "实际 true");
+        check("issue #57：取消轮次收尾回调到达", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+        deleteTree(out);
     }
 
     // ---------------- 生产路径的暂停时钟接线（issue #58 一审 B-1） ----------------
