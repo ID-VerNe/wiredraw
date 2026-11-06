@@ -180,9 +180,11 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
   编译失败静默通过、`build/classes` 为空却继续往下跑。构建脚本里一律先落日志再判退出码。
 - **git 提交在 Windows 下会有 `LF will be replaced by CRLF` 警告**，属正常（`autocrlf`）；
   仓库内存的是 LF。
-- **跑 `manual` 档前先设 `ANDROID_HOME` / `JAVA_HOME`**：未设时探针 `build.sh` 与导片工具的
-  Gradle 配置在定位 SDK 阶段直接失败退出，不是代码问题；设置口径与三级探测顺序见
-  [`docs/building.md`](docs/building.md) 第二节。
+- **跑 `manual` 档前建议先设 `ANDROID_HOME` / `JAVA_HOME`**：两条构建链都会回退到默认路径——
+  探针 `build.sh` 走 `ANDROID_HOME` → `ANDROID_SDK_ROOT` → 常见默认路径，JDK 再回退到
+  `PATH` 里的 `javac`；导片工具 Gradle 走 `local.properties` → 环境变量 →
+  `%LOCALAPPDATA%\Android\Sdk`。**默认路径也找不到时**才在定位 SDK 阶段直接失败退出，
+  不是代码问题；设置口径与完整探测顺序见 [`docs/building.md`](docs/building.md) 第二节。
 
 ## 5. Commit 与发布
 
