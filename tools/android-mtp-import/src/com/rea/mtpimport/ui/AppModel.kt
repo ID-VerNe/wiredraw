@@ -12,6 +12,7 @@ import com.rea.mtpimport.DemoPayload
 import com.rea.mtpimport.PhotoPreview
 import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.Selection
+import com.rea.mtpimport.ThumbnailStore
 import com.rea.mtpimport.UiState
 
 /** 界面 → 业务层的动作出口；由 Main 实现（Java 侧实现 Kotlin 接口最省事）。 */
@@ -95,6 +96,10 @@ class AppModel {
      * 恒为 null，页面按 U-51 只显示胶囊；debug 的 demo 模式注入 `DemoImages`。
      */
     var previewSource: PhotoPreview? = null
+
+    /** 照片墙缩略图（issue #59）：由 Main 注入；demo 与真实 MTP 走同一个 store。 */
+    var thumbnails by mutableStateOf<ThumbnailStore?>(null)
+        private set
 
     var detailsOpen by mutableStateOf(false)
     var filterOpen by mutableStateOf(false)
@@ -293,6 +298,13 @@ class AppModel {
 
     /** 该照片的预览图；没有来源或没有素材时返回 null。 */
     fun previewFor(entry: Catalog.Entry): Bitmap? = previewSource?.previewFor(entry)
+
+    fun bindThumbnails(store: ThumbnailStore) {
+        thumbnails = store
+    }
+
+    /** 读网格缩略图（**必须**在 IO 线程调用）；null 表示该条目没有可用预览。 */
+    fun loadThumbnail(entry: Catalog.Entry): Bitmap? = thumbnails?.load(entry)
 
     fun closePhoto() {
         openedPhoto = null

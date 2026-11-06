@@ -58,6 +58,9 @@ public final class Main extends ComponentActivity {
     /** 界面状态（Compose 唯一数据源）。 */
     private final AppModel model = new AppModel();
 
+    /** 照片墙缩略图（issue #59）：会话级缓存，所有相机调用走 session.ioLock()。 */
+    private final ThumbnailStore thumbnails = new ThumbnailStore();
+
     /** 当前这一轮扫描的取消令牌（B1）；没有扫描时为 null，由 scanWorker 的 finally 清掉。 */
     private volatile ScanRun scanRun;
 
@@ -349,6 +352,7 @@ public final class Main extends ComponentActivity {
         model.applyLocationPath(new File(getFilesDir(), "imported").getAbsolutePath());
 
         ComposeHost.mount(this, model);
+        model.bindThumbnails(thumbnails);
 
         // 深色图标必须在 setContentView 之后设：`getInsetsController()` 依赖已挂上的 DecorView，
         // 在 onCreate 里抢在 setContentView 之前调会拿到 null（Mi 9 / Android 15 上实测直接崩溃）。
@@ -394,6 +398,7 @@ public final class Main extends ComponentActivity {
         } catch (Exception ignored) {
         }
         if (service != null) service.cancel();
+        thumbnails.clear();
         if (session != null) session.close();
         // demo 模拟 ticker 必须随 Activity 一起停，否则 Handler 持有 Activity 造成泄漏
         demoTicker.removeCallbacksAndMessages(null);
@@ -445,7 +450,11 @@ public final class Main extends ComponentActivity {
         try {
             Class<?> cls = Class.forName("com.rea.mtpimport.DemoImages");
             Object preview = cls.getMethod("create", Context.class).invoke(null, this);
-            if (preview instanceof PhotoPreview) model.setPreviewSource((PhotoPreview) preview);
+            if (preview instanceof PhotoPreview) {
+                model.setPreviewSource((PhotoPreview) preview);
+                // 照片墙与看图页共用同一来源（issue #59 / #61）。
+                thumbnails.setDemo((PhotoPreview) preview);
+            }
         } catch (ClassNotFoundException e) {
             // release 构建：没有 demo 素材
         } catch (Throwable t) {
@@ -564,11 +573,14 @@ public final class Main extends ComponentActivity {
                 return;
             }
             if (session != null) session.close();
+            // 句柄只在当前会话里有效；重开前把旧缩略图整块释放。
+            thumbnails.clear();
             session = MtpSession.open(um, dev, log);
             if (session == null) {
                 postIfActive(run, () -> model.showError("相机未就绪，请拔插数据线"));
                 return;
             }
+            thumbnails.setSession(session);
             if (run.isCancelled()) {
                 // 取消可能发生在 open() 返回之前：会话不在 UI 线程关，交给 finally 收尾
                 // （同一个 MtpDevice 上 close 与 getObjectInfo 并发的竞态未验证）。
@@ -606,6 +618,8 @@ public final class Main extends ComponentActivity {
                                     selection = new Selection(snapshot);
                                 }
                                 catalog = snapshot;
+                                // 渐进快照就是当前能解析同名 JPG 的范围（#59）。
+                                thumbnails.setCatalog(snapshot);
                                 model.showPartialCatalog(snapshot, selection, done, total);
                                 log.line(String.format(Locale.US,
                                         "渐进发布：已扫描 %d/%d，照片墙 %d 张",
@@ -627,6 +641,7 @@ public final class Main extends ComponentActivity {
                 // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
                 if (model.getBackgroundScanning()) selection.retarget(scanned);
                 else selection = new Selection(scanned);
+                thumbnails.setCatalog(scanned);
                 model.showCatalog(scanned, selection);
             });
         } catch (Throwable t) {
@@ -637,6 +652,8 @@ public final class Main extends ComponentActivity {
             if (run.isCancelled()) {
                 MtpSession s = session;
                 if (s != null) {
+                    // 先摘会话再关：缩略图线程拿锁后会重判 session，避免 getThumbnail 撞上 close。
+                    thumbnails.detachSession();
                     log.line("取消收尾：关闭 MTP 会话");
                     s.close();
                     session = null;
@@ -773,7 +790,8 @@ public final class Main extends ComponentActivity {
 
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
         // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
-        final ImportService round = new ImportService(log, new MtpTransfer(s.device(), log), out);
+        final ImportService round = new ImportService(
+                log, new MtpTransfer(s.device(), log, s.ioLock()), out);
         service = round;
         lastProgress = null;
         model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);

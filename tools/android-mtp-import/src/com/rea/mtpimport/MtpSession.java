@@ -8,6 +8,7 @@ import android.mtp.MtpDeviceInfo;
 import android.mtp.MtpStorageInfo;
 
 import java.util.Locale;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * MTP 会话生命周期。这段逻辑是从已验证的探针里抽出来的
@@ -29,9 +30,20 @@ public final class MtpSession {
     private final UsbDeviceConnection conn;
     private final MtpDevice mtp;
 
+    /**
+     * 会话级 I/O 锁：同一 `MtpDevice` 不允许并行发命令。导入（`importFile` /
+     * `getPartialObject`）与照片墙缩略图（`getThumbnail`，issue #59）共用这把锁，
+     * 公平锁保证缩略图不会在长时间导入期间被饿死。
+     */
+    private final ReentrantLock ioLock = new ReentrantLock(true);
+
     private MtpSession(UsbDeviceConnection conn, MtpDevice mtp) {
         this.conn = conn;
         this.mtp = mtp;
+    }
+
+    public ReentrantLock ioLock() {
+        return ioLock;
     }
 
     /** 在已连接的 USB 设备里挑一台索尼机身；没有就返回 null。 */

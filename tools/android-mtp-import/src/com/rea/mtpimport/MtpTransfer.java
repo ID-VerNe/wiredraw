@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 真实 MTP 传输（PA / PB / PC，issue #50）：只读相机对象，写到手机侧 `.part`，对账后改名到最终路径。
@@ -50,10 +51,13 @@ public final class MtpTransfer implements ResumableTransfer {
 
     private final MtpDevice device;
     private final Log log;
+    /** 与缩略图（#59）共用的会话 I/O 锁：同一 MtpDevice 不并行发命令。 */
+    private final ReentrantLock ioLock;
 
-    public MtpTransfer(MtpDevice device, Log log) {
+    public MtpTransfer(MtpDevice device, Log log, ReentrantLock ioLock) {
         this.device = device;
         this.log = log;
+        this.ioLock = ioLock;
     }
 
     @Override
@@ -142,7 +146,13 @@ public final class MtpTransfer implements ResumableTransfer {
                 }
             }
 
-            boolean imported = device.importFile(item.handle, pfd);
+            boolean imported;
+            ioLock.lock();
+            try {
+                imported = device.importFile(item.handle, pfd);
+            } finally {
+                ioLock.unlock();
+            }
             closeQuietly(pfd);
             pfd = null;
 
@@ -213,7 +223,13 @@ public final class MtpTransfer implements ResumableTransfer {
                     return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
                 }
                 int want = (int) Math.min((long) CHUNK, item.size - offset);
-                long n = device.getPartialObject(item.handle, offset, want, buf);
+                long n;
+                ioLock.lock();
+                try {
+                    n = device.getPartialObject(item.handle, offset, want, buf);
+                } finally {
+                    ioLock.unlock();
+                }
                 if (n <= 0) {
                     closeQuietly(out);
                     out = null;
