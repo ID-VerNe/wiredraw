@@ -6,6 +6,7 @@
     python parse_ptpip.py capture.pcapng --stream 7           # 只看某条流
     python parse_ptpip.py capture.pcapng --stream 7 --events  # 连事件也打印
     python parse_ptpip.py capture.pcapng --stream 7 --limit 200
+    python parse_ptpip.py capture.pcapng --stream 7 --dump-init  # Init_Command_Request 的完整 body 打成连续 hex
 
 依赖：tshark（PATH 里，或设 TSHARK 环境变量）。
 
@@ -249,6 +250,7 @@ def main():
     printed = 0
     show_events = "--events" in flags
     show_data = "--data" in flags
+    dump_init = "--dump-init" in flags
     pending = {}   # tid -> bytearray（数据阶段，用于解 ObjectInfo / 文件名）
     opcode_of = {} # tid -> 请求 opcode
 
@@ -266,6 +268,9 @@ def main():
             line = describe(ptype, body, length)
             if line is None:
                 continue
+            if ptype == 1 and dump_init:
+                # probe.py --replay 要的就是这一段完整 body，直接给连续 hex，省得手工拼
+                line = f"Init_Command_Request  body={len(body)} B  hex={body.hex()}"
             if ptype == 8 and not show_events:
                 continue
             if ptype == 6 and len(body) >= 10:
