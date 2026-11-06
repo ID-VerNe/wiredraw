@@ -982,6 +982,13 @@ public final class Main extends ComponentActivity {
             return;
         }
 
+        // issue #52：清理无主 `.part`——对象已不在本次目录、接不上的旧半成品。
+        // 合法保留集只看 `relPath`（不看 size），异尺寸拒绝留下的那只仍属合法半成品。
+        // 前提：这里在 `new ImportService` 之前，`service` 与 `orphanService` 的活动轮次
+        // 已被上面的双闸挡掉，没有写者会碰这些文件；不要把这次调用挪到轮次运行期间。
+        // 放在空间预检之前：先释放旧残留，预检分母才是用户实际可用的空间。
+        PartResidue.clean(out, PartResidue.keepNames(catalog.all()), log);
+
         // PD / P-09：点主 CTA 前必须做一次空间预检。照片墙上的禁用只是提前告知；
         // 这里再判一次，防止「预检之后、点击之前」空间被别的应用吃掉（issue #124 后与
         // 清单变化分支共用 `precheckSpace(ImportPlan)`）。

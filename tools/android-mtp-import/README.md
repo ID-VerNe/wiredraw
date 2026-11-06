@@ -60,6 +60,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ImportPlan        勾选 → 去重清单 + totalBytes()                     [纯 JDK]
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
+├─ PartResidue       无主 .part 清理：只按 relPath 判定、异 size 保留（#52）   [纯 JDK]
 ├─ ImportedIndex     已导入索引：outDir 磁盘镜像派生（relPath + size），每轮重建    [纯 JDK]
 ├─ DestPolicy        落盘冲突策略：relPath 解析 + 同名异尺寸拒绝覆盖（#54）；落点根（#28）    [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
@@ -120,11 +121,13 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
   循环 append 到 `.part`，**永不请求 `offset > size`**；
 - `resumeFrom == size` 直接把半成品 rename 落盘；
 - 半成品按 `<relPath 压平>.<size>.part` 命名（`Journal.partPath`），与跳过判定的
-  `relPath + size` 同口径、跨会话稳定；同路径异 size 的旧残留不会被当成本对象的前缀
-  （旧文件清理由 #52 负责）；续传起点取自 `.part` 实际长度（`Journal.resumeFrom`），
-  超过目标大小视为损坏、从 0 重传；
+  `relPath + size` 同口径、跨会话稳定；同路径异 size 的旧残留不会被当成本对象的前缀；
+  旧 size 的残留由新一轮开始前的 `PartResidue` 按 `relPath` 清理（异 size 保留，#52）；
+  续传起点取自 `.part` 实际长度（`Journal.resumeFrom`），超过目标大小视为损坏、从 0 重传；
 - 失败 / 断线保留 `.part`，取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）；
 - 结束时字节数必须等于相机侧 `ImportPlan.Item.size`，否则 FAILED 且保留 `.part`。
+- 新一轮开始时清理无主 `.part`（#52）：只扫 `outDir` 顶层、只按 `relPath` 是否还在本次目录判定；
+  异 size 的 `.part` 仍属合法半成品，保留。清理前双闸已确认没有活动轮次；删除失败只记日志、不阻断本轮。
 
 ## 已导入索引（issue #20）
 
@@ -211,7 +214,7 @@ bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assem
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 441 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 447 项）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest

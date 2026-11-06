@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,6 +64,7 @@ public final class SelfTest {
         resumePlanCases();
         importServicePauseClockCases();
         partialResumeCases();
+        partResidueCases();
         uiStateCases();
         finishOutcomeCases();
         stalledDetectionCases();
@@ -2131,6 +2133,60 @@ public final class SelfTest {
                         && t5.resumeFroms.size() == 1 && t5.resumeFroms.get(0) == 0L,
                 "实际 " + t5.resumeFroms);
         deleteTree(staleOut);
+    }
+
+    // ---------------- 无主半成品清理（issue #52） ----------------
+
+    /**
+     * 钉住 S1 判据：保留与否只看 `relPath` 是否还在本次目录，**不看 size**。
+     *
+     * 两个关键方向：
+     * - `relPath` 已不在目录、`.part` 还在 → 必须删（对象已不存在，接不上）；
+     * - `relPath` 在目录、但 `.part` 的 size 不同 → 必须留（异尺寸拒绝留下的合法半成品）。
+     *
+     * 干扰项覆盖账本、索引、`.tmp`、没有 size 段的 `.part`、子目录里的 `.part`。
+     */
+    static void partResidueCases() throws Exception {
+        File out = Files.createTempDirectory("wiredraw-part-residue").toFile();
+        Catalog c = sample();
+        Set<String> keep = PartResidue.keepNames(c.all());
+        Journal j = new Journal();
+
+        String sameSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
+        writeSizedFile(new File(sameSize), 40);
+
+        // 关键方向 2：同 relPath、异 size —— 异尺寸拒绝留下的合法半成品，必须保留。
+        String otherSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 299);
+        writeSizedFile(new File(otherSize), 40);
+
+        // 关键方向 1：relPath 已完全不在目录 —— 无主，必须删。
+        String gone = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC99999.ARW", 300);
+        writeSizedFile(new File(gone), 40);
+
+        writeSizedFile(new File(out, "import-journal.txt"), 5);
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 5);
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME + ".tmp"), 5);
+        writeSizedFile(new File(out, "plain.part"), 5);
+        writeSizedFile(new File(out, "DCIM/stray.300.part"), 5);
+
+        int cleaned = PartResidue.clean(out, keep, Log.NOOP);
+        check("无主半成品：只删 relPath 已不在目录的那一个", cleaned == 1, "实际 " + cleaned);
+        check("无主半成品：relPath 已不在目录 → 被删（#52）",
+                !new File(gone).exists(), "仍存在：" + gone);
+        check("无主半成品：relPath 在目录、size 相同 → 保留",
+                new File(sameSize).isFile(), "被删：" + sameSize);
+        check("无主半成品：relPath 在目录、size 不同 → 保留（异尺寸拒绝的合法半成品）",
+                new File(otherSize).isFile(), "被删：" + otherSize);
+        check("无主半成品：账本 / 索引 / .tmp / 无 size 段的 .part 不被动",
+                new File(out, "import-journal.txt").isFile()
+                        && new File(out, ImportedIndex.FILE_NAME).isFile()
+                        && new File(out, ImportedIndex.FILE_NAME + ".tmp").isFile()
+                        && new File(out, "plain.part").isFile(),
+                "干扰项被删");
+        check("无主半成品：子目录里的 .part 不被动（半成品只平铺在 outDir）",
+                new File(out, "DCIM/stray.300.part").isFile(), "子目录项被删");
+
+        deleteTree(out);
     }
 
     // ---------------- 无进展挂起判定（issue #63） ----------------
