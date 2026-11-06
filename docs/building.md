@@ -105,4 +105,4 @@ python scripts/run_gates.py manual
 | 找不到 Android SDK | 未设 `ANDROID_HOME` / `ANDROID_SDK_ROOT`，也无默认路径 | 按第二节设置后重跑 |
 | SDK 版本不匹配 | `build-tools` / `platform` 不是脚本写死的版本 | 装对应版本，或改 `build.sh` 顶部 `BT_VER` / `PLATFORM` |
 | Windows 下 `javac` 失败但脚本继续 | 退出码被管道吞掉 | 构建脚本一律先落日志再判退出码，不要用 `cmd` 管道 |
-| PowerShell 里 `bash ...` 报「找不到 Android SDK」或 `JAVA_HOME is not set` | PowerShell 的 `bash` 是 WSL，看不到 Windows 的 SDK / JDK | 改用 `python scripts/run_gates.py manual`，或 Git for Windows 的 `bash.exe` 与 `gradlew.bat`（见第二节） |
+| PowerShell 里 `bash ...` 报「找不到 Android SDK」或 `JAVA_HOME is not set` | PowerShell 的 `bash` 是 WSL，看不到 Windows 的 SDK / JDK | 改用 `python scripts/run_gates.py manual`，或 Git for Windows 的 `bash.exe`（第三节）与 `gradlew.bat`（第四节） |
