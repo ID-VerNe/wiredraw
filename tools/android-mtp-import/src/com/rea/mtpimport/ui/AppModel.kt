@@ -12,6 +12,7 @@ import com.rea.mtpimport.DemoPayload
 import com.rea.mtpimport.PhotoPreview
 import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.Selection
+import com.rea.mtpimport.ThumbnailStore
 import com.rea.mtpimport.UiState
 
 /** 界面 → 业务层的动作出口；由 Main 实现（Java 侧实现 Kotlin 接口最省事）。 */
@@ -27,6 +28,12 @@ interface AppCallbacks {
     fun onPauseExit()
     fun onResumeExit()
     fun onDemoState(name: String)
+
+    /** 勾选变化（PD / P-09）：Main 用它重算空间预检，决定主 CTA 是否禁用。 */
+    fun onSelectionChanged()
+
+    /** 回到照片墙（PD / P-09）：DONE / ERROR / 取消返回时同样要重算空间预检。 */
+    fun onBackToCatalog()
 }
 
 /** 过滤抽屉的三种口径（U-52 要求 `All` / `RAW` / 日期三项都在）。 */
@@ -84,6 +91,22 @@ class AppModel {
     var locationPath by mutableStateOf("")
         private set
 
+    /**
+     * 空间预检结果（PD / P-09）。`lowSpace` 为真时照片墙主 CTA 禁用并显示一行 `Low space`，
+     * 差额只进 Details（`lowSpaceDetail`）；主视觉不出现容量数字。
+     */
+    var lowSpace by mutableStateOf(false)
+        private set
+    var lowSpaceDetail by mutableStateOf("")
+        private set
+
+    /**
+     * 逐文件失败明细（PD / issue #50）。DONE 首屏受 U-47 约束不能出现 `Failed N`，
+     * 所以固定在 Details 抽屉里展示；最多保留 20 条，不会被日志的 takeLast(8) 挤掉。
+     */
+    var failedLines by mutableStateOf<List<String>>(emptyList())
+        private set
+
     var demoActive by mutableStateOf(false)
         private set
 
@@ -95,6 +118,10 @@ class AppModel {
      * 恒为 null，页面按 U-51 只显示胶囊；debug 的 demo 模式注入 `DemoImages`。
      */
     var previewSource: PhotoPreview? = null
+
+    /** 照片墙缩略图（issue #59）：由 Main 注入；demo 与真实 MTP 走同一个 store。 */
+    var thumbnails by mutableStateOf<ThumbnailStore?>(null)
+        private set
 
     var detailsOpen by mutableStateOf(false)
     var filterOpen by mutableStateOf(false)
@@ -280,11 +307,15 @@ class AppModel {
     /** 取消传输/关闭传输视图：有照片墙就回到 `CATALOG_READY`，否则回 `COLD`。 */
     fun backToCatalog() {
         state = if ((wall?.photoCount() ?: 0) > 0) UiState.State.CATALOG_READY else UiState.State.COLD
+        // P-09：回到照片墙后必须重算空间预检，不能只依赖勾选变化。
+        callbacks?.onBackToCatalog()
     }
 
     fun toggleSelection(entry: Catalog.Entry) {
         selection?.toggle(entry.handle)
         selectionVersion++
+        // P-09：计划大小随勾选变化，交给 Main 重新预检空间（决定主 CTA 是否禁用）。
+        callbacks?.onSelectionChanged()
     }
 
     fun openPhoto(entry: Catalog.Entry) {
@@ -293,6 +324,13 @@ class AppModel {
 
     /** 该照片的预览图；没有来源或没有素材时返回 null。 */
     fun previewFor(entry: Catalog.Entry): Bitmap? = previewSource?.previewFor(entry)
+
+    fun bindThumbnails(store: ThumbnailStore) {
+        thumbnails = store
+    }
+
+    /** 读网格缩略图（**必须**在 IO 线程调用）；null 表示该条目没有可用预览。 */
+    fun loadThumbnail(entry: Catalog.Entry): Bitmap? = thumbnails?.load(entry)
 
     fun closePhoto() {
         openedPhoto = null
@@ -314,6 +352,22 @@ class AppModel {
         logLines = next
     }
 
+    /** 写入空间预检结果（PD / P-09）；`detail` 只在 `low` 为真时有意义。 */
+    fun setSpaceStatus(low: Boolean, detail: String) {
+        lowSpace = low
+        lowSpaceDetail = if (low) detail else ""
+    }
+
+    /** 本轮开始前清空失败明细（PD）。 */
+    fun clearFailedLines() {
+        failedLines = emptyList()
+    }
+
+    /** 追加一条逐文件失败（PD）；最多保留 20 条，供 Details 抽屉长期展示。 */
+    fun addFailedLine(line: String) {
+        failedLines = (failedLines + line).takeLast(20)
+    }
+
     /**
      * demo 载荷 → 界面状态。目录态会同时把假树装进来，这样从 `IMPORTING` 取消后
      * 还能回到照片墙继续点选（T-03）。
@@ -321,6 +375,10 @@ class AppModel {
     fun applyDemo(p: DemoPayload?) {
         if (p == null) return
         demoActive = true
+        // demo 不碰真实存储；清掉真实路径留下的预检结果与失败明细，避免假照片墙的 CTA
+        // 被误禁用、Details 里残留真实失败。
+        setSpaceStatus(false, "")
+        clearFailedLines()
         transferViewClosed = false
         exitConfirmOpen = false
         if (p.catalog != null && catalog == null) {

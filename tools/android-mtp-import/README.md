@@ -13,7 +13,10 @@
 > PC（#50）用探针 #67 钉死的 `getPartialObject` 语义做真续传：失败/断线保留按
 > `relPath + size` 命名的 `.part`，下一轮按它的实际长度从绝对偏移续读（1 MiB 块，永不越界），
 > 成功后才 rename 并记账；取消会删除整个半成品（从 0 重来）。
-> 见「断点续传（PC）」与 issue #50 的 PD 分节（仍未做）。
+>
+> PD（#50）补齐：**单文件失败同步重试 1 次（有上限，不做整轮自动重跑）**、逐文件失败固定
+> 展示在 `Location details`、`P-09` 导入前空间预检（不足时禁用主 CTA + 一行 `Low space`），
+> 以及 `onDestroy` 先有界 join worker 再关闭会话。见「错误与重试 / 空间预检 / onDestroy（PD）」。
 
 ## 它现在能做什么
 
@@ -23,6 +26,7 @@
 | 建 MTP 会话、带唤醒重试拿存储 | ✅ 实现（8 次 / 3 秒，同探针） |
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
 | 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
+| 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache 兜底，格子移出组合即 `evict`（离屏位图不常驻）；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
@@ -35,6 +39,10 @@
 | **取消后 / 暂停恢复前复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1 / 三审 B-1：取消后与 `Pause & exit` 恢复前都探活；卡死轮次放弃后拦住扫描/新导入且不覆写 journal。探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ✅ 实现（PC / issue #50；语义由 #67 探针在 ILCE-7C 上验证，App 内端到端待真机） |
+| **失败重试（单文件同步 1 次，有上限）** | ✅ 实现（PD / issue #50；`MAX_FILE_ATTEMPTS = 2`，不做整轮自动重跑） |
+| **逐文件失败上报到 UI** | ✅ 实现（PD；固定进 `Location details` 失败列表，DONE 首屏受 U-47 约束不出现 `Failed N`） |
+| **`P-09` 导入前空间预检** | ✅ 实现（PD；计划 + 5% 缓冲不足时禁用主 CTA + 一行 `Low space`，差额进 Details；真机未验） |
+| **`onDestroy` 先 join worker 再关会话** | ✅ 实现（PD；1 s 有界等待，worker 未退出则跳过 `close()`；真机未验） |
 
 ## 类职责
 
@@ -47,11 +55,13 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ImportPlan        勾选 → 去重清单 + totalBytes()                     [纯 JDK]
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
-├─ ImportService     编排：线程、暂停（文件边界）、取消、逐文件调 transfer  [纯 JDK]
+├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
+├─ ImportService     编排：线程、暂停（文件边界）、取消、重试、逐文件调 transfer  [纯 JDK]
 ├─ CancelToken       取消令牌：置位 + 立即执行传输层的中断动作（PB）       [纯 JDK]
 ├─ ResumableTransfer 传输契约（整文件 / 取消 / offset 续传，语义见 #67）    [纯 JDK]
 ├─ MtpTransfer       真实传输：importFile（从头）/ getPartialObject（续传）
 │                    → 校验字节 → rename 到 relPath；取消删本次半成品（PB/PC） [android]
+├─ ThumbnailStore    照片墙缩略图：getThumbnail → 同名 JPG 回退 → 24 MiB LruCache [android]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -73,7 +83,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**二十三个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**二十四个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（其中 `DemoTree.java` / `DemoTransfer.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
@@ -102,7 +112,28 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 - 失败 / 断线保留 `.part`，取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）；
 - 结束时字节数必须等于相机侧 `ImportPlan.Item.size`，否则 FAILED 且保留 `.part`。
 
-PD（错误与重试、空间预检、`onDestroy` 竞态）仍未做。
+## 错误与重试 / 空间预检 / onDestroy（PD / issue #50）
+
+- **单文件失败重试**：`ImportService.MAX_FILE_ATTEMPTS = 2`，即首次 + 1 次同步重试；
+  每次尝试前按 `.part` 实际长度重算 `resumeFrom`（失败可能已写进部分字节，第二次走续传）。
+  重试耗尽后 `failed++`，note 带「已尝试 N 次」；**不做整轮自动重跑**，用户再点 Import 时
+  Journal 跳过已完成、`.part` 从断点续传。取消优先：已取消就不再重试，也不把用户取消计入失败。
+- **逐文件失败上报**：每次 FAILED 都进 `AppModel.failedLines`（最多 20 条），固定展示在
+  `Location details` 抽屉，不会被 `logLines.takeLast(8)` 挤掉；DONE 首屏受 U-47 约束
+  **不出现** `Failed N`。所有文件都失败仍走现有 `ERROR` 路径。
+- **`P-09` 空间预检**：`SpaceCheck.requiredBytes = 计划 + ceil(5%)`；`Main` 用
+  `StatFs(getFilesDir())` 取可用字节。照片墙出现、勾选变化、回到照片墙（DONE / ERROR /
+  取消返回）时各刷新一次，`doStart` 启动前再判一次；不足时主 CTA 禁用、上方一行
+  `Low space`（12 sp），差额（`Need X GB, free Y GB`）只进 Details。`StatFs` 取数异常按
+  「不拦截」处理，预检不能反过来阻断导入。
+  计划为空（没勾任何照片）时不拦：点击本来也不会启动导入。
+- **`onDestroy` 竞态**：先 `cancel()` 传输与扫描，再在 1 s 总预算内 join
+  `service` / `orphanService` / `scanThread`；全部退出才 `session.close()`，仍有 worker 活着
+  则跳过关闭并记一行日志（不在 UI 线程撞原生传输）。跳过 `close()` 时会话保持打开：若进程
+  随后被杀，相机可能按 `AGENTS.md` §4 挂起、需要拔插数据线。以上仍属**真机未验**。
+
+`#70`（续传期间界面进度停在原值）**不在 PD**：它需要 `ResumableTransfer` 暴露当前文件的
+已传字节回调，并改 `TransferProgress` 的当前文件口径，属进度反馈链，按 #70 单独做。
 
 ## 构建与自检
 
@@ -116,7 +147,7 @@ PD（错误与重试、空间预检、`onDestroy` 竞态）仍未做。
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；261 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；284 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -185,7 +216,9 @@ P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、�
 读取，按最长边 ≤1440、JPEG 质量 80 降采样到 `src/debug/assets/demo/photo_XX.jpg`，
 EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；目录缺失 / 未配置时任务打印
 `skip` 并继续，APK 里没有素材，`photo` 页退回 `ARW · <size>` 胶囊。ARW 不进 APK，
-假树仍保留 ARW 条目与真实大小。真实 MTP 路径不走这条链路，仍按 U-51 只显示胶囊。
+假树仍保留 ARW 条目与真实大小。真实 MTP 路径不走这条链路：自 #59 起**照片墙**改由相机
+`getThumbnail` 取图（demo 模式下 `ThumbnailStore` 直接用上面的 demo 素材，照片墙格子也能
+看到图）；`photo` 页仍是 #46 的 `PhotoPreview`。
 
 ## 沿用探针的三条实测结论
 
@@ -217,6 +250,12 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
       `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
       `IMPORTING`（日志不得出现「先扫描」）—— **未验**（同上，相机被占用）
+- [ ] 缩略图（#59）：照片墙格子必须显示真实缩略图，不是灰块 + 文件名；格子滚出可视区后
+      位图必须被移出缓存（滚回会重新发 `getThumbnail`，属预期，不是重复请求缺陷）；
+      内存里最多 24 MiB 位图（LRU 兜底）。
+      ARW 句柄 `getThumbnail` 若不支持，日志出现 `ARW 缩略图失败` 但**同名 JPG** 回退成功；
+      两者都没有时才退回 V-19 灰块，且**不得**崩溃 —— **未验**（2026-11-06 相机被另一会话
+      探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
 - [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
@@ -260,16 +299,24 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
 - [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
       （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
-- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`Main.onDestroy` 仍在 UI 线程
-      `session.close()` 且不 `cancel` `scanRun`，可能与扫描线程正在跑的 `getStorageIds` /
-      `getObjectInfo` 相撞（`main` 既有行为，本轮不改）——**未验**
+- [ ] `onDestroy` 的竞态（PD / issue #50）：先 `cancel` 传输与扫描，再 1 s 有界 join；
+      全部退出才 `session.close()`，否则跳过并记日志（1 s 预算）——**未验**（逻辑由 `ImportService.awaitWorker`
+      的 SelfTest 覆盖，真机尚未造出「取消打不断原生调用」窗口）
 - [ ] `Main.awaitPermission` 的「判取消」与 `Main.requestPermission` 非原子，
       取消后仍可能弹一次系统权限框——**未验**
 - [ ] 连续两次申请 USB 权限并在两次系统弹窗都点**拒绝**：第二次必须等回调/超时后落到 `ERROR`
       并提示 `未获得 USB 权限`，**不得**出现 `openDevice() 返回 null`
       （#11：2026-11-05 用同源、不同包名的副本验过；原包要验得先让系统清掉它的 USB 授权，
       目前只在拔插后才会清，故留给下次真机）
-- [ ] `P-09` 导入前空间预检：**未验**（本轮只登记，实现在 PD 分节，该分支当前不可达）
+- [ ] `P-09` 导入前空间预检（PD / issue #50）：目标剩余空间 < 计划 + 5% 缓冲时主 CTA 必须禁用、
+      上方出现一行 `Low space`、差额进 `Location details`；空间恢复（删文件）后勾选变化必须重新放行
+      —— **未验**（逻辑由 SelfTest 覆盖；真机未造出低空间条件）
+- [ ] 逐文件失败上报（PD / issue #50）：制造一个单文件失败（拔线/相机休眠），`Location details`
+      必须固定显示 `Failed: <relPath> · <原因>`，不被后续日志挤掉；DONE 首屏不得出现 `Failed N`
+      —— **未验**
+- [ ] 单文件重试（PD / issue #50）：首次 `importFile` / `getPartialObject` 失败后必须自动重试 1 次，
+      重试成功仍记完成；连续失败只累计 `failed`，不得无限重试或整轮自动重跑
+      —— **未验**（SelfTest 覆盖「首次失败→第二次成功」与「全失败恰好 2 次」）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
 
 > **放弃卡死轮次的代价（三审 B-2）**：`ImportService.run()` 只在开始时 `loadJournal()` 一次，
