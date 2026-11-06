@@ -918,13 +918,19 @@ public final class Main extends ComponentActivity {
                     showImportFromProgress();
                     return;
                 }
-            } else if (abandonStuckService()) {
-                // 二审 B-1 的死路：pfd.close 若打不断原生 importFile（未验），worker 永不退出，
-                // 这里静默 return 会让 Import 变成死键（CATALOG_READY 没有 Cancel 入口）。
-                // 放弃该轮 + 落 ERROR（ERROR 有 Connect camera），用户拔插数据线后可重扫。
-                model.showError("相机连接可能已失步，请拔插数据线");
-                return;
             } else {
+                StuckKind stuck = abandonStuckService();
+                if (stuck != StuckKind.NONE) {
+                    // 二审 B-1 的死路：pfd.close 若打不断原生 importFile（未验），worker 永不退出，
+                    // 这里静默 return 会让 Import 变成死键（CATALOG_READY 没有 Cancel 入口）。
+                    // 放弃该轮 + 落 ERROR（ERROR 有 Connect camera），用户拔插数据线后可重扫。
+                    // issue #116：两种成因在日志里已分开，屏幕也要能区分——挂起是「长时间无响应」，
+                    // 取消卡住才说「可能已失步」。两句都满足 UI-SPEC T-ERROR / C-01 / C-14。
+                    model.showError(stuck == StuckKind.STALLED
+                            ? "相机长时间无响应，请拔插数据线"
+                            : "相机连接可能已失步，请拔插数据线");
+                    return;
+                }
                 log.line("已有一轮在跑，先等它结束或取消");
                 return;
             }
@@ -1074,12 +1080,15 @@ public final class Main extends ComponentActivity {
      * 旧 worker 退出前 {@link #orphanWorkerStillRunning()} 会拦住扫描与新导入；退出后由扫描线程
      * 收尾并重建会话。旧轮迟到的 `finally` 用 {@link ImportService#abandon()} 跳过日志保存，
      * 不会冲掉新一轮的 `import-journal.txt`（三审 B-3）。
+     *
+     * 返回值给出成因（issue #116）：调用方据此在屏幕上区分文案——这两种成因用户能观察到
+     * （自己点过 `Cancel` vs 什么都没做就卡住），不该共用一个 `ERROR` 句子。
      */
-    private boolean abandonStuckService() {
-        if (service == null || !service.isRunning()) return false;
+    private StuckKind abandonStuckService() {
+        if (service == null || !service.isRunning()) return StuckKind.NONE;
         boolean cancelStuck = service.isCancelStuck();
         boolean stalled = !cancelStuck && service.isStalled();
-        if (!cancelStuck && !stalled) return false;
+        if (!cancelStuck && !stalled) return StuckKind.NONE;
         log.line(cancelStuck
                 ? "本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）"
                 : "本轮传输长时间无进展：放弃该轮（会话可能已失步，需拔插数据线）");
@@ -1089,8 +1098,11 @@ public final class Main extends ComponentActivity {
         // 保留引用：worker 未退出前不放行扫描/新导入，避免 session.close() 撞上原生调用。
         orphanService = dead;
         service = null;
-        return true;
+        return cancelStuck ? StuckKind.CANCEL_STUCK : StuckKind.STALLED;
     }
+
+    /** 放弃卡死轮次的成因（issue #116）：日志与屏幕文案都按它区分，`NONE` = 无需放弃。 */
+    private enum StuckKind { NONE, CANCEL_STUCK, STALLED }
 
     /**
      * 被放弃的上一轮 worker 是否还活着（三审 B-3）。
