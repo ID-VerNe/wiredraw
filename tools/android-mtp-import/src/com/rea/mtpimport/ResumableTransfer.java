@@ -27,7 +27,13 @@ public interface ResumableTransfer {
         /** 日志显示已传满，直接跳过。 */
         SKIPPED,
         /** 中途失败，`.part` 保留，下次可续。 */
-        FAILED
+        FAILED,
+        /**
+         * 收到取消，当前文件会被尝试中断（PB）：本次机型实测约 0.6 s 返回，能否打断没有跨机型保证。
+         * 传输实现负责清掉本次未传满的 `.part`；
+         * 编排层不得把它记成完成，也不计入失败。
+         */
+        CANCELLED
     }
 
     final class Result {
@@ -55,6 +61,7 @@ public interface ResumableTransfer {
      * @param item       待传项（句柄、相对路径、期望大小）
      * @param partPath   半成品落盘路径（已由 {@link Journal#partPath} 算好）
      * @param resumeFrom 已落盘字节数，0 表示从头开始
+     * @param token      取消令牌；实现方必须在文件内注册中断动作（见 {@link CancelToken}）
      */
-    Result transfer(ImportPlan.Item item, String partPath, long resumeFrom);
+    Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token);
 }
