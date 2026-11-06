@@ -23,7 +23,7 @@ import android.util.LruCache;
 public final class ThumbnailStore {
 
     private static final String TAG = "MtpImport";
-    /** 24 MiB ≈ 80 张 512 px 缩略图，够覆盖一屏 3 列 × 7 行的来回滚动。 */
+    /** 24 MiB ≈ 36 张 512 px 缩略图（512×341 ARGB_8888 约 0.67 MiB/张）。 */
     private static final int CACHE_BYTES = 24 << 20;
     /** 网格单元约 344 px 宽；按 512 长边解码，避免大图整张进内存。 */
     private static final int MAX_EDGE = 512;
@@ -35,12 +35,21 @@ public final class ThumbnailStore {
         }
     };
 
+    /** 缓存代际：清空 / 换会话时自增，挡住旧会话的在飞请求写进新会话缓存。 */
+    private final Object epochLock = new Object();
+    private volatile int epoch;
+
     private volatile MtpSession session;
     private volatile Catalog catalog;
     private volatile PhotoPreview demo;
 
     public void setSession(MtpSession s) {
+        // 先换会话再自增代际：在飞请求若捕获到旧代际，put 会被代际检查挡下；
+        // 捕获到新代际时看到的必然是已经换好的会话。
         this.session = s;
+        synchronized (epochLock) {
+            epoch++;
+        }
     }
 
     public void setCatalog(Catalog c) {
@@ -53,10 +62,14 @@ public final class ThumbnailStore {
 
     /** 会话关闭 / 离开应用时整体释放；缓存的句柄只在当前会话里有效。 */
     public void clear() {
-        cache.evictAll();
+        // 先摘会话再自增代际 + 清缓存：避免「新代际 + 旧会话」被在飞请求写进缓存。
         session = null;
         catalog = null;
         demo = null;
+        synchronized (epochLock) {
+            epoch++;
+            cache.evictAll();
+        }
     }
 
     /**
@@ -88,6 +101,7 @@ public final class ThumbnailStore {
         Bitmap hit = cache.get(entry.handle);
         if (hit != null) return hit;
 
+        int startEpoch = epoch;
         Bitmap decoded = null;
         try {
             PhotoPreview d = demo;
@@ -98,7 +112,14 @@ public final class ThumbnailStore {
         } catch (Throwable t) {
             Log.w(TAG, "缩略图读取失败 handle=" + entry.handle + "：" + t);
         }
-        if (decoded != null) cache.put(entry.handle, decoded);
+        if (decoded == null) return null;
+
+        synchronized (epochLock) {
+            // 解码期间换了会话 / 清过缓存：旧句柄的位图不得写进新会话，
+            // 否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2）。
+            if (epoch != startEpoch) return null;
+            cache.put(entry.handle, decoded);
+        }
         return decoded;
     }
 
@@ -106,17 +127,25 @@ public final class ThumbnailStore {
         MtpSession s = session;
         if (s == null) return null;
 
-        Bitmap b = thumbnail(s, entry.handle);
+        // 第一次调用单独兜住异常：ARW 的 getThumbnail 抛错时仍要继续走同名 JPG 回退。
+        Bitmap b = null;
+        try {
+            b = thumbnail(s, entry.handle);
+        } catch (Throwable t) {
+            Log.w(TAG, "ARW 缩略图失败 handle=" + entry.handle + "：" + t);
+        }
         if (b != null) return b;
 
         // 回退：同名同目录的 JPG（不额外枚举，Catalog 里已经有）。
         Catalog c = catalog;
         Catalog.Entry jpg = c == null ? null : c.findSiblingJpeg(entry);
-        if (jpg != null) {
-            b = thumbnail(s, jpg.handle);
-            if (b != null) return b;
+        if (jpg == null) return null;
+        try {
+            return thumbnail(s, jpg.handle);
+        } catch (Throwable t) {
+            Log.w(TAG, "同名 JPG 缩略图失败 handle=" + jpg.handle + "：" + t);
+            return null;
         }
-        return null;
     }
 
     private Bitmap thumbnail(MtpSession s, int handle) {

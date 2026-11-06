@@ -113,14 +113,22 @@ public final class MtpSession {
     }
 
     public void close() {
+        // 与缩略图 / 导入共用同一把锁：close 必须等在飞的 getThumbnail 结束，
+        // 否则 mtp.close() 会与不同步的 getThumbnail 并行（Android 35 的 close 同步，
+        // getThumbnail 不同步，见评审阻断项 1）。
+        ioLock.lock();
         try {
-            mtp.close();
-        } catch (Throwable ignored) {
-            // 已断开时 close 抛异常无所谓
-        }
-        try {
-            conn.close();
-        } catch (Throwable ignored) {
+            try {
+                mtp.close();
+            } catch (Throwable ignored) {
+                // 已断开时 close 抛异常无所谓
+            }
+            try {
+                conn.close();
+            } catch (Throwable ignored) {
+            }
+        } finally {
+            ioLock.unlock();
         }
     }
 }

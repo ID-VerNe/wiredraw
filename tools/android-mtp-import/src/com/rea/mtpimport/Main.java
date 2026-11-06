@@ -572,7 +572,11 @@ public final class Main extends ComponentActivity {
                 log.line("扫描已取消，跳过会话建立");
                 return;
             }
-            if (session != null) session.close();
+            if (session != null) {
+                // 先摘会话再关（与取消路径同一顺序）：缩略图拿锁后会重判 session。
+                thumbnails.detachSession();
+                session.close();
+            }
             // 句柄只在当前会话里有效；重开前把旧缩略图整块释放。
             thumbnails.clear();
             session = MtpSession.open(um, dev, log);
