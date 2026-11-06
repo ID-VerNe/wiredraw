@@ -1,7 +1,7 @@
 # 取证笔记（审计中间产物）
 
 日期：2026-11-04
-范围：`c:\Users\VerNe\Downloads\Documents\sony-camera-remote-repos` 下 15 个仓库，只读。
+范围：`<本机工作区绝对路径>` 下 15 个仓库，只读。
 
 ## 1. 全仓关键字检索（排除 .git、二进制）
 检索式：
@@ -80,12 +80,12 @@ sonypy 2013-12-23 8bc291f
 
 ## 6. 协议入口
 - Wi-Fi HTTP/JSON：
-  - `Camera-Remote-API/webapp/cameraApp.js:2-3` 192.168.122.1:8080 / 10.0.0.1:10000
-  - `RemoteCamera/server/routes/camera.js:4` 10.0.0.1:10000
-  - `sony-remote/sony.py:30` 192.168.122.1:8080/sony/camera
+  - `Camera-Remote-API/webapp/cameraApp.js:2-3` 192.168.122.1:8080 / 10.0.0.1:10000 <!-- allow-sensitive: 第三方仓库里相机 AP 的公开默认网关，非本机内网 -->
+  - `RemoteCamera/server/routes/camera.js:4` 10.0.0.1:10000 <!-- allow-sensitive: 第三方仓库里相机 AP 的公开默认网关，非本机内网 -->
+  - `sony-remote/sony.py:30` 192.168.122.1:8080/sony/camera <!-- allow-sensitive: 第三方仓库里相机 AP 的公开默认网关，非本机内网 -->
   - `sony-camera-api/camera.sh:6-7,43` resty POST /sony/camera
   - `ofxSonyRemoteCamera/src/ofxSonyRemoteCamera.cpp:8,28-45`
-  - `sony_camera_api/src/pysony.py:23` SSDP ScalarWebAPI；`:221` 默认 10.0.0.1:10000
+  - `sony_camera_api/src/pysony.py:23` SSDP ScalarWebAPI；`:221` 默认 10.0.0.1:10000 <!-- allow-sensitive: 第三方仓库里相机 AP 的公开默认网关，非本机内网 -->
   - `sonypy/sonypy/camera.py:23-32` requests POST endpoint
   - `SonyCameraRemoteAPI/SonyCameraRemoteAPIClient.m:178` SSDP M-SEARCH
   - `kz-remote-api/README.md:4-6`；`locana/README.md:4`

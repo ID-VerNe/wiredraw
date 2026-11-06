@@ -3,7 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SDK="/c/Users/VerNe/AppData/Local/Android/Sdk"
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+if [ -z "$SDK" ]; then
+  echo "请先设置 ANDROID_HOME（Android SDK 目录）：本仓库不分发个人机器路径。" >&2
+  exit 1
+fi
 BT="$SDK/build-tools/35.0.1"
 ANDROID_JAR="$SDK/platforms/android-35/android.jar"
 JDK="/c/program files/eclipse adoptium/jdk-21.0.11.10-hotspot"

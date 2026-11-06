@@ -12,10 +12,11 @@
 顺序反了相机会对 OpenSession 完全不响应（只超时，不回错误码）。
 
 用法：
-    python probe.py 192.168.3.17
-    python probe.py 192.168.3.17 --limit 80
-    python probe.py 192.168.3.17 --replay <IED 握手 payload 文件>   # 见 README §6
+    python probe.py <相机IP> --guid <已配对GUID>                 # GUID 获取见 README §6
+    python probe.py <相机IP> --guid <已配对GUID> --limit 80
+    python probe.py <相机IP> --replay <IED 握手 payload 文件>   # 见 README §6
 """
+import re
 import socket
 import struct
 import sys
@@ -36,8 +37,8 @@ OP = {"GetDeviceInfo": 0x1001, "OpenSession": 0x1002, "CloseSession": 0x1003,
       "GetDevicePropValue2": 0x920E, "SetDevicePropValueEx": 0x9209}
 
 # 相机把 GUID 当配对标识记着：随机 UUID 会被 Init_Fail reason=1 直接拒掉，
-# 只有当初配对成功的那个 GUID 才放行。这是 IED 首次配对时用的值。
-PAIRED_GUID = "dd4b11b9-280d-43"
+# 只有当初配对成功的那个 GUID 才放行。它是配对凭据，真实值不入库：
+# 由 --guid 传入，或用 --replay 重放 IED 的原始握手（获取方法见 README §6）。
 
 RC = {0x2001: "OK", 0x2002: "GeneralError", 0x2003: "SessionNotOpen",
       0x2004: "InvalidTransactionID", 0x2005: "OperationNotSupported",
@@ -105,7 +106,9 @@ class PtpIp:
         if replay:
             self.cmd.send(INIT_REQ, bytes.fromhex(replay))
         else:
-            g = (guid or PAIRED_GUID)[:16]
+            if not guid:
+                raise ValueError("缺少配对 GUID：请用 --guid 传入，获取方法见 README §6")
+            g = guid[:16]
             g = g.ljust(16, "0").encode("ascii")
             nm = name.encode("utf-16-le") + b"\x00\x00"
             self.cmd.send(INIT_REQ, g + nm + struct.pack("<I", 0x00010000))
@@ -264,7 +267,11 @@ FMT = {0x3000: "Undef", 0x3801: "JPEG", 0xB101: "ARW", 0xB982: "HEIF", 0x300A: "
 
 def main():
     argv = sys.argv[1:]
-    host = next((a for a in argv if not a.startswith("-") and a.count(".") == 3), "192.168.3.17")
+    host = next((a for a in argv if not a.startswith("-") and a.count(".") == 3), None)
+    if host is None:
+        print("缺相机 IP。用法：python probe.py <相机IP> --guid <已配对GUID> [--limit N] [--replay <文件>]")
+        print("配对 GUID 与 replay 文件的获取方法见 README §6。")
+        return 2
     limit = 80
     if "--limit" in argv:
         limit = int(argv[argv.index("--limit") + 1])
@@ -273,7 +280,7 @@ def main():
     if "--replay" in argv:
         i = argv.index("--replay")
         if len(argv) <= i + 1:
-            print("用法：python probe.py <相机IP> [--limit N] [--replay <IED 握手 payload 文件>]")
+            print("用法：python probe.py <相机IP> --guid <已配对GUID> [--limit N] [--replay <IED 握手 payload 文件>]")
             print("--replay 必须显式给路径，仓库里没有默认文件。")
             print("文件内容 = Init_Command_Request 的 data 段，去掉空白后的连续十六进制字符串")
             print("（无 0x 前缀）。它含配对凭据，不随仓库分发；生成方法见 README §6。")
@@ -295,13 +302,31 @@ def main():
             return 2
         print(f"[0] 用 IED 原始握手 payload 重放（{size} 字节）")
 
+    guid = None
+    if "--guid" in argv:
+        i = argv.index("--guid")
+        if len(argv) <= i + 1 or argv[i + 1].startswith("-"):
+            print("--guid 必须显式给值：它就是你本机 IED 首次配对时用过的 GUID，获取方法见 README §6。")
+            return 2
+        guid = argv[i + 1]
+        body = guid.replace("-", "")
+        if not (12 <= len(body) <= 32 and re.fullmatch(r"[0-9A-Fa-f]+", body)):
+            print(f"--guid 形态不对：{guid!r}。去掉短横后应为 12–32 位十六进制。")
+            print("获取方法见 README §6；真实值不要写进仓库。")
+            return 2
+
+    if replay is None and guid is None:
+        print("缺握手凭据：请用 --guid 传入你自己配对得到的 GUID，或用 --replay 重放 IED 的原始握手。")
+        print("获取方法见 README §6；相机不在线时不要尝试连接。")
+        return 2
+
     # 相机偶尔会因为上一轮的残留会话直接拒握手，退避重试几次。
     c, conn, cam = None, None, None
     last = None
     for attempt in range(1, 7):
         try:
             c = PtpIp(host)
-            conn, cam = c.init(replay=replay)
+            conn, cam = c.init(replay=replay, guid=guid)
             break
         except Exception as e:
             last = e

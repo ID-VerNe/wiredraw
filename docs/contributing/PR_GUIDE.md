@@ -169,7 +169,7 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
 
    ```bash
    gh pr view <N> --json mergedAt -q .mergedAt
-   gh api repos/ID-VerNe/wiredraw/issues/<N>/timeline --paginate \
+   gh api repos/{owner}/{repo}/issues/<N>/timeline --paginate \
      -q '.[] | select(.event=="closed") | .created_at'
    ```
 
@@ -207,7 +207,7 @@ python scripts/review_prompt.py --self-test        # 自检
 
 > **本机 `git push` 不通时**：`https://github.com` 走代理会返回 `CONNECT tunnel failed 502`，
 > 但 **SSH 与 `api.github.com` 都通**。用
-> `git push git@github.com:ID-VerNe/wiredraw.git <branch>`，`gh` 命令照常可用。
+> `git push git@github.com:<owner>/<repo>.git <branch>`（`<owner>/<repo>` 即本仓库），`gh` 命令照常可用。
 
 ## 合并后：对账与回签
 
