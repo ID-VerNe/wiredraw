@@ -274,7 +274,15 @@ def main():
         return 2
     limit = 80
     if "--limit" in argv:
-        limit = int(argv[argv.index("--limit") + 1])
+        i = argv.index("--limit")
+        if len(argv) <= i + 1 or argv[i + 1].startswith("-"):
+            print("--limit 必须显式给整数，例如 --limit 80。")
+            return 2
+        try:
+            limit = int(argv[i + 1])
+        except ValueError:
+            print(f"--limit 需要整数，收到 {argv[i + 1]!r}；例如 --limit 80。")
+            return 2
 
     replay = None
     if "--replay" in argv:
