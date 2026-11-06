@@ -13,7 +13,8 @@ package com.rea.mtpimport;
  *    `offset == size + 1` 抛 `IOException: Failed to read data.`（#67 首轮观察；越界后会话
  *    是否进入错误态本轮未复测、也未做会话探活）——实现必须保证 `0 <= offset <= size`
  *    且 `length <= size - offset`，永不越界。
- * 3. **支持面**：4 张 ARW + 1 张 JPEG 的首块都成功（普通对象都支持；`0xFFFFC001` 未测）。
+ * 3. **支持面**：抽样的 4 张 ARW + 1 张 JPEG 首块均成功（**不能推及所有普通对象**；
+ *    `0xFFFFC001` 未测）。
  *
  * 实现契约：
  *
