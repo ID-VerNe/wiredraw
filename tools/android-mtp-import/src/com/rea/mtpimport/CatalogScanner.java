@@ -16,8 +16,18 @@ import java.util.Locale;
  */
 public final class CatalogScanner {
 
+    /** 每发现这么多对象发布一次快照（issue #60 的口径：约 200 个）。 */
+    private static final int PARTIAL_EVERY = 200;
+
     public interface ScanProgress {
         void onScan(int scanned, int total);
+
+        /**
+         * 渐进发布（issue #60）：已发现至少一张 ARW 后，首张立即发布，之后每
+         * {@link #PARTIAL_EVERY} 个对象发布一次。快照是深拷贝，调用点可以安全地
+         * 投递给 UI 线程继续扫描。
+         */
+        void onPartial(Catalog snapshot, int scanned, int total);
     }
 
     private CatalogScanner() {
@@ -45,6 +55,8 @@ public final class CatalogScanner {
         }
         log.line("待扫描对象共 " + total + " 个（" + storageIds.length + " 个存储）");
 
+        int rawSeen = 0;
+        boolean published = false;
         for (int i = 0; i < storageIds.length; i++) {
             for (int handle : perStorage[i]) {
                 if (run != null && run.isCancelled()) {
@@ -57,12 +69,21 @@ public final class CatalogScanner {
                     progress.onScan(scanned, total);
                 }
                 if (oi == null) continue;
-                catalog.add(new Catalog.Entry(
+                boolean existed = catalog.get(handle) != null;
+                Catalog.Entry entry = new Catalog.Entry(
                         handle,
                         oi.getParent(),
                         oi.getFormat(),
                         oi.getCompressedSizeLong(),
-                        oi.getName()));
+                        oi.getName());
+                catalog.add(entry);
+                if (!existed && entry.isRaw()) rawSeen++;
+                // 没发现 ARW 之前不发布：照片墙为空只会把界面从 SCANNING 拽回去。
+                if (progress != null && rawSeen > 0
+                        && (!published || scanned % PARTIAL_EVERY == 0)) {
+                    published = true;
+                    progress.onPartial(catalog.snapshot(), scanned, total);
+                }
             }
         }
 

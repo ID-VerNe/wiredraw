@@ -54,10 +54,39 @@ import com.rea.mtpimport.UiText
 fun LibraryScreen(model: AppModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         TopBar(model)
+        if (model.backgroundScanning) ScanLine(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PhotoGrid(model)
         }
         ImportBar(model)
+    }
+}
+
+/**
+ * 渐进态的 2 dp 进度细线（issue #60 / UI-SPEC V-23）。
+ *
+ * 不写文字、不写数字：扫描分母（1526）按 C-09 只能出现在 `T-SCANNING`，
+ * 这里只用宽度表达进度；照片墙仍是本状态唯一的内容区焦点。
+ */
+@Composable
+private fun ScanLine(model: AppModel) {
+    val fraction = if (model.scanTotal > 0) {
+        (model.scanDone.toFloat() / model.scanTotal).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .background(UiColors.outlineSoft)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction)
+                .height(2.dp)
+                .background(UiColors.ink)
+        )
     }
 }
 
@@ -99,6 +128,13 @@ private fun TopBar(model: AppModel) {
         Spacer(Modifier.weight(1f))
         Pill(model.photoCount.toString())
         Spacer(Modifier.width(4.dp))
+        // 渐进态的唯一临时动作（issue #60）：后台补齐时仍要能取消扫描。
+        // 完成后消失，不成为常驻控件；热区 48 dp（A-01）。
+        if (model.backgroundScanning) {
+            IconAction(desc = "Cancel", onClick = { model.callbacks?.onCancel() }) {
+                CloseGlyph(20.dp, UiColors.ink)
+            }
+        }
         IconAction(desc = "Filter", onClick = { model.filterOpen = true }) {
             FilterGlyph(20.dp, UiColors.outline)
         }
@@ -225,7 +261,9 @@ private fun ImportBar(model: AppModel) {
         PrimaryButton(
             text = UiText.importCta(selected, model.photoCount),
             onClick = { model.callbacks?.onImport() },
-            enabled = !model.lowSpace
+            // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
+            // P-09：空间不足时同样禁用，两个条件都必须生效。
+            enabled = !model.backgroundScanning && !model.lowSpace
         )
     }
 }

@@ -51,7 +51,12 @@ fun Modifier.tappable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
     )
 }
 
-/** 主 CTA：实心墨底 + 白字 + 48 dp 高 + 全圆角（L-06 / §2.1）。 */
+/**
+ * 主 CTA：实心墨底 + 白字 + 48 dp 高 + 全圆角（L-06 / §2.1）。
+ *
+ * `enabled=false` 只用于渐进态（issue #60：扫描线程还在后台补齐，主 CTA 与扫描不能
+ * 并行发 MTP 命令）。按 V-10 同时改视觉并置 `enabled=false`，不得只靠点击无反应。
+ */
 @Composable
 fun PrimaryButton(
     text: String,

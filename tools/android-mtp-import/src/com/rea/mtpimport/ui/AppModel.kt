@@ -30,6 +30,9 @@ interface AppCallbacks {
 
     /** 勾选变化（PD / P-09）：Main 用它重算空间预检，决定主 CTA 是否禁用。 */
     fun onSelectionChanged()
+
+    /** 回到照片墙（PD / P-09）：DONE / ERROR / 取消返回时同样要重算空间预检。 */
+    fun onBackToCatalog()
 }
 
 /** 过滤抽屉的三种口径（U-52 要求 `All` / `RAW` / 日期三项都在）。 */
@@ -59,6 +62,14 @@ class AppModel {
 
     var scanDone by mutableIntStateOf(0)
     var scanTotal by mutableIntStateOf(0)
+
+    /**
+     * 渐进态（issue #60）：照片墙已发布、扫描线程仍在后台补齐。
+     * 不是新状态——界面仍是 `CATALOG_READY`，这一个标志只控制
+     * 顶栏进度细线 / 临时 `Cancel` 与主 CTA 的 `enabled`（UI-SPEC §1.2 渐进态）。
+     */
+    var backgroundScanning by mutableStateOf(false)
+        private set
 
     var importDoneFiles by mutableIntStateOf(0)
     var importTotalFiles by mutableIntStateOf(0)
@@ -161,29 +172,68 @@ class AppModel {
     }
 
     fun showCold() {
+        backgroundScanning = false
         state = UiState.State.COLD
     }
 
     fun showPermission() {
+        backgroundScanning = false
         state = UiState.State.PERMISSION_PENDING
     }
 
+    /**
+     * 扫描进度回调。渐进发布之后（[backgroundScanning] 为 true）只更新细线分母，
+     * **不得**把界面从 `CATALOG_READY` 拽回 `SCANNING`——照片墙已经能用了。
+     */
     fun showScanning(done: Int, total: Int) {
         scanDone = done
         scanTotal = total
+        if (backgroundScanning) return
         state = UiState.State.SCANNING
     }
 
+    /**
+     * 渐进发布（issue #60）：把已发现的照片先送上照片墙，扫描继续在后台补齐。
+     * 只在已发现 ARW 时调用；首次调用会从 `SCANNING` 切到 `CATALOG_READY`。
+     */
+    fun showPartialCatalog(c: Catalog, s: Selection, done: Int, total: Int) {
+        catalog = c
+        selection = s
+        wall = PhotoWall.of(c)
+        scanDone = done
+        scanTotal = total
+        selectionVersion++
+        if ((wall?.photoCount() ?: 0) == 0) {
+            state = UiState.State.SCANNING
+            return
+        }
+        backgroundScanning = true
+        state = UiState.State.CATALOG_READY
+    }
+
+    /** 取消扫描：已渐进发布的部分结果整批撤掉（issue #60 的取消语义）。 */
+    fun discardPartialCatalog() {
+        if (!backgroundScanning) return
+        catalog = null
+        wall = null
+        selection = null
+        selectionVersion++
+        backgroundScanning = false
+    }
+
     fun showEmpty() {
+        backgroundScanning = false
         state = UiState.State.EMPTY_CATALOG
     }
 
     fun showUnavailable() {
+        backgroundScanning = false
         state = UiState.State.UNAVAILABLE
     }
 
     fun showError(reason: String) {
         errorReason = reason
+        backgroundScanning = false
         state = UiState.State.ERROR
     }
 
@@ -192,6 +242,7 @@ class AppModel {
         selection = s
         wall = PhotoWall.of(c)
         selectionVersion++
+        backgroundScanning = false
         state = if (wall!!.photoCount() == 0) UiState.State.EMPTY_CATALOG else UiState.State.CATALOG_READY
     }
 
@@ -251,6 +302,8 @@ class AppModel {
     /** 取消传输/关闭传输视图：有照片墙就回到 `CATALOG_READY`，否则回 `COLD`。 */
     fun backToCatalog() {
         state = if ((wall?.photoCount() ?: 0) > 0) UiState.State.CATALOG_READY else UiState.State.COLD
+        // P-09：回到照片墙后必须重算空间预检，不能只依赖勾选变化。
+        callbacks?.onBackToCatalog()
     }
 
     fun toggleSelection(entry: Catalog.Entry) {
@@ -310,8 +363,10 @@ class AppModel {
     fun applyDemo(p: DemoPayload?) {
         if (p == null) return
         demoActive = true
-        // demo 不碰真实存储；清掉真实路径留下的预检结果，避免假照片墙的 CTA 被误禁用。
+        // demo 不碰真实存储；清掉真实路径留下的预检结果与失败明细，避免假照片墙的 CTA
+        // 被误禁用、Details 里残留真实失败。
         setSpaceStatus(false, "")
+        clearFailedLines()
         transferViewClosed = false
         exitConfirmOpen = false
         if (p.catalog != null && catalog == null) {

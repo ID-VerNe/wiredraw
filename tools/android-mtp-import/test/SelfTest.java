@@ -37,6 +37,7 @@ public final class SelfTest {
 
     public static void main(String[] args) throws Exception {
         catalogCases();
+        progressiveCases();
         truncationCases();
         attachCases();
         permissionCases();
@@ -105,6 +106,65 @@ public final class SelfTest {
         check("folderCount()/fileCount() 分类正确",
                 c.folderCount() == 2 && c.fileCount() == 4,
                 "folder=" + c.folderCount() + " file=" + c.fileCount());
+    }
+
+    // ---------------- 渐进发布（#60） ----------------
+
+    /**
+     * #60：扫描不再等全量才出照片墙。快照必须与本源解耦；快照长大后
+     * 已勾选句柄不得丢。
+     */
+    static void progressiveCases() {
+        Catalog partial = new Catalog();
+        partial.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        partial.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        partial.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
+
+        Catalog first = partial.snapshot();
+        check("snapshot：发布时已算好 relPath",
+                "DCIM/100MSDCF/DSC02183.ARW".equals(first.get(3).relPath),
+                "实际 " + first.get(3).relPath);
+        check("snapshot：只含发布时已发现的对象",
+                first.all().size() == 3 && first.rawCount() == 1,
+                "size=" + first.all().size() + " raw=" + first.rawCount());
+
+        // snapshot() 不得把本源设成 built，否则扫描线程继续 add 会抛 IllegalStateException。
+        boolean sourceStillOpen = true;
+        try {
+            partial.add(new Catalog.Entry(4, 2, Catalog.FMT_ARW, 400, "DSC02184.ARW"));
+            partial.build();
+        } catch (IllegalStateException e) {
+            sourceStillOpen = false;
+        }
+        check("snapshot：发布不改动本源的 built 状态", sourceStillOpen, "回源 add/build 抛了 IllegalStateException");
+
+        Catalog second = partial.snapshot();
+        check("snapshot：旧快照不被后续扫描改写",
+                first.all().size() == 3 && first.get(3).relPath != null
+                        && "DCIM/100MSDCF/DSC02183.ARW".equals(first.get(3).relPath),
+                "size=" + first.all().size());
+        check("snapshot：新快照包含继续扫描的对象",
+                second.all().size() == 4 && second.rawCount() == 2,
+                "size=" + second.all().size() + " raw=" + second.rawCount());
+
+        PhotoWall w1 = PhotoWall.of(first);
+        PhotoWall w2 = PhotoWall.of(second);
+        check("渐进发布：照片墙张数随快照增长",
+                w1.photoCount() == 1 && w2.photoCount() == 2,
+                "first=" + w1.photoCount() + " second=" + w2.photoCount());
+
+        Selection s = new Selection(first);
+        s.setChecked(3, true);
+        check("渐进发布：第一次快照上的勾选生效", s.isChecked(3), "句柄 3 未勾上");
+
+        s.retarget(second);
+        check("Selection.retarget：已勾句柄在更大快照里保留",
+                s.isChecked(3) && s.fileHandles().size() == 1,
+                "checked=" + s.isChecked(3) + " files=" + s.fileHandles());
+        s.toggle(4);
+        check("Selection.retarget：新句柄可在新快照上勾选",
+                s.fileHandles().size() == 2,
+                "实际 " + s.fileHandles());
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------

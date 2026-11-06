@@ -25,6 +25,7 @@
 | 找 Sony 机身、申请/自动获取 USB 权限 | ✅ 实现（从探针抽出，坑原样保留） |
 | 建 MTP 会话、带唤醒重试拿存储 | ✅ 实现（8 次 / 3 秒，同探针） |
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
+| 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
@@ -119,13 +120,15 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
   `Location details` 抽屉，不会被 `logLines.takeLast(8)` 挤掉；DONE 首屏受 U-47 约束
   **不出现** `Failed N`。所有文件都失败仍走现有 `ERROR` 路径。
 - **`P-09` 空间预检**：`SpaceCheck.requiredBytes = 计划 + ceil(5%)`；`Main` 用
-  `StatFs(getFilesDir())` 取可用字节。照片墙出现后与勾选变化后各刷新一次，`doStart` 启动前
-  再判一次；不足时主 CTA 禁用、上方一行 `Low space`（12 sp），差额（`Need X GB, free Y GB`）
-  只进 Details。`StatFs` 取数异常按「不拦截」处理，预检不能反过来阻断导入。
+  `StatFs(getFilesDir())` 取可用字节。照片墙出现、勾选变化、回到照片墙（DONE / ERROR /
+  取消返回）时各刷新一次，`doStart` 启动前再判一次；不足时主 CTA 禁用、上方一行
+  `Low space`（12 sp），差额（`Need X GB, free Y GB`）只进 Details。`StatFs` 取数异常按
+  「不拦截」处理，预检不能反过来阻断导入。
   计划为空（没勾任何照片）时不拦：点击本来也不会启动导入。
 - **`onDestroy` 竞态**：先 `cancel()` 传输与扫描，再在 1 s 总预算内 join
   `service` / `orphanService` / `scanThread`；全部退出才 `session.close()`，仍有 worker 活着
-  则跳过关闭并记一行日志（不在 UI 线程撞原生传输，进程退出时由系统回收）。仍属**真机未验**。
+  则跳过关闭并记一行日志（不在 UI 线程撞原生传输）。跳过 `close()` 时会话保持打开：若进程
+  随后被杀，相机可能按 `AGENTS.md` §4 挂起、需要拔插数据线。以上仍属**真机未验**。
 
 `#70`（续传期间界面进度停在原值）**不在 PD**：它需要 `ResumableTransfer` 暴露当前文件的
 已传字节回调，并改 `TransferProgress` 的当前文件口径，属进度反馈链，按 #70 单独做。
@@ -142,7 +145,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；265 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；280 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -222,7 +225,9 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
    `MtpSession.storageIds()` 重试 8 次 / 每次 3 秒；仍失败就提示用户拔插线
    —— 实测重试唤不醒，只有拔插有效。
 3. **扫描要 59 秒**：1526 个对象 × 39 ms。所以扫描必须回调进度，且扫描结果要缓存成
-   `Catalog` 复用——每次勾选都重扫的交互没法用。
+   `Catalog` 复用——每次勾选都重扫的交互没法用。issue #60 起不再等全量：首批 ARW
+   一出现就发布快照（之后每 200 个对象一次），照片墙先可用，剩余对象在后台静默补齐；
+   补齐期间主 CTA 禁用（扫描与导入不能在同一 MTP 会话上并行发命令）。
 
 ## 真机待验清单（验收前必须在 ILCE-7C 上跑）
 
@@ -234,6 +239,13 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       单次会话扫出 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`
 - [ ] 扫描完成，照片墙的日期组 / 照片数与卡内一致（探针对照值：1526 对象 / 503 文件夹 / 511 ARW）；
       顶栏徽标 = 511，`Import all 511` 与徽标同分母（U-53）
+- [ ] 渐进加载（#60）：插线后**首批 ARW 出现即**看到照片墙，不必等满 1526 个对象；
+      顶栏下方 2 dp 细线推进、临时 `Cancel` 可点、主 CTA 禁用；补齐完成后细线与 `Cancel` 消失、
+      CTA 启用、徽标从中间值变为 511；点 `Cancel` 必须丢弃部分结果回 `COLD` —— **未验**
+      （2026-11-06 相机被另一会话探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
+- [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
+      `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
+      `IMPORTING`（日志不得出现「先扫描」）—— **未验**（同上，相机被占用）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
 - [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数

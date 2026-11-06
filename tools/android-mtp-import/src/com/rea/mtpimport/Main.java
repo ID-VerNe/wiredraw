@@ -181,6 +181,16 @@ public final class Main extends ComponentActivity {
                 if (worker != null) worker.interrupt();
                 log.line("点 Cancel → 已请求取消扫描（会话由扫描线程收尾时关闭）");
             }
+            if (!hadImportRun && model.getBackgroundScanning()) {
+                // issue #60：取消后不得把部分结果翻成 CATALOG_READY。
+                // 以 UI 真状态判定「本轮已渐进发布」，不用跨线程影子标志：
+                // 扫描正常完成后 backgroundScanning 已清零，重扫在拿存储窗口取消时
+                // 必须保留上一轮的完整照片墙，不能误删。
+                catalog = null;
+                selection = null;
+                model.discardPartialCatalog();
+                log.line("扫描取消：丢弃已渐进发布的部分结果");
+            }
             if (hadImportRun) {
                 // 取消传输后立刻关掉传输视图：worker 被打断时/收尾前的迟到进度不得把界面
                 // 拽回 IMPORTING（#48）。
@@ -311,6 +321,12 @@ public final class Main extends ComponentActivity {
         @Override
         public void onSelectionChanged() {
             // PD / P-09：勾选变化会改变计划大小，空间预检必须跟着刷新（由 Compose 在主线程回调）。
+            refreshSpaceCheck();
+        }
+
+        @Override
+        public void onBackToCatalog() {
+            // PD / P-09：DONE / ERROR / 取消返回照片墙时同样重算，避免沿用上一轮的预检结果。
             refreshSpaceCheck();
         }
 
@@ -631,17 +647,44 @@ public final class Main extends ComponentActivity {
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
             Catalog scanned = CatalogScanner.scan(session.device(), sids, log, run,
-                    (done, total) -> postIfActive(run, () -> model.showScanning(done, total)));
+                    new CatalogScanner.ScanProgress() {
+                        @Override
+                        public void onScan(int done, int total) {
+                            postIfActive(run, () -> model.showScanning(done, total));
+                        }
+
+                        @Override
+                        public void onPartial(Catalog snapshot, int done, int total) {
+                            postIfActive(run, () -> {
+                                if (model.getBackgroundScanning()) {
+                                    selection.retarget(snapshot);
+                                } else {
+                                    // 本轮第一次发布：新建空集选择，避免沿用上一轮勾选。
+                                    // 首轮自己不会留下 backgroundScanning=true（完成/取消都会清零）。
+                                    selection = new Selection(snapshot);
+                                }
+                                catalog = snapshot;
+                                model.showPartialCatalog(snapshot, selection, done, total);
+                                log.line(String.format(Locale.US,
+                                        "渐进发布：已扫描 %d/%d，照片墙 %d 张",
+                                        done, total, snapshot.rawCount()));
+                            });
+                        }
+                    });
             if (!run.accept()) {
                 log.line("扫描已取消，丢弃本轮结果（不上照片墙）");
                 return;
             }
-            catalog = scanned;
-            selection = new Selection(catalog);
             log.line(String.format(Locale.US, "扫描完成：文件夹 %d 个、文件 %d 个（合计 %.2f GB，其中 ARW %.2f GB）",
                     scanned.folderCount(), scanned.fileCount(),
                     scanned.fileBytes() / 1073741824.0, scanned.rawBytes() / 1073741824.0));
+            // 收尾也必须在 UI 线程排队：扫描线程先于已投递的渐进快照执行的话，
+            // 会把用户在渐进态里的勾选冲掉。UI 队列 FIFO 保证这里晚于所有 onPartial。
             postIfActive(run, () -> {
+                catalog = scanned;
+                // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
+                if (model.getBackgroundScanning()) selection.retarget(scanned);
+                else selection = new Selection(scanned);
                 model.showCatalog(scanned, selection);
                 // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
                 refreshSpaceCheck();
