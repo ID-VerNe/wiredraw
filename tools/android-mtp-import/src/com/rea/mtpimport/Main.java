@@ -208,42 +208,43 @@ public final class Main extends ComponentActivity {
 
         @Override
         public void onBack() {
-            // 浮层优先（PR #41 第三轮评审 P1）：确认框 → 抽屉（Filter / Details）→ 照片 → 传输 → 终态/启动态。
-            // 模态开着时返回键只关模态，不许顺带退出应用或关掉底下的页面：
-            // `CATALOG_READY` 开 Filter 后返回若落到 `finish()`，就是「模态没关、应用先退」。
-            // 这与 `UI-SPEC.md` §1.3 字面的「`CATALOG_READY` 直接退出」有张力，规范补充另开了
-            // 一张 documentation issue（见 PR 正文的 `#NN`），本 PR 不顺手改规范。
-            if (model.getExitConfirmOpen()) {
-                model.setExitConfirm(false);
-                return;
+            // 路由决策抽到纯 JDK 的 BackNav（issue #48），用例在 SelfTest 里钉住。
+            // 顺序仍是「浮层优先」（PR #41 第三轮评审 P1）：确认框 → 抽屉（Filter / Details）
+            // → 照片 → 传输/终态 → 启动态；模态开着时不许顺带退出应用或关掉底下的页面。
+            // 与旧实现的关键差别：`DONE` / `UNAVAILABLE` / `PAUSED` 一律回照片墙，不再 `finish()`
+            // —— 旧实现只把 `ERROR` 当回照片墙，其余终态直接退出应用（issue #48 主症状）。
+            // 这与 `UI-SPEC.md` §1.3 字面的「`DONE` / `UNAVAILABLE` 返回退出」冲突；按流程
+            // 不在代码 PR 里改规范，关系记录在 #42。
+            BackNav.Action action = BackNav.decide(
+                    model.getState(),
+                    model.getExitConfirmOpen(),
+                    model.getFilterOpen(),
+                    model.getDetailsOpen(),
+                    model.getOpenedPhoto() != null);
+            switch (action) {
+                case CLOSE_EXIT_CONFIRM:
+                    model.setExitConfirm(false);
+                    break;
+                case CLOSE_FILTER:
+                    model.setFilterOpen(false);
+                    break;
+                case CLOSE_DETAILS:
+                    model.setDetailsOpen(false);
+                    break;
+                case CLOSE_PHOTO:
+                    model.closePhoto();
+                    break;
+                case OPEN_EXIT_CONFIRM:
+                    model.setExitConfirm(true);
+                    break;
+                case BACK_TO_CATALOG:
+                    model.backToCatalog();
+                    break;
+                case EXIT:
+                default:
+                    finish();
+                    break;
             }
-            if (model.getFilterOpen()) {
-                model.setFilterOpen(false);
-                return;
-            }
-            // 抽屉判断必须在照片与传输态之前：照片页开 `Location` 后按返回应当只关抽屉
-            // （否则先关照片、抽屉继续盖在照片墙上），传输中同理（B2 附带缺陷）。
-            if (model.getDetailsOpen()) {
-                model.setDetailsOpen(false);
-                return;
-            }
-            if (model.getOpenedPhoto() != null) {
-                model.closePhoto();
-                return;
-            }
-            // `IMPORTING` / `PAUSED` 下返回键不得销毁任务（§1.3）：弹 `Pause & exit` / `Resume`。
-            if (UiState.isTransfer(model.getState())) {
-                model.setExitConfirm(true);
-                return;
-            }
-            // `ERROR` 下返回键不得丢当前选择（§1.3）：回照片墙，选择还在 AppModel 里；
-            // `Connect camera` 是唯一**恢复**动作，不是唯一动作，所以返回键照常可用。
-            if (model.getState() == UiState.State.ERROR) {
-                model.backToCatalog();
-                return;
-            }
-            // 其余状态（含 `UNAVAILABLE`）按 §1.3 直接退出应用。
-            finish();
         }
 
         /**
@@ -255,13 +256,20 @@ public final class Main extends ComponentActivity {
             model.closeTransferView();
         }
 
-        /** 确认框选 `Pause & exit`：暂停并退出应用，断点由 Journal 保留（§1.3 / §4.5）。 */
+        /**
+         * 确认框选 `Pause & exit`：暂停任务并退出**传输视图**，回到照片墙，不退出应用（issue #48）。
+         * 断点由 Journal / ImportService 保留（§1.3 / §4.5）；demo 分支只摘 ticker，
+         * 保住已完成数值，回照片墙后进度冻结、不再继续涨。
+         */
         @Override
         public void onPauseExit() {
             model.setExitConfirm(false);
-            if (demoActive()) stopDemoImport();
-            if (!demoActive() && service != null && service.isRunning()) service.pause();
-            finish();
+            if (demoActive()) {
+                demoTicker.removeCallbacks(demoStep);
+            } else if (service != null && service.isRunning()) {
+                service.pause();
+            }
+            model.backToCatalog();
         }
 
         /** 确认框选 `Resume`：收起确认框；已暂停时顺带继续。 */

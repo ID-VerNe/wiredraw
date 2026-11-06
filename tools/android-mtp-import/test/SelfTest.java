@@ -38,6 +38,7 @@ public final class SelfTest {
         progressCases();
         journalCases();
         uiStateCases();
+        backNavCases();
         uiTextCases();
         photoWallCases();
         demoTreesCases();
@@ -643,6 +644,80 @@ public final class SelfTest {
                         && !UiState.hasTopBar(UiState.State.DONE)
                         && UiState.hasTopBar(UiState.State.CATALOG_READY),
                 "hasTopBar 判定不符");
+    }
+
+    // ---------------- 系统返回键路由（BackNav，issue #48） ----------------
+
+    static void backNavCases() {
+        check("IMPORTING 返回键弹 Pause & exit 确认框",
+                BackNav.decide(UiState.State.IMPORTING, false, false, false, false)
+                        == BackNav.Action.OPEN_EXIT_CONFIRM,
+                "实际 " + BackNav.decide(UiState.State.IMPORTING, false, false, false, false));
+        check("PAUSED 返回键一按回照片墙",
+                BackNav.decide(UiState.State.PAUSED, false, false, false, false)
+                        == BackNav.Action.BACK_TO_CATALOG,
+                "实际 " + BackNav.decide(UiState.State.PAUSED, false, false, false, false));
+        check("DONE 返回键回照片墙而不是退出应用（issue #48 主症状）",
+                BackNav.decide(UiState.State.DONE, false, false, false, false)
+                        == BackNav.Action.BACK_TO_CATALOG,
+                "实际 " + BackNav.decide(UiState.State.DONE, false, false, false, false));
+        check("ERROR 返回键回照片墙（§1.3 不丢选择）",
+                BackNav.decide(UiState.State.ERROR, false, false, false, false)
+                        == BackNav.Action.BACK_TO_CATALOG,
+                "实际 " + BackNav.decide(UiState.State.ERROR, false, false, false, false));
+        check("UNAVAILABLE 返回键回照片墙",
+                BackNav.decide(UiState.State.UNAVAILABLE, false, false, false, false)
+                        == BackNav.Action.BACK_TO_CATALOG,
+                "实际 " + BackNav.decide(UiState.State.UNAVAILABLE, false, false, false, false));
+        check("CATALOG_READY 是主页，返回键退出应用",
+                BackNav.decide(UiState.State.CATALOG_READY, false, false, false, false)
+                        == BackNav.Action.EXIT,
+                "实际 " + BackNav.decide(UiState.State.CATALOG_READY, false, false, false, false));
+        check("启动态（COLD/PERMISSION/SCANNING/EMPTY）仍返回退出",
+                BackNav.decide(UiState.State.COLD, false, false, false, false) == BackNav.Action.EXIT
+                        && BackNav.decide(UiState.State.PERMISSION_PENDING, false, false, false, false)
+                        == BackNav.Action.EXIT
+                        && BackNav.decide(UiState.State.SCANNING, false, false, false, false)
+                        == BackNav.Action.EXIT
+                        && BackNav.decide(UiState.State.EMPTY_CATALOG, false, false, false, false)
+                        == BackNav.Action.EXIT,
+                "启动态返回口径不符");
+        check("浮层优先：确认框 > 过滤 > 详情 > 照片",
+                BackNav.decide(UiState.State.DONE, true, true, true, true)
+                        == BackNav.Action.CLOSE_EXIT_CONFIRM
+                        && BackNav.decide(UiState.State.DONE, false, true, true, true)
+                        == BackNav.Action.CLOSE_FILTER
+                        && BackNav.decide(UiState.State.DONE, false, false, true, true)
+                        == BackNav.Action.CLOSE_DETAILS
+                        && BackNav.decide(UiState.State.DONE, false, false, false, true)
+                        == BackNav.Action.CLOSE_PHOTO,
+                "浮层优先级不符");
+        check("所有非主页终态都不走 EXIT（issue #48 防复发）",
+                nonExitStates(),
+                "出现 EXIT 的状态：" + nonExitStatesDetail());
+    }
+
+    /** 非主页终态集合：这些状态下系统返回键不得退出应用。 */
+    static boolean nonExitStates() {
+        for (UiState.State s : new UiState.State[]{
+                UiState.State.PAUSED, UiState.State.DONE,
+                UiState.State.ERROR, UiState.State.UNAVAILABLE}) {
+            if (BackNav.decide(s, false, false, false, false) == BackNav.Action.EXIT) return false;
+        }
+        return true;
+    }
+
+    static String nonExitStatesDetail() {
+        StringBuilder out = new StringBuilder();
+        for (UiState.State s : new UiState.State[]{
+                UiState.State.PAUSED, UiState.State.DONE,
+                UiState.State.ERROR, UiState.State.UNAVAILABLE}) {
+            if (BackNav.decide(s, false, false, false, false) == BackNav.Action.EXIT) {
+                if (out.length() > 0) out.append(", ");
+                out.append(s.name());
+            }
+        }
+        return out.toString();
     }
 
     // ---------------- 数字与短文案（UiText，C-05 / C-08 / U-45） ----------------
