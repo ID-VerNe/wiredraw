@@ -137,3 +137,9 @@ python scripts/run_gates.py manual      # Android 构建档（需要 SDK + JDK�
   仅为让 `adb install -r` 可复现，不含任何真实凭据。
 - `captures/*.pcapng`（体积实测见 `docs/archive/INDEX.md`）、`captures/*.txt`、`out/*` 与 `out/*.ARW`（各 24 MB）均为本地证据，
   未随仓库分发；结论归档在 `docs/archive/INDEX.md`，可按工具 README 重新生成。
+
+---
+
+## License
+
+本项目以 [Apache License 2.0](LICENSE) 授权。
