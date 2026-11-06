@@ -112,8 +112,9 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `getPartialObject` 的语义先由 `tools/android-mtp-probe` 在 ILCE-7C 上实测（issue #67），
 结论已钉死：`offset` 是**绝对偏移**；普通 ARW / JPEG 对象都支持；1 MiB 分块拼满
 24.4 MB ARW 的字节数、MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）；
-`length` 超剩余截断到 EOF；`offset == size` 返回 0；**`offset == size + 1` 抛 IOException
-并污染整个 MTP 会话**。
+`length` 超剩余截断到 EOF；`offset == size` 返回 0；`offset == size + 1` 抛
+`IOException: Failed to read data.`（#67 首轮观察；越界后会话是否进入错误态本轮未复测、
+也未做会话探活）。
 
 对应实现：
 

@@ -20,8 +20,9 @@ import java.util.concurrent.locks.ReentrantLock;
  *   append 到 `.part`。语义与边界已在 ILCE-7C 上实测（issue #67）：
  *   `offset` 是绝对偏移；普通 ARW / JPEG 对象都支持；1 MiB 分块拼满 24.4 MB ARW 的字节数、
  *   MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）；`length` 超剩余截断到 EOF；
- *   `offset == size` 返回 0；**`offset > size` 抛 IOException 并污染整个 MTP 会话**——
- *   所以这里永不请求越界偏移，且每块长度都不超过 `size - offset`。
+ *   `offset == size` 返回 0；`offset > size` 抛 `IOException: Failed to read data.`（#67 首轮观察；
+ *   越界后会话是否进入错误态本轮未复测、也未做会话探活）。所以这里永不请求越界偏移，
+ *   且每块长度都不超过 `size - offset`。
  * - `resumeFrom == size`：半成品已满，直接 rename 落盘，不再向相机发读请求。
  *
  * `.part` 的命名由 {@link Journal#partPath} 按 `relPath + size` 生成（跨会话稳定，且异 size 的
@@ -190,8 +191,8 @@ public final class MtpTransfer implements ResumableTransfer {
     /**
      * `0 < resumeFrom < size`：从绝对偏移续读，append 到已有 `.part`。
      *
-     * 分块上限 1 MiB、长度不超过剩余字节：`offset > size` 会污染整个 MTP 会话（#67 实测），
-     * 这里任何一种都不可能发出去。
+     * 分块上限 1 MiB、长度不超过剩余字节：`offset > size` 抛 IOException（#67 首轮观察；
+     * 越界后会话是否进入错误态未复测），这里任何一种都不可能发出去。
      */
     private Result append(ImportPlan.Item item, File part, File dest, long from, CancelToken token) {
         FileOutputStream out = null;
