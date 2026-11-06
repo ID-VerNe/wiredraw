@@ -138,7 +138,9 @@ python scripts/run_gates.py manual      # Android 构建档（需要 SDK + JDK�
 
 ## 说明
 
-- 本仓库不含任何第三方参考项目。早期审计过的 15 个开源仓库已从版本控制中排除。
+- 本仓库不含任何第三方参考项目。早期审计过的 15 个开源仓库是维护者本机的只读副本，
+  不是依赖，也不被任何构建或代码引用；来历与忽略规则见
+  [本地专属目录与内部工具](docs/contributing/LOCAL_WORKSPACE.md)。
 - `tools/android-mtp-probe/rea-debug.keystore` 是**调试用**签名密钥（口令 `android`），
   仅为让 `adb install -r` 可复现，不含任何真实凭据。
 - `captures/*.pcapng`（体积实测见 `docs/archive/INDEX.md`）、`captures/*.txt`、`out/*` 与 `out/*.ARW`（各 24 MB）均为本地证据，

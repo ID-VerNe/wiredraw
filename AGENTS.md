@@ -59,6 +59,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 - `pre-push` 的 `SKIP_GATES=1` **仅用于钩子自身故障**（例如钩子在当前 shell 下跑不起来），
   它会打印醒目横幅但跳过 static 门禁。使用后必须在 PR 正文说明原因，并附上手动执行
   `python scripts/run_gates.py ci` 的原始输出；它不是「门禁红了赶时间」的通行证。
+  绕过会写入 `$(git rev-parse --git-common-dir)/skip-gates.log`（所有 worktree 共用一份），用于事后审计。
 - Android 构建门禁在 `manual` 档，CI 跑不了（需要 Android SDK + JDK）。
 
 <!-- gates:ci:begin -->
@@ -199,6 +200,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `docs/contributing/ISSUE_GUIDE.md` | 怎么发 issue：正文四要素、复现命令与 `needs-repro`、关闭方式、模板 |
 | `docs/contributing/PR_GUIDE.md` | 怎么开 PR：拆分命名、正文分段、基线验证、门禁改动、合并条件、对账与回签 |
 | `docs/contributing/REVIEW_DISPATCH.md` | 合并评审契约：派发方式、评审者必做清单、结论格式、常见误判 |
+| `docs/contributing/LOCAL_WORKSPACE.md` | 本地专属目录与内部工具：哪些目录只留本地、15 个参考仓库的来历、证据存放与占位约定 |
 | `scripts/review_prompt.py` | 生成合并评审的派发文案（默认不含 PR 正文，`--self-test` 自检） |
 | `scripts/check_pr_sections.py` | PR 正文分段结构校验（`support` 档，CI 在 `pull_request` 上跑） |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |

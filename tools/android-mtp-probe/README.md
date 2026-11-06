@@ -19,7 +19,10 @@
 
 ## 构建（不需要 Gradle）
 
-要求：Android SDK（build-tools + platform）、JDK。脚本里写死了本机路径，换机器改开头几行即可。
+要求：Android SDK（`build-tools;35.0.1` + `platforms;android-35`）、JDK 21、Python 3。
+脚本会自动探测工具链：SDK 按 `ANDROID_HOME` → `ANDROID_SDK_ROOT` → 常见默认路径，
+JDK 按 `JAVA_HOME` → `PATH` 里的 `javac`。找不到时打印可直接复制的设置示例并以非 0 退出。
+版本号写死是为了构建可复现；你装的版本不同，改脚本顶部的 `BT_VER` / `PLATFORM` 两行即可。
 
 ```bash
 bash build.sh
