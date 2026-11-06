@@ -5,7 +5,7 @@
 
 - Apache Magpie：确定性占位符（同值同符、可重复执行）、豁免必须显式带理由；
 - gitleaks：集中式规则表 + allowlist、默认只读报告、`--redact` 式打码预览；
-- detect-secrets：行内 allowlist、只盯「新增」的思路（首版先用 `--warn` 输出基线）；
+- detect-secrets：行内 allowlist、只盯「新增」的思路（首版先用 `--warn` 输出基线，转 block 见 #110）；
 - ggshield / gitleaks：挂在 pre-push；本仓库只走 `scripts/gates.json` 的 static 分片，
   `.githooks/pre-push` 不再写第二份命令。
 
@@ -863,7 +863,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="敏感信息门禁（详见 issue #109）")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="门禁模式：命中即非零退出（默认）")
-    mode.add_argument("--warn", action="store_true", help="只报告不阻断，用于首版落地")
+    mode.add_argument("--warn", action="store_true", help="只报告不阻断（首版落地与排查基线用）")
     mode.add_argument("--fix", action="store_true", help="真正改写文件，改完自动复扫")
     mode.add_argument("--self-test", action="store_true", help="跑内置用例")
     args = ap.parse_args(argv)
