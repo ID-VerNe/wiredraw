@@ -99,10 +99,23 @@ fun LibraryTopBar(model: AppModel) {
                 CloseGlyph(20.dp, UiColors.onSurface)
             }
         }
-        // 顶栏计数胶囊只在 CATALOG_READY 出现（UI-SPEC V-27）：与主 CTA 同分母，
-        // 只作常驻计数，不承担「唯一分母」职责，也不是新的数值口径。
+        // 顶栏 filter 芯片（V-31）：只在非 All 档出现，12 sp 非计数文本；日期档取组标签。
+        // 它不是计数胶囊，不参与 `C-08` 的「胶囊与主 CTA 同分母」，只是为了让人一眼
+        // 看出当前照片墙被过滤到了哪一档。
+        val chip = model.filterChip
+        if (chip != null) {
+            BasicText(
+                chip,
+                style = TextSmall.copy(color = UiColors.secondary),
+                maxLines = 1,
+                modifier = Modifier.testTag("filterChip")
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        // 顶栏计数胶囊只在 CATALOG_READY 出现（UI-SPEC V-27）：与主 CTA 同分母（当前
+        // filter 可见集合的导出文件数），只作常驻计数，不承担「唯一分母」职责。
         // 判定与 SelfTest 共用 `TopBarSpec.showsCountPill`（N-1），页面里不再写条件表达式。
-        val count = model.photoCount
+        val count = model.visibleExportCount
         if (TopBarSpec.showsCountPill(model.state, count)) {
             Pill(count.toString())
             Spacer(Modifier.width(8.dp))

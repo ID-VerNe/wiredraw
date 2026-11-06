@@ -125,7 +125,7 @@ private fun PhotoGrid(model: AppModel) {
                 GroupHeader(model, group)
             }
             if (!model.isCollapsed(group.key)) {
-                items(count = group.photos.size, key = { i -> group.photos[i].handle }) { i ->
+                items(count = group.photos.size, key = { i -> group.photos[i].key }) { i ->
                     PhotoCell(model, group.photos[i])
                 }
             }
@@ -133,12 +133,13 @@ private fun PhotoGrid(model: AppModel) {
     }
 }
 
-/** 日期组头：整行可点（L-08）；文案是组内聚合 `Jun 7 · 12 · 284 MB`（U-44）。 */
+/** 日期组头：整行可点（L-08）；文案是组内聚合 `Jun 7 · 43 · 74.0 MB`（U-44/#83）。 */
 @Composable
 private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
     // Selection 不是 observable：读版本号让「本组是否全选」随勾选变化重算。
     val version = model.selectionVersion
-    val allSelected = group.photos.isNotEmpty() && model.selection?.allCheckedOf(group.photos) == true
+    val handles = group.photos.flatMap { it.handles() }
+    val allSelected = group.photos.isNotEmpty() && model.selection?.allCheckedHandles(handles) == true
     val collapsed = model.isCollapsed(group.key)
     val haptic = LocalHapticFeedback.current
     Row(
@@ -159,7 +160,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             .semantics {
                 // A-05：`Date group <date>, N photos, <size>`
                 contentDescription = "Date group " + group.label + ", " + group.count() +
-                    " photos, " + UiText.capacity(group.bytes)
+                    " photos, " + UiText.capacity(group.bytes(model.exportMode))
                 role = Role.Button
                 onClick(label = if (collapsed) "Expand date group" else "Collapse date group") {
                     model.toggleCollapsed(group.key)
@@ -182,7 +183,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             ChevronGlyph(16.dp, UiColors.outline, up = collapsed)
         }
         BasicText(
-            group.header(),
+            group.header(model.exportMode),
             style = TextSmall.copy(color = UiColors.secondary),
             modifier = Modifier.weight(1f)
         )
@@ -203,32 +204,34 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
  * 也让 dump 里不出现文件名、`ARW` 字样（U-44 的禁项）。
  */
 @Composable
-private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
+private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
     // Selection 本身不是 observable：读一次版本号，勾选后本格才会重绘。
     val version = model.selectionVersion
-    val checked = model.selection?.isChecked(entry.handle) == true
+    val checked = model.isUnitChecked(unit)
 
     // #59：缩略图在 IO 线程异步取，composition / 主线程不做同步解码；
     // 渐进扫描期间不碰相机（扫描线程正在同一个 MtpDevice 上发 getObjectInfo）。
+    // #83：一格 = 一个照片单元，缓存键优先同名 JPG 句柄，缺失回退 ARW（`V-32`）。
+    val key = unit.previewHandle()
     val store = model.thumbnails
-    var thumb by remember(entry.handle, store) {
-        mutableStateOf(store?.cached(entry.handle))
+    var thumb by remember(key, store) {
+        mutableStateOf(store?.cached(key))
     }
-    LaunchedEffect(entry.handle, store, model.backgroundScanning) {
+    LaunchedEffect(key, store, model.backgroundScanning) {
         if (thumb == null && store != null && !model.backgroundScanning) {
             try {
-                thumb = withContext(Dispatchers.IO) { model.loadThumbnail(entry) }
+                thumb = withContext(Dispatchers.IO) { model.loadThumbnail(unit) }
             } finally {
                 // 取图期间格子被滚出组合（协程取消）时，load 可能已经写完缓存：
                 // 补一次 evict，保证离屏位图不常驻（V-24）。
-                if (!isActive) store.evict(entry.handle)
+                if (!isActive) store.evict(key)
             }
         }
     }
     // 格子滚出可视区（LazyVerticalGrid 移出组合）即把位图移出缓存：
     // 不显示的位图不常驻内存；滚回时重新取图。
-    DisposableEffect(entry.handle, store) {
-        onDispose { store?.evict(entry.handle) }
+    DisposableEffect(key, store) {
+        onDispose { store?.evict(key) }
     }
 
     Box(
@@ -237,10 +240,10 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
             .clip(RoundedCornerShape(8.dp))
             .background(UiColors.container.copy(alpha = if (checked) 1f else 0.6f))
             .then(softOutline(checked))
-            .pointerInput(entry.handle) {
+            .pointerInput(unit.key) {
                 detectTapGestures(
-                    onTap = { model.toggleSelection(entry) },
-                    onLongPress = { model.openPhoto(entry) }
+                    onTap = { model.toggleUnitSelection(unit) },
+                    onLongPress = { model.openPhoto(unit) }
                 )
             }
             .clearAndSetSemantics {
@@ -248,14 +251,14 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
                 contentDescription = if (checked) "Photo, selected" else "Photo, not selected"
                 role = Role.Button
                 onClick {
-                    model.toggleSelection(entry)
+                    model.toggleUnitSelection(unit)
                     true
                 }
                 // 长按进 `photo` 页（§1.2 的入口）：手势在 `detectTapGestures` 里，
                 // 但 `clearAndSetSemantics` 会把手势语义全部清掉，读屏就进不了照片页，
                 // 所以这里补一条 `onLongClick`（PR #41 第四轮评审非阻断 1）。
                 onLongClick("Open photo") {
-                    model.openPhoto(entry)
+                    model.openPhoto(unit)
                     true
                 }
             }
@@ -277,7 +280,7 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
         } else {
             // V-19 的降级形态：同尺寸灰块 + 文件名 12 sp（网格内唯一允许出现文件名的场景）。
             BasicText(
-                entry.name,
+                unit.preview().name,
                 style = TextSmall.copy(color = if (checked) UiColors.onSurface else UiColors.secondary),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -287,11 +290,11 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
     }
 }
 
-/** 底部固定操作区：唯一主 CTA，已选 0 → `Import all N`，已选 ≥1 → `Import N`。 */
+/** 底部固定操作区：唯一主 CTA；分子分母都按当前 filter 的可见集合算（`C-08` / `C-10`）。 */
 @Composable
 private fun ImportBar(model: AppModel) {
     val version = model.selectionVersion
-    val selected = model.selectedCount
+    val selected = model.visibleSelectedCount
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         // P-09：空间不足时 CTA 被禁用，并在其上方加一行 `Low space`；差额只进 Details。
         if (model.lowSpace) {
@@ -302,7 +305,7 @@ private fun ImportBar(model: AppModel) {
             )
         }
         PrimaryButton(
-            text = UiText.importCta(selected, model.photoCount),
+            text = UiText.importCta(selected, model.visibleExportCount),
             onClick = { model.callbacks?.onImport() },
             // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
             // P-09：空间不足时同样禁用。两个条件都必须生效——判定归 `ImportGate`（N-1），

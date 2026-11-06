@@ -619,29 +619,34 @@ public final class SelfTest {
             if (g.count() == 2) many = g;
             else if (g.count() == 1) one = g;
         }
-        check("组选：用例造出 2 张组与 1 张组", many != null && one != null,
+        check("组选：用例造出 2 个单元组与 1 个单元组", many != null && one != null,
                 "groups=" + groups.size());
 
-        check("组选：空组不算已全选", !s.allCheckedOf(List.of()),
+        check("组选：空组不算已全选", !s.allCheckedHandles(List.of()),
                 "空组返回 true");
 
-        s.setChecked(many.photos.get(0).handle, true);
-        check("组选：部分选中时 allCheckedOf 为 false", !s.allCheckedOf(many.photos),
+        List<Integer> manyHandles = new ArrayList<>();
+        for (PhotoWall.Unit u : many.photos) manyHandles.addAll(u.handles());
+        check("组选：2 个单元含 3 个文件句柄（同名 JPG 也参与）", manyHandles.size() == 3,
+                "实际 " + manyHandles);
+
+        s.setChecked(manyHandles.get(0), true);
+        check("组选：部分选中时 allCheckedHandles 为 false", !s.allCheckedHandles(manyHandles),
                 "实际 " + s.fileHandles());
 
-        s.setCheckedAllOf(many.photos, true);
-        check("组选：补齐后组内全部已勾", s.allCheckedOf(many.photos),
+        s.setCheckedAll(manyHandles, true);
+        check("组选：补齐后组内全部已勾", s.allCheckedHandles(manyHandles),
                 "实际 " + s.fileHandles());
-        check("组选：只作用于本组 ARW，不跨组", !s.isChecked(one.photos.get(0).handle),
-                "1 张组被顺带勾上");
-        check("组选：组内 JPG 不在组选范围", !s.isChecked(5),
+        check("组选：只作用于本组单元，不跨组",
+                !one.photos.get(0).isChecked(s), "1 个单元组被顺带勾上");
+        check("组选：同名 JPG 与 ARW 一起勾选（#83）", s.isChecked(5),
                 "实际 " + s.fileHandles());
-        check("组选：重复全选不产生重复文件", s.fileHandles().size() == 2,
+        check("组选：重复全选不产生重复文件", s.fileHandles().size() == 3,
                 "实际 " + s.fileHandles());
 
-        s.setCheckedAllOf(many.photos, false);
+        s.setCheckedAll(manyHandles, false);
         check("组选：已全选后取消清空本组",
-                !s.allCheckedOf(many.photos) && s.fileHandles().isEmpty(),
+                !s.allCheckedHandles(manyHandles) && s.fileHandles().isEmpty(),
                 "实际 " + s.fileHandles());
     }
 
@@ -649,29 +654,62 @@ public final class SelfTest {
 
     static void planCases() {
         Catalog c = sample();
+        PhotoWall wall = PhotoWall.of(c);
+
+        // 勾 DCIM 整个目录：选中 2 个单元（DSC02183 双格式、DSC02999 仅 ARW），
+        // 顶层 C0001.JPG 不在 DCIM 下，不参与。
         Selection s = new Selection(c);
         s.setChecked(1, true);
-        ImportPlan p = ImportPlan.of(c, s);
+        ImportPlan p = ImportPlan.of(c, s, wall.units(), PhotoWall.Export.JPG_FIRST);
 
-        check("计划条数与勾选文件数一致", p.count() == 3, "实际 " + p.count());
-        check("计划总量按勾选累加", p.totalBytes() == 300 + 100 + 50, "实际 " + p.totalBytes());
-        check("计划带 relPath 供落盘用",
-                p.items().get(0).relPath.endsWith(".ARW"), "实际 " + p.items().get(0).relPath);
+        check("计划条数 = 可见已选单元数", p.count() == 2, "实际 " + p.count());
+        check("All 档载荷 JPG 优先、缺 JPG 回退 ARW",
+                p.totalBytes() == 100 + 50, "实际 " + p.totalBytes());
+        List<String> paths = new ArrayList<>();
+        for (ImportPlan.Item item : p.items()) paths.add(item.relPath);
+        check("计划按单元取文件名，DSC02183 取 JPG 而不是 ARW（#83）",
+                paths.equals(List.of("DCIM/100MSDCF/DSC02183.JPG", "DCIM/DSC02999.ARW")),
+                "实际 " + paths);
 
-        // issue #80：空勾选必须等价于全选（UI-SPEC `T-01`「已选 0 → 应用内点一次即开始」/ `P-10`），
-        // 而且只收 ARW —— 主 CTA 的分母是照片数（`C-08` / `U-53`），不能把同名 JPG / 顶层 JPG
-        // 一起吞进计划（真机 511 ARW + 512 JPEG，收 JPG 会变成 1023 个文件）。
-        // 旧断言「空勾选的计划为空且总量为 0」正是本缺陷的墓碑，改坏 `ImportPlan.of` 的兜底这里必须红。
-        ImportPlan all = ImportPlan.of(c, new Selection(c));
-        check("空勾选 = 全部 ARW（#80）",
-                all.count() == c.rawCount() && all.totalBytes() == c.rawBytes(),
-                "count=" + all.count() + " total=" + all.totalBytes()
-                        + "，期望 count=" + c.rawCount() + " total=" + c.rawBytes());
+        // issue #83：空勾选兜底 = 当前可见集合，不是写死的「全部 ARW」；
+        // 旧断言「空勾选只收 ARW」是本次语义变更的墓碑，改回 ARW-only 必须红。
+        ImportPlan all = ImportPlan.of(c, new Selection(c), wall.units(), PhotoWall.Export.JPG_FIRST);
+        check("空勾选 = 当前可见集合（All 档 3 个单元，#83）",
+                all.count() == 3 && all.totalBytes() == 100 + 50 + 60,
+                "count=" + all.count() + " total=" + all.totalBytes());
         List<String> allPaths = new ArrayList<>();
         for (ImportPlan.Item item : all.items()) allPaths.add(item.relPath);
-        check("空勾选只收 ARW，不含 JPG（#80）",
-                allPaths.equals(List.of("DCIM/100MSDCF/DSC02183.ARW", "DCIM/DSC02999.ARW")),
+        check("All 档空勾选三张全收、同名 JPG 优先（#83）",
+                allPaths.equals(List.of("C0001.JPG",
+                        "DCIM/100MSDCF/DSC02183.JPG", "DCIM/DSC02999.ARW")),
                 "实际 " + allPaths);
+
+        // RAW 档：可见集合 = 有 ARW 的单元，载荷只取 ARW。
+        List<PhotoWall.Unit> rawUnits = new ArrayList<>();
+        for (PhotoWall.Unit u : wall.units()) if (u.hasArw()) rawUnits.add(u);
+        ImportPlan raw = ImportPlan.of(c, new Selection(c), rawUnits, PhotoWall.Export.RAW);
+        check("RAW 档只导 ARW（#83）",
+                raw.count() == 2 && raw.totalBytes() == 300 + 50,
+                "count=" + raw.count() + " total=" + raw.totalBytes());
+
+        // JPG 档：可见集合 = 有 JPG 的单元（样本 3 个单元里 2 个有 JPG）。
+        List<PhotoWall.Unit> jpgUnits = new ArrayList<>();
+        for (PhotoWall.Unit u : wall.units()) if (u.hasJpg()) jpgUnits.add(u);
+        ImportPlan jpg = ImportPlan.of(c, new Selection(c), jpgUnits, PhotoWall.Export.JPG);
+        check("JPG 档只导 JPG（样本 2 个有 JPG 的单元，#83）",
+                jpg.count() == 2 && jpg.totalBytes() == 100 + 60,
+                "count=" + jpg.count() + " total=" + jpg.totalBytes());
+
+        // 可见已选 0、但总已选 ≥1（勾的是被 filter 隐藏的单元）：CTA 语义回到「导入全部可见」。
+        Selection hidden = new Selection(c);
+        hidden.setChecked(5, true);   // 顶层 C0001.JPG，不在 RAW 档可见集合里
+        ImportPlan hiddenPlan = ImportPlan.of(c, hidden, rawUnits, PhotoWall.Export.RAW);
+        check("总已选 ≥1 但全被 filter 隐藏时，计划 = 全部可见单元（#83）",
+                hiddenPlan.count() == 2 && hiddenPlan.totalBytes() == 300 + 50,
+                "count=" + hiddenPlan.count() + " total=" + hiddenPlan.totalBytes());
+
+        ImportPlan none = ImportPlan.of(c, s, List.of(), PhotoWall.Export.RAW);
+        check("可见集合为空时计划为空（不产生 Import 0）", none.isEmpty(), "实际 " + none.count());
     }
 
     // ---------------- SpaceCheck（PD / P-09） ----------------
@@ -1048,28 +1086,29 @@ public final class SelfTest {
     static void importServiceCases() throws Exception {
         Catalog c = sample();
         Selection s = new Selection(c);
-        s.setChecked(1, true);          // DCIM → 3 / 4 / 6 三个文件
-        ImportPlan plan = ImportPlan.of(c, s);
+        // DCIM 下 2 个照片单元：DSC02183（All 档取 JPG 100）、DSC02999（回退 ARW 50）。
+        s.setChecked(1, true);
+        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(),
+                PhotoWall.Export.JPG_FIRST);
 
         File out = Files.createTempDirectory("wiredraw-import").toFile();
         RecordingTransfer t1 = new RecordingTransfer();
         FinishRecorder r1 = new FinishRecorder();
         new ImportService(Log.NOOP, t1, out).start(plan, r1);
         check("ImportService：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
-        check("ImportService：3 个文件全部 OK（不再有「未实现」）",
-                r1.ok == 3 && r1.skipped == 0 && r1.failed == 0,
+        check("ImportService：2 个单元文件全部 OK（不再有「未实现」）",
+                r1.ok == 2 && r1.skipped == 0 && r1.failed == 0,
                 "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
         check("ImportService：summary 不再出现「未实现」",
                 r1.summary != null && !r1.summary.contains("未实现"), "实际 " + r1.summary);
         check("ImportService：进度按成功文件累加字节",
-                r1.lastProgress != null && r1.lastProgress.bytesDone() == 450
-                        && r1.lastProgress.filesDone() == 3,
+                r1.lastProgress != null && r1.lastProgress.bytesDone() == 150
+                        && r1.lastProgress.filesDone() == 2,
                 r1.lastProgress == null ? "无进度"
                         : r1.lastProgress.bytesDone() + " / " + r1.lastProgress.filesDone());
         Journal j = new Journal();
         check("ImportService：写出的 .part 落在 outDir 且按 relPath + size 命名（PC / #50）",
-                new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300)).isFile()
-                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG", 100)).isFile()
+                new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG", 100)).isFile()
                         && new File(j.partPath(out.getAbsolutePath(), "DCIM/DSC02999.ARW", 50)).isFile(),
                 "实际 " + Arrays.toString(out.list()));
         check("ImportService：日志文件写出 import-journal.txt",
@@ -1082,7 +1121,7 @@ public final class SelfTest {
         new ImportService(Log.NOOP, t2, out).start(plan, r2);
         check("ImportService：第二轮 5 秒内结束", r2.done.await(5, TimeUnit.SECONDS), "等待超时");
         check("ImportService：第二轮全部 SKIPPED 且不再调 transfer",
-                r2.ok == 0 && r2.skipped == 3 && r2.failed == 0 && t2.calls.isEmpty(),
+                r2.ok == 0 && r2.skipped == 2 && r2.failed == 0 && t2.calls.isEmpty(),
                 "ok=" + r2.ok + " skipped=" + r2.skipped + " calls=" + t2.calls.size());
 
         // 全失败：新目录，不能把失败冒充成完成
@@ -1092,8 +1131,8 @@ public final class SelfTest {
         FinishRecorder r3 = new FinishRecorder();
         new ImportService(Log.NOOP, t3, badOut).start(plan, r3);
         check("ImportService：全失败一轮结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
-        check("ImportService：全失败时 ok=0 / failed=3，不冒充完成",
-                r3.ok == 0 && r3.failed == 3 && r3.skipped == 0,
+        check("ImportService：全失败时 ok=0 / failed=2，不冒充完成",
+                r3.ok == 0 && r3.failed == 2 && r3.skipped == 0,
                 "ok=" + r3.ok + " failed=" + r3.failed + " skipped=" + r3.skipped);
         // PD / issue #50：重试必须有上限。全失败时每个文件恰好尝试 2 次（硬编码，
         // 不引用 MAX_FILE_ATTEMPTS，避免「断言跟着实现走」的自指）。
@@ -1108,7 +1147,7 @@ public final class SelfTest {
         new ImportService(Log.NOOP, t4, flakyOut).start(plan, r4);
         check("PD 重试：偶发失败一轮在 5 秒内结束", r4.done.await(5, TimeUnit.SECONDS), "等待超时");
         check("PD 重试：首次失败、第二次成功仍算完成",
-                r4.ok == 3 && r4.failed == 0 && r4.skipped == 0,
+                r4.ok == 2 && r4.failed == 0 && r4.skipped == 0,
                 "ok=" + r4.ok + " failed=" + r4.failed);
         check("PD 重试：每个文件恰好尝试 2 次（首次 + 1 次同步重试）",
                 t4.calls.size() == plan.count() * 2,
@@ -1123,7 +1162,7 @@ public final class SelfTest {
         new ImportService(Log.NOOP, t5, partialOut).start(plan, r5);
         check("PD 重试：落部分字节的一轮在 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
         check("PD 重试：落部分字节后第二次仍算完成",
-                r5.ok == 3 && r5.failed == 0 && r5.skipped == 0,
+                r5.ok == 2 && r5.failed == 0 && r5.skipped == 0,
                 "ok=" + r5.ok + " failed=" + r5.failed + " skipped=" + r5.skipped);
         boolean resumesOk = t5.resumeFroms.size() == plan.count() * 2;
         for (int i = 0; resumesOk && i < t5.resumeFroms.size(); i += 2) {
@@ -1288,10 +1327,11 @@ public final class SelfTest {
     static void pauseCancelCases() throws Exception {
         Catalog c = sample();
         Selection s = new Selection(c);
-        s.setChecked(3, true);      // DCIM/100MSDCF/DSC02183.ARW（先）
-        s.setChecked(4, true);      // DCIM/100MSDCF/DSC02183.JPG（后）
-        ImportPlan plan = ImportPlan.of(c, s);
-        check("PB 用例清单恰为 2 个文件", plan.count() == 2, "实际 " + plan.count());
+        s.setChecked(3, true);      // DSC02183 单元（All 档取 JPG 100，先）
+        s.setChecked(6, true);      // DSC02999 单元（回退 ARW 50，后）
+        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(),
+                PhotoWall.Export.JPG_FIRST);
+        check("PB 用例清单恰为 2 个单元文件", plan.count() == 2, "实际 " + plan.count());
 
         // 1) 暂停落在文件边界：在传的完成，下一个等 resume
         File out = Files.createTempDirectory("wiredraw-pb-pause").toFile();
@@ -1546,8 +1586,9 @@ public final class SelfTest {
     static void partialResumeCases() throws Exception {
         Catalog c = sample();
         Selection s = new Selection(c);
-        s.setChecked(3, true);      // DCIM/100MSDCF/DSC02183.ARW（300 字节）
-        ImportPlan plan = ImportPlan.of(c, s);
+        s.setChecked(3, true);      // DSC02183 单元；用 RAW 档载荷钉住 ARW（300 字节）
+        ImportPlan plan = ImportPlan.of(c, s, unitsWithArw(PhotoWall.of(c)),
+                PhotoWall.Export.RAW);
         check("PC 续传：用例清单恰为 1 个文件", plan.count() == 1, "实际 " + plan.count());
 
         // 1) 上一轮失败留下 40 字节半成品 → 本轮应从 40 续传，且半成品名按 relPath 稳定生成
@@ -1876,10 +1917,15 @@ public final class SelfTest {
                 "Jun 7 \u00B7 12 \u00B7 284 MB".equals(UiText.groupHeader("Jun 7", 12, 284L * mb)),
                 "实际 " + UiText.groupHeader("Jun 7", 12, 284L * mb));
 
-        check("importCta 未选 → Import all N", "Import all 511".equals(UiText.importCta(0, 511)),
+        check("importCta 未选 → Import all N（All 档 512，U-53/#83）",
+                "Import all 512".equals(UiText.importCta(0, 512)),
+                "实际 " + UiText.importCta(0, 512));
+        check("importCta 已选 → Import N（分母仍是可见总量，C-08）",
+                "Import 2".equals(UiText.importCta(2, 512)),
+                "实际 " + UiText.importCta(2, 512));
+        check("importCta RAW 档未选 → Import all 511（U-53/#83）",
+                "Import all 511".equals(UiText.importCta(0, 511)),
                 "实际 " + UiText.importCta(0, 511));
-        check("importCta 已选 → Import N", "Import 2".equals(UiText.importCta(2, 511)),
-                "实际 " + UiText.importCta(2, 511));
 
         check("percent 12/36 → 33 且与 a/b 自洽", UiText.percent(12, 36) == 33,
                 "实际 " + UiText.percent(12, 36));
@@ -1922,29 +1968,46 @@ public final class SelfTest {
 
     static void photoWallCases() {
         PhotoWall wall = PhotoWall.of(sample());
-        // 样本只有 2 张 ARW（100MSDCF 下 300 字节、DCIM 下 50 字节），JPEG 一律不进照片墙。
-        check("照片墙只收 ARW：2 张", wall.photoCount() == 2, "实际 " + wall.photoCount());
-        check("照片墙容量只算 ARW：350 B", wall.photoBytes() == 350, "实际 " + wall.photoBytes());
-        check("按目录名分出 2 组", wall.groups().size() == 2, "实际 " + wall.groups().size());
-        boolean jpegExcluded = true;
+        // 样本 = 3 个照片单元：DSC02183（ARW 300 + JPG 100）、DSC02999（ARW 50）、C0001（JPG 60）。
+        check("照片墙按照片单元计：3 格", wall.photoCount() == 3, "实际 " + wall.photoCount());
+        check("照片墙容量按 All 档 JPG 优先：100+50+60",
+                wall.photoBytes() == 210, "实际 " + wall.photoBytes());
+        check("按目录名分出 3 组（100MSDCF / DCIM / 顶层 Folder）",
+                wall.groups().size() == 3, "实际 " + wall.groups().size());
+        boolean onlyPhotos = true;
         for (PhotoWall.Group g : wall.groups()) {
-            for (Catalog.Entry e : g.photos) {
-                if (!e.isRaw()) jpegExcluded = false;
+            for (PhotoWall.Unit u : g.photos) {
+                if (!u.hasArw() && !u.hasJpg()) onlyPhotos = false;
             }
         }
-        check("组内不含 JPEG", jpegExcluded, "组内混入了非 ARW");
+        check("组内只含照片单元（MP4 等不进照片墙）", onlyPhotos, "组内混入了非照片对象");
+
+        PhotoWall.Unit both = null;
+        for (PhotoWall.Unit u : wall.units()) {
+            if (u.hasArw() && u.hasJpg() && u.arw.handle == 3) both = u;
+        }
+        check("同名 ARW+JPG 合成一个单元（#83）", both != null
+                        && both.jpg != null && both.jpg.handle == 4,
+                "实际 " + both);
+        check("单元载荷随档位切换：All 取 JPG、RAW 取 ARW（#83）",
+                both.export(PhotoWall.Export.JPG_FIRST).handle == 4
+                        && both.export(PhotoWall.Export.RAW).handle == 3
+                        && both.export(PhotoWall.Export.JPG).handle == 4,
+                "JPG_FIRST=" + both.export(PhotoWall.Export.JPG_FIRST)
+                        + " RAW=" + both.export(PhotoWall.Export.RAW));
 
         long groupBytes = 0;
         int groupCount = 0;
         for (PhotoWall.Group g : wall.groups()) {
-            groupBytes += g.bytes;
+            groupBytes += g.bytes(PhotoWall.Export.JPG_FIRST);
             groupCount += g.count();
         }
         check("组内聚合之和等于总量", groupBytes == wall.photoBytes() && groupCount == wall.photoCount(),
                 "组和 " + groupBytes + "/" + groupCount);
         check("组头是组内聚合格式",
-                wall.groups().get(0).header().matches(".+ \u00B7 \\d+ \u00B7 \\d+(.\\d)? MB"),
-                "实际 " + wall.groups().get(0).header());
+                wall.groups().get(0).header(PhotoWall.Export.JPG_FIRST)
+                        .matches(".+ \u00B7 \\d+ \u00B7 \\d+(.\\d)? MB"),
+                "实际 " + wall.groups().get(0).header(PhotoWall.Export.JPG_FIRST));
         check("目录名日期渲染成 Jun 7", "Jun 7".equals(PhotoWall.labelOf("20260607")),
                 "实际 " + PhotoWall.labelOf("20260607"));
         check("非日期目录名原样保留", "100MSDCF".equals(PhotoWall.labelOf("100MSDCF")),
@@ -1952,6 +2015,24 @@ public final class SelfTest {
     }
 
     // ---------------- 假数据模式（DemoTree，U-54） ----------------
+
+    static int countWithArw(PhotoWall wall) {
+        int n = 0;
+        for (PhotoWall.Unit u : wall.units()) if (u.hasArw()) n++;
+        return n;
+    }
+
+    static int countWithJpg(PhotoWall wall) {
+        int n = 0;
+        for (PhotoWall.Unit u : wall.units()) if (u.hasJpg()) n++;
+        return n;
+    }
+
+    static List<PhotoWall.Unit> unitsWithArw(PhotoWall wall) {
+        List<PhotoWall.Unit> out = new ArrayList<>();
+        for (PhotoWall.Unit u : wall.units()) if (u.hasArw()) out.add(u);
+        return out;
+    }
 
     static void demoTreesCases() {
         Catalog demo = DemoTree.catalog();
@@ -1979,10 +2060,47 @@ public final class SelfTest {
                 "实际 " + rawBytes);
 
         PhotoWall wall = PhotoWall.of(demo);
-        check("假树 511 与 Import all 511 同分母",
-                wall.photoCount() == 511 && "Import all 511".equals(UiText.importCta(0, wall.photoCount())),
-                "实际 " + wall.photoCount());
+        // issue #83：照片墙按照片单元计，512 个单元 = 511 双格式 + 1 仅 JPG。
+        check("假树 512 个照片单元、511 个含 ARW（#83）",
+                wall.photoCount() == 512 && countWithArw(wall) == 511
+                        && countWithJpg(wall) == 512,
+                "units=" + wall.photoCount() + " arw=" + countWithArw(wall)
+                        + " jpg=" + countWithJpg(wall));
+        check("All 档空勾选 CTA = Import all 512（#83）",
+                "Import all 512".equals(UiText.importCta(0, wall.photoCount())),
+                "实际 " + UiText.importCta(0, wall.photoCount()));
+
+        List<PhotoWall.Unit> rawUnits = unitsWithArw(wall);
+        ImportPlan allPlan = ImportPlan.of(demo, new Selection(demo), wall.units(),
+                PhotoWall.Export.JPG_FIRST);
+        ImportPlan rawPlan = ImportPlan.of(demo, new Selection(demo), rawUnits,
+                PhotoWall.Export.RAW);
+        ImportPlan jpgPlan = ImportPlan.of(demo, new Selection(demo), wall.units(),
+                PhotoWall.Export.JPG);
+        check("All 档计划 512 个文件 / 923,408,256 字节（#83）",
+                allPlan.count() == DemoTree.JPEG_COUNT
+                        && allPlan.totalBytes() == DemoTree.JPEG_BYTES,
+                "count=" + allPlan.count() + " bytes=" + allPlan.totalBytes());
+        check("RAW 档计划 511 个 ARW / 12,766,800,000 字节（#83）",
+                rawPlan.count() == DemoTree.ARW_COUNT
+                        && rawPlan.totalBytes() == DemoTree.RAW_BYTES,
+                "count=" + rawPlan.count() + " bytes=" + rawPlan.totalBytes());
+        check("JPG 档计划 512 个 JPG / 923,408,256 字节（#83）",
+                jpgPlan.count() == DemoTree.JPEG_COUNT
+                        && jpgPlan.totalBytes() == DemoTree.JPEG_BYTES,
+                "count=" + jpgPlan.count() + " bytes=" + jpgPlan.totalBytes());
+
         check("假树 12 个日期组", wall.groups().size() == 12, "实际 " + wall.groups().size());
+        PhotoWall.Group jun7 = null;
+        for (PhotoWall.Group g : wall.groups()) {
+            if ("Jun 7".equals(g.label)) jun7 = g;
+        }
+        check("Jun 7 组 43 个单元（U-53）",
+                jun7 != null && jun7.count() == 43, "实际 " + (jun7 == null ? "null" : jun7.count()));
+        check("Jun 7 组头 43 个单元 / 74.0 MB（U-53）",
+                jun7 != null && ("Jun 7 \u00B7 43 \u00B7 74.0 MB")
+                        .equals(jun7.header(PhotoWall.Export.JPG_FIRST)),
+                "实际 " + (jun7 == null ? "null" : jun7.header(PhotoWall.Export.JPG_FIRST)));
 
         for (UiState.State s : UiState.State.values()) {
             check("每个状态都有假载荷：" + s.name(), DemoTree.payload(s) != null, "载荷为 null");
