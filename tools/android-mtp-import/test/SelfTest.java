@@ -1515,11 +1515,18 @@ public final class SelfTest {
      * 删掉 resume(...)：暂停永不结束，+103 s 仍把后 1 s 扣掉，速率算出 400 B/s（期望 200 B/s）。
      */
     static void importServicePauseClockCases() throws Exception {
-        Catalog c = sample();
+        // 暂停时钟只需要「两个文件依次传」，与照片单元聚合无关：
+        // 单元 A 是 ARW 300 B（无同名 JPG，JPG_FIRST 档回退 ARW），单元 B 是 JPG 100 B。
+        Catalog c = new Catalog();
+        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        c.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        c.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
+        c.add(new Catalog.Entry(4, 2, Catalog.FMT_JPEG, 100, "DSC02184.JPG"));
+        c.build();
         Selection s = new Selection(c);
-        s.setChecked(3, true);      // DCIM/100MSDCF/DSC02183.ARW（300 B，先）
-        s.setChecked(4, true);      // DCIM/100MSDCF/DSC02183.JPG（100 B，后）
-        ImportPlan plan = ImportPlan.of(c, s);
+        s.setChecked(3, true);      // 单元 A：DSC02183.ARW（300 B，先）
+        s.setChecked(4, true);      // 单元 B：DSC02184.JPG（100 B，后）
+        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(), PhotoWall.Export.JPG_FIRST);
         check("B-1 暂停时钟：用例清单恰为 2 个文件", plan.count() == 2, "实际 " + plan.count());
 
         long t0 = 1_000_000_000L;
