@@ -32,6 +32,10 @@
 /tools/android-mtp-import/local.properties
 *.hprof
 
+# ---- demo 照片占位（issue #46）----
+# 由 generateDemoPhotos 从本机素材降采样生成，产物随构建重建，不入库
+/tools/android-mtp-import/src/debug/assets/demo/
+
 # ---- 2026-11-04 早期工作区：里面的产出已整理进 docs/history/，剩下的是第三方源码 ----
 # （libgphoto2 的 gphoto_ptp*.c 与 sonyalphapy 轮子，只作本地参考）
 /2026-11-04/

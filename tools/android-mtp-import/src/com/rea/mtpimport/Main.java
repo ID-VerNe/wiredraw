@@ -9,6 +9,8 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.WindowInsetsController;
 
 import com.rea.mtpimport.ui.AppCallbacks;
@@ -35,6 +37,9 @@ public final class Main extends ComponentActivity {
 
     private static final String TAG = "MTPIMPORT";
     private static final String ACTION_PERM = "com.rea.mtpimport.USB_PERM";
+
+    /** demo 传输模拟的 tick 间隔：36 张约 9 秒走完，够看清进度又不拖太久。 */
+    private static final long DEMO_TICK_MS = 250;
 
     /**
      * 本次权限申请的序号（#11）。系统回调是广播，上一次申请迟到的回调
@@ -65,6 +70,31 @@ public final class Main extends ComponentActivity {
 
     /** debug 假数据入口；release 构建里没有这个类，恒为 null（U-54）。 */
     private DemoBridge demoBridge;
+
+    /**
+     * demo 传输模拟（issue #46）：没有相机时让 `Import all` 真的走进 `IMPORTING`。
+     * 只在 `demoActive()` 分支使用；真实传输仍走 {@link ImportService}。
+     */
+    private DemoRun demoTransfer;
+    private long demoBytesPerSecond;
+    private final Handler demoTicker = new Handler(Looper.getMainLooper());
+    private final Runnable demoStep = new Runnable() {
+        @Override
+        public void run() {
+            if (demoTransfer == null) return;
+            boolean finished = demoTransfer.advance();
+            model.updateProgress(demoTransfer.doneFiles(), demoTransfer.totalFiles(),
+                    demoTransfer.doneBytes(), demoTransfer.totalBytes(), demoBytesPerSecond);
+            if (finished) {
+                model.showDone(demoTransfer.doneFiles(), demoTransfer.doneBytes());
+                log.line("[demo] 传输完成：" + demoTransfer.doneFiles() + " 张 / "
+                        + demoTransfer.doneBytes() + " 字节");
+                demoTransfer = null;
+                return;
+            }
+            demoTicker.postDelayed(this, DEMO_TICK_MS);
+        }
+    };
 
     private final Log log = this::logLine;
 
@@ -108,6 +138,7 @@ public final class Main extends ComponentActivity {
         @Override
         public void onCancel() {
             if (demoActive()) {
+                stopDemoImport();
                 model.backToCatalog();
                 return;
             }
@@ -132,7 +163,19 @@ public final class Main extends ComponentActivity {
         @Override
         public void onPauseResume() {
             if (demoActive()) {
-                applyDemoName(model.getState() == UiState.State.PAUSED ? "IMPORTING" : "PAUSED");
+                if (demoTransfer == null) {
+                    // 冷启动直接 `--es demo_state IMPORTING/PAUSED`：没有 ticker，仍按旧口径静态切换
+                    applyDemoName(model.getState() == UiState.State.PAUSED ? "IMPORTING" : "PAUSED");
+                    return;
+                }
+                if (model.getState() == UiState.State.PAUSED) {
+                    demoTicker.postDelayed(demoStep, DEMO_TICK_MS);
+                    model.showImport(demoTransfer.doneFiles(), demoTransfer.totalFiles(),
+                            demoTransfer.doneBytes(), demoTransfer.totalBytes(), demoBytesPerSecond);
+                } else {
+                    demoTicker.removeCallbacks(demoStep);
+                    model.showPaused();
+                }
                 return;
             }
             if (service == null || !service.isRunning()) return;
@@ -216,6 +259,7 @@ public final class Main extends ComponentActivity {
         @Override
         public void onPauseExit() {
             model.setExitConfirm(false);
+            if (demoActive()) stopDemoImport();
             if (!demoActive() && service != null && service.isRunning()) service.pause();
             finish();
         }
@@ -229,6 +273,8 @@ public final class Main extends ComponentActivity {
 
         @Override
         public void onDemoState(String name) {
+            // 抽屉切态会换掉整块载荷，先停掉正在跑的模拟 ticker，避免两套进度互相覆盖
+            stopDemoImport();
             applyDemoName(name);
             model.setDetailsOpen(false);
         }
@@ -310,6 +356,9 @@ public final class Main extends ComponentActivity {
         }
         if (service != null) service.cancel();
         if (session != null) session.close();
+        // demo 模拟 ticker 必须随 Activity 一起停，否则 Handler 持有 Activity 造成泄漏
+        demoTicker.removeCallbacksAndMessages(null);
+        demoTransfer = null;
         // 销毁后不会再收到回调（receiver 已注销），提前释放还在等权限的扫描线程，别让它空等 120 秒
         permGate.cancel();
         super.onDestroy();
@@ -334,6 +383,8 @@ public final class Main extends ComponentActivity {
                 demoBridge = (DemoBridge) bridge;
                 DemoPayload payload = demoBridge.current();
                 if (payload != null) {
+                    // 素材是可选的：没有 assets 时 DemoImages.create 返回 null，照片页退回胶囊
+                    loadDemoPreview();
                     applyDemo(payload);
                     return true;
                 }
@@ -348,6 +399,46 @@ public final class Main extends ComponentActivity {
 
     private boolean demoActive() {
         return model.getDemoActive();
+    }
+
+    /** 反射加载 debug 的 demo 预览来源；release 里没有这个类，静默跳过（U-54）。 */
+    private void loadDemoPreview() {
+        try {
+            Class<?> cls = Class.forName("com.rea.mtpimport.DemoImages");
+            Object preview = cls.getMethod("create", Context.class).invoke(null, this);
+            if (preview instanceof PhotoPreview) model.setPreviewSource((PhotoPreview) preview);
+        } catch (ClassNotFoundException e) {
+            // release 构建：没有 demo 素材
+        } catch (Throwable t) {
+            log.line("demo 预览加载失败：" + t);
+        }
+    }
+
+    /**
+     * demo 的 `Import all`：用假载荷里的批次与字节数启动模拟 ticker（issue #46）。
+     * 勾选过就只传勾选数，未勾选按假批次的 36 张走。
+     */
+    private void startDemoImport() {
+        DemoPayload payload = demoBridge == null ? null : demoBridge.forState("IMPORTING");
+        if (payload == null || payload.totalFiles <= 0) {
+            log.line("[demo] 没有可用的传输载荷");
+            return;
+        }
+        stopDemoImport();
+        long perFile = payload.totalBytes / payload.totalFiles;
+        int total = model.getSelectedCount() > 0 ? model.getSelectedCount() : payload.totalFiles;
+        demoBytesPerSecond = payload.bytesPerSecond;
+        // 实现类 DemoTransfer 只在 debug 源集，release 编译期不引用（DemoRun 是 main 侧接口）
+        demoTransfer = demoBridge.newRun(total, perFile * total);
+        model.showImport(0, total, 0, demoTransfer.totalBytes(), demoBytesPerSecond);
+        demoTicker.postDelayed(demoStep, DEMO_TICK_MS);
+        log.line("[demo] Import → 模拟传输 " + total + " 张");
+    }
+
+    /** 取消 / 切换 demo 态时清掉模拟进度（暂停不调用，暂停要保住当前数值）。 */
+    private void stopDemoImport() {
+        demoTicker.removeCallbacks(demoStep);
+        demoTransfer = null;
     }
 
     private void applyDemoName(String name) {
@@ -533,13 +624,14 @@ public final class Main extends ComponentActivity {
     }
 
     private void doStart() {
-        if (catalog == null || selection == null) {
-            log.line("先扫描");
+        // 假数据模式必须排在 `catalog == null` 之前（issue #46）：demo 下 `Main.catalog`
+        // 从未赋值（树只装在 AppModel 里），旧顺序会让 Import all 永远停在这一句「先扫描」。
+        if (demoActive()) {
+            startDemoImport();
             return;
         }
-        // 假数据模式：直接把界面切到 `IMPORTING`（12/36），不碰真实传输。
-        if (demoActive()) {
-            applyDemoName("IMPORTING");
+        if (catalog == null || selection == null) {
+            log.line("先扫描");
             return;
         }
         ImportPlan plan = ImportPlan.of(catalog, selection);

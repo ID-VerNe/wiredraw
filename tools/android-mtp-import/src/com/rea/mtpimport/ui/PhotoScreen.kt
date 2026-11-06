@@ -1,5 +1,6 @@
 package com.rea.mtpimport.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,8 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.UiText
 
@@ -20,14 +24,27 @@ import com.rea.mtpimport.UiText
  * 单张照片页（`photo`）。只有两件信息：`ARW · <size> MB` 胶囊 + 返回。
  *
  * 明确不做（§4.2 / U-51）：Share / Edit / Favorite / Delete / Histogram 一律没有。
- * 内嵌 JPEG 预览未验证（§0.11 第 3 行）：**不显示占位块、不放假图**（spec 增量口径，
- * 只留单行 `ARW · 24.6 MB` 胶囊）。
+ * 真实路径下内嵌 JPEG 预览未验证（§0.11 第 3 行）：**不显示占位块、不放假图**
+ * （spec 增量口径，只留单行 `ARW · 24.6 MB` 胶囊）。
+ *
+ * demo 模式例外（issue #46）：`AppModel.previewSource` 由 debug 的 `DemoImages` 注入，
+ * 有真实照片的降采样图时按 U-51「全幅照片」渲染；没有素材时 `previewFor` 返回 null，
+ * 自动退回胶囊形态。
  */
 @Composable
 fun PhotoScreen(model: AppModel) {
     val entry = model.openedPhoto ?: return
+    val preview = remember(entry.handle) { model.previewFor(entry) }
 
     Box(Modifier.fillMaxSize().background(UiColors.photoCanvas)) {
+        if (preview != null) {
+            Image(
+                bitmap = preview.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)) {
                 IconAction(desc = "Back", onClick = { model.callbacks?.onBack() }) {

@@ -11,4 +11,10 @@ public interface DemoBridge {
 
     /** 应用内切态（详情抽屉里的 demo 入口）；未知态返回 null。 */
     DemoPayload forState(String state);
+
+    /**
+     * demo 传输模拟（issue #46）。实现只在 debug：release 不引用 `DemoTransfer`，
+     * 所以这里只暴露 {@link DemoRun} 接口。
+     */
+    DemoRun newRun(int totalFiles, long totalBytes);
 }
