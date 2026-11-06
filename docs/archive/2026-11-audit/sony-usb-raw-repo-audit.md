@@ -1,7 +1,7 @@
 # 索尼相机远程控制仓库审计：安卓 USB 直连 a7C 传 RAW 的技术底账
 
 - 审计日期：2026-11-04
-- 审计目录：`c:\Users\VerNe\Downloads\Documents\sony-camera-remote-repos`
+- 审计目录：`<本机工作区绝对路径>`
 - 审计方式：只读检查 README、构建文件、源码与 git HEAD；未编译、未连接相机、未下载 SDK。
 - 结论口径：文中每条判断都给出仓库内文件与行号；无法从仓库证实的标注“未验证”。
 
@@ -34,7 +34,7 @@
 |---|---|---|---|---|---|---|
 | alpha-fairy | 无代码（仅 `.git`） | 无 | 无 | — | 无提交 | 0 |
 | alpharemote | BLE（Sony 蓝牙遥控 GATT） | 无 | 无 | Android / Kotlin，compileSdk 37 | 2026-11-02 | 仅安卓工程骨架 |
-| Camera-Remote-API | Wi-Fi HTTP/JSON（硬编码 192.168.122.1:8080 / 10.0.0.1:10000） | 无 | 无（通用 JSON 调试器，无 content 流程） | Web / JS | 2014-08-22 | 历史参考 |
+| Camera-Remote-API | Wi-Fi HTTP/JSON（硬编码 192.168.122.1:8080 / 10.0.0.1:10000）<!-- allow-sensitive: 相机 AP 的公开默认网关，非本机内网 --> | 无 | 无（通用 JSON 调试器，无 content 流程） | Web / JS | 2014-08-22 | 历史参考 |
 | furble | BLE（ESP32 硬件快门） | 无 | 无 | ESP32 / C++ | 2026-09-13 | 与本目标无关 |
 | kz-remote-api | Wi-Fi HTTP/JSON + SSDP | 无 | 仅常量/元数据，无下载实现 | Windows/UWP / C# | 2019-10-04 | 协议与数据模型参考 |
 | locana | Wi-Fi HTTP/JSON + SSDP | 无 | 只取 JPEG original；`.arw` 仅作缩略图改名 | Windows 10 UWP / C# | 2017-11-15 | Wi-Fi 客户端参考 |
@@ -59,10 +59,10 @@
 **Wi-Fi（Sony Camera Remote API，HTTP/JSON + SSDP）**
 
 - `Camera-Remote-API/webapp/cameraApp.js:2-3`：
-  `http://192.168.122.1:8080/sony`、`http://10.0.0.1:10000/sony`。
+  `http://192.168.122.1:8080/sony`、`http://10.0.0.1:10000/sony`。<!-- allow-sensitive: 相机 AP 的公开默认网关，非本机内网 -->
 - `RemoteCamera/README.md:35`：IP/端口写死给 DSC-QX100。
-- `sony-remote/sony.py:30`：`http://192.168.122.1:8080/sony/camera`。
-- `sony-camera-api/camera.sh:7,43`：`resty http://10.0.0.1:10000`，`POST /sony/camera`。
+- `sony-remote/sony.py:30`：`http://192.168.122.1:8080/sony/camera`。<!-- allow-sensitive: 相机 AP 的公开默认网关，非本机内网 -->
+- `sony-camera-api/camera.sh:7,43`：`resty http://10.0.0.1:10000`，`POST /sony/camera`。<!-- allow-sensitive: 相机 AP 的公开默认网关，非本机内网 -->
 - `ofxSonyRemoteCamera/src/ofxSonyRemoteCamera.cpp:184-193`：`actTakePicture` → `httpPost`。
 - `sony_camera_api/src/pysony.py:21-30`：SSDP `239.255.255.250:1900`，`ST: urn:schemas-sony-com:service:ScalarWebAPI:1`。
 - `SonyCameraRemoteAPI/SonyCameraRemoteAPIClient.m:178-196`：同样的 SSDP M-SEARCH。

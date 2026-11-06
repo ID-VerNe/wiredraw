@@ -135,7 +135,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | MTP 传输速率 | 21.43 MB/s（三张 24 MP RAW，73.29 MB / 3.42 s）；Wi-Fi PTP 只有 0.95 MB/s |
 | MTP 传输完整性 | 字节数一致 + MD5 手机侧与 PC 侧完全相同 + 文件头 `49 49 2A 00` 合法 TIFF |
 | `getObjectHandles` 的 format 过滤**不可信** | 传 `0xB101` 返回 754 个，逐个 `getObjectInfo` 只有 511 个真是 `0xB101`，差集对不上账 |
-| PTP 握手要 GUID 配对 | 随机 UUID → `Init_Fail reason=1`；只认当初配对的 `dd4b11b9-280d-43` |
+| PTP 握手要 GUID 配对 | 随机 UUID → `Init_Fail reason=1`；只认当初配对的 `<已配对的 GUID>`（真实值是配对凭据，不入库） |
 | PTP 事件通道必须先于 `OpenSession` | 少这步 `OpenSession` 一个字节都不回，只超时（不是被拒） |
 
 ### 单一归属（新代码往哪儿写）

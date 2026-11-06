@@ -53,6 +53,12 @@ fun DetailsDrawer(model: AppModel) {
             }
             BasicText(model.locationPath, style = TextMonoData)
 
+            // issue #53 / P-07 / U-21：续传跳过数只在这里出现（主视觉不出现，U-47 也禁止 DONE 首屏出现）。
+            if (model.skippedLine.isNotEmpty()) {
+                Spacer(Modifier.heightIn(min = 8.dp))
+                BasicText(model.skippedLine, style = TextMonoData)
+            }
+
             // P-09：空间预检的差额只在 Details 出现（主视觉只有一行 `Low space`）。
             if (model.lowSpace && model.lowSpaceDetail.isNotEmpty()) {
                 Spacer(Modifier.heightIn(min = 8.dp))

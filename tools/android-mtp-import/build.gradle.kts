@@ -36,9 +36,9 @@ android {
             // 与手搓构建同一把 key：别重新生成，换 key 会让覆盖安装 INSTALL_FAILED_UPDATE_INCOMPATIBLE。
             // 指纹对照见 issue #36 的验收证据（apksigner --print-certs 的新旧 SHA-256 必须一致）。
             storeFile = rootProject.file("../android-mtp-probe/rea-debug.keystore")
-            storePassword = "android"
+            storePassword = "android"  // allow-sensitive: 公开的 debug keystore 默认口令，与 build.sh 的 --ks-pass 一致
             keyAlias = "rea"
-            keyPassword = "android"
+            keyPassword = "android"  // allow-sensitive: 公开的 debug keystore 默认口令，与 build.sh 的 --ks-pass 一致
         }
     }
 
@@ -104,7 +104,7 @@ dependencies {
 // 原 check.sh 的两层保护原样迁过来，断言一条不放宽：
 //   1. PURE 清单与磁盘上「不 import android 的文件」必须一致（漏列即红）；
 //   2. 这批文件在**空 classpath** 下编译 —— 偷偷 import android.* 会直接编译失败；
-//   3. SelfTest 的 392 项断言由 JavaExec 跑，入口与断言零改动。
+//   3. SelfTest 的 395 项断言由 JavaExec 跑，入口与断言零改动。
 //
 // 清单的唯一事实来源就是下面这个列表（原 check.sh 的 PURE 数组）。
 
@@ -239,7 +239,7 @@ val verifyApk = tasks.register<Exec>("verifyApk") {
 
 tasks.register<JavaExec>("selfTest") {
     group = "verification"
-    description = "JVM 纯逻辑自检（392 项，不需要真机）"
+    description = "JVM 纯逻辑自检（395 项，不需要真机）"
     dependsOn("checkPureJdkList", compilePureJdkJava, compileSelfTestJava)
     // 中文断言名在 Windows 控制台按 cp936 输出会乱码，强制 UTF-8（原 check.sh 同样设置）
     jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
@@ -252,7 +252,7 @@ tasks.register<JavaExec>("selfTest") {
 // Compose 假数据只有元数据，photo 页没有像素。这里在 **debug 构建** 时从本机素材目录
 // 降采样生成 `src/debug/assets/demo/photo_XX.jpg`，产物 gitignore；素材目录/文件清单走
 // `local.properties`（也可被 `-Pdemo.photo.dir` / `-Pdemo.photo.files` 覆盖）：
-//   demo.photo.dir=C:/Users/.../知更鸟
+//   demo.photo.dir=C:/<照片目录>
 //   demo.photo.files=DSC04882.JPG,DSC04835.JPG,...   # 可选，留空取目录里前 5 张 JPG
 //
 // 个人照片不入库；目录缺失时清空产物并跳过，别的机器 / CI 上没有素材也能跑 manual 门禁。

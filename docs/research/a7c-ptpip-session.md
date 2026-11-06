@@ -1,7 +1,7 @@
 # a7C × IED 实测会话分析（PTP/IP over Wi-Fi AP 模式）
 
 抓包：`captures/wlan.pcapng`（148 MB，2026-11-04 21:16–21:19）
-环境：a7C 固件 2.02，相机 192.168.3.17，PC 192.168.3.5，二者同一台路由器
+环境：a7C 固件 2.02，相机 <相机内网 IP>，PC <PC 内网 IP>，二者同一网段、同一台路由器
 解析：`python parse_ptpip.py captures/wlan.pcapng --stream 7 --data`
 
 ---
@@ -149,7 +149,7 @@ CAM → Event 0xC203 / 0xC201 / 0xC202 / 0xC206 / 0xC207 / 0xC20C ...  (tid=0xFF
 ### 5.1 三处必须照抄的细节
 
 1. **GUID 是配对身份**。随机 UUID → `Init_Fail type=5 reason=1`，连试 6 次全拒；
-   换成 IED 配对时的 `dd4b11b9-280d-43` → 立刻 ACK。相机记住配对方。
+   换成 IED 配对时用过的 `<已配对的 GUID>` → 立刻 ACK。相机记住配对方。
 2. **事件通道必须先于 OpenSession 建立**。顺序是
    `Init_Command_Ack` → 新开第二条 TCP → `Init_Event_Request(conn)` → `Init_Event_Ack`
    → 才发 `OpenSession`。少了这步，`OpenSession` **一个字节都不回**，只超时——
