@@ -249,7 +249,7 @@ public final class ImportService {
         // 本次机型实测 worker 约 0.6 s 返回（不会等整个文件传完）；打不断的情况没有保证，
         // 由 isCancelStuck() + Main 的放弃/探活给界面出路。
         cancelToken.cancel();
-        log.line("已请求取消（正在传的文件尝试中断，能否打断无跨机型保证）");
+        log.line("已请求取消（若正在传文件，会尝试中断；能否打断无跨机型保证）");
     }
 
     /**
