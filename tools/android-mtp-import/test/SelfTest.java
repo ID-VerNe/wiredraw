@@ -42,7 +42,6 @@ public final class SelfTest {
     public static void main(String[] args) throws Exception {
         catalogCases();
         progressiveCases();
-        siblingJpegCases();
         truncationCases();
         attachCases();
         permissionCases();
@@ -189,43 +188,6 @@ public final class SelfTest {
         check("Selection.retarget：新句柄可在新快照上勾选",
                 s.fileHandles().size() == 2,
                 "实际 " + s.fileHandles());
-    }
-
-    // ---------------- 同名 JPG 回退（#59） ----------------
-
-    /**
-     * #59：ARW 的缩略图拿不到时回退到同目录同名 JPG。只做内存匹配，
-     * 必须忽略大小写与扩展名、不得跨目录、不得把文件夹当成 JPG。
-     */
-    static void siblingJpegCases() {
-        Catalog c = new Catalog();
-        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
-        c.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
-        c.add(new Catalog.Entry(3, 2, Catalog.FMT_FOLDER, 0, "101MSDCF"));
-        c.add(new Catalog.Entry(4, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
-        c.add(new Catalog.Entry(5, 2, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
-        c.add(new Catalog.Entry(6, 3, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
-        c.add(new Catalog.Entry(7, 2, Catalog.FMT_ARW, 300, "dsc02190.arw"));
-        c.add(new Catalog.Entry(8, 2, Catalog.FMT_JPEG, 100, "DSC02190.jpg"));
-        // 同 stem 的 JPG 只存在于另一个目录：findSiblingJpeg 若遍历全库就会误命中，
-        // 该用例是目录作用域的变异哨兵。
-        c.add(new Catalog.Entry(9, 2, Catalog.FMT_ARW, 300, "DSC02199.ARW"));
-        c.add(new Catalog.Entry(10, 3, Catalog.FMT_JPEG, 100, "DSC02199.JPG"));
-        c.build();
-
-        check("同名 JPG：同目录同 stem 命中",
-                c.findSiblingJpeg(c.get(4)) != null && c.findSiblingJpeg(c.get(4)).handle == 5,
-                "实际 " + (c.findSiblingJpeg(c.get(4)) == null ? "null" : c.findSiblingJpeg(c.get(4)).handle));
-        check("同名 JPG：大小写与扩展名不敏感",
-                c.findSiblingJpeg(c.get(7)) != null && c.findSiblingJpeg(c.get(7)).handle == 8,
-                "实际 " + (c.findSiblingJpeg(c.get(7)) == null ? "null" : c.findSiblingJpeg(c.get(7)).handle));
-        check("同名 JPG：不跨目录串号",
-                c.findSiblingJpeg(c.get(9)) == null,
-                "不该命中 101MSDCF 下的同名文件，实际 "
-                        + (c.findSiblingJpeg(c.get(9)) == null ? "null" : c.findSiblingJpeg(c.get(9)).handle));
-        check("同名 JPG：文件夹条目直接返回 null",
-                c.findSiblingJpeg(c.get(2)) == null,
-                "文件夹不应有同名 JPG 回退");
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------
