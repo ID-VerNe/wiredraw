@@ -57,8 +57,11 @@ class EnvProblem(Exception):
     """取不到正文/评论（gh 缺失、未登录、事件载荷缺字段）——必须报红，不能当绿。"""
 
 
-def _gh_json(args: list[str], runner=None) -> dict:
-    """跑一次 `gh` 并解析 JSON；失败一律抛 EnvProblem，`runner` 仅为自检注入。"""
+def _gh_json(args: list[str], runner=None) -> object:
+    """跑一次 `gh` 并解析 JSON；失败一律抛 EnvProblem，`runner` 仅为自检注入。
+
+    返回类型是 `object`：`gh pr view` 给对象、`gh pr list` 给数组，由调用方各自收窄。
+    """
     runner = runner or subprocess.run
     try:
         proc = runner(
@@ -98,11 +101,15 @@ def _parse_comments(data: dict) -> list[tuple[str, str]]:
 
 def fetch_pr(number: int, runner=None) -> tuple[str, list[tuple[str, str]]]:
     data = _gh_json(["pr", "view", str(number), "--json", "body,comments"], runner)
+    if not isinstance(data, dict):
+        raise EnvProblem("gh pr view 返回的不是对象，取不到正文")
     return data.get("body") or "", _parse_comments(data)
 
 
 def fetch_comments(number: int, runner=None) -> list[tuple[str, str]]:
     data = _gh_json(["pr", "view", str(number), "--json", "comments"], runner)
+    if not isinstance(data, dict):
+        raise EnvProblem("gh pr view 返回的不是对象，取不到评论")
     return _parse_comments(data)
 
 
@@ -422,6 +429,10 @@ def _self_test() -> int:
     expect_exit("--all gh 枚举失败退出 2", ["--all"], 2, fail)
     expect_exit("--all 与 --pr 互斥退出 2", ["--all", "--pr", "1"], 2)
     expect_exit("--all 与 --body-file 互斥退出 2", ["--all", "--body-file", "x.md"], 2)
+    expect_exit(
+        "gh pr view 返回数组退出 2", ["--pr", "1"], 2,
+        lambda *_a, **_k: SimpleNamespace(returncode=0, stdout="[]", stderr=""),
+    )
 
     code, output = capture(
         ["--all"],
