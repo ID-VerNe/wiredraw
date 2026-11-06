@@ -42,7 +42,9 @@ git config core.hooksPath .githooks   # 换机器后重设一次
 
 本仓库没有通用单元测试框架。回归靠两类东西：
 
-1. **`scripts/` 下的门禁脚本**：每条门禁都带 `--self-test`，改门禁先改用例。
+1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
+   `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` / `review_prompt.py`
+   带 `--self-test`，改门禁先改用例；`check_no_vendored.py` 与 `py_compile` 没有自检入口。
    导片工具有独立的 JVM 自检（当前 **406** 项，`manual` 档的 `selfTest`），
    纯逻辑类不允许 `import android.*`，由编译期强制。
 2. **可重复执行的真机命令**：相机相关结论必须附带可直接粘贴的复现命令与原始输出。

@@ -8,22 +8,22 @@
 
 ## 一、MTP 路线
 
-| 限制 | 后果 | 证据 |
+| 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
-| 会话结束后约 1 分钟挂起 USB | `MtpDevice.open()` 卡约 10 秒才返回，`getStorageIds()` 一直返回空；应用内重试 8 次（约 70 秒）唤不醒 | 只能**拔插数据线**。正式应用要么保持会话常开，要么明确提示用户重插。[AGENTS.md](../AGENTS.md) §4、[探针 README](../tools/android-mtp-probe/README.md) |
-| `getObjectHandles` 的 format 过滤不可信 | 传 `0xB101` 返回 754 个，逐个 `getObjectInfo` 只有 511 个真是 `0xB101`，差集对不上账 | 不要用 format 过滤；走全量枚举（约 39 ms/个，1526 个约 59 秒）或按 `parent` 逐目录 |
-| 首次插线需要用户授权 | 系统会弹「是否允许访问 MTP」；首次还要勾一次「一律打开」 | 应用侧没有正规接口能绕过，只能引导用户操作。[导片工具 README](../tools/android-mtp-import/README.md) |
-| 扫描是串行的 | 扫描与导入不能在同一 MTP 会话上并行发命令 | 导入前必须等扫描结束；渐进加载期间主操作要禁用 |
-| 单机结论 | 枚举数 1526 个对象 / 511 张 ARW / 11.9 GB 是 ILCE-7C 该卡的单次实测 | 不能当成所有机身、所有卡的固定值 |
+| 会话结束后约 1 分钟挂起 USB | `MtpDevice.open()` 卡约 10 秒才返回，`getStorageIds()` 一直返回空；应用内重试 8 次（约 70 秒）唤不醒 | [AGENTS.md](../AGENTS.md) §4 与[探针 README](../tools/android-mtp-probe/README.md) 坑 1。**拔插数据线**才能恢复；正式应用要么保持会话常开，要么提示用户重插 |
+| `getObjectHandles` 的 format 过滤不可信 | 传 `0xB101` 返回 754 个，逐个 `getObjectInfo` 只有 511 个真是 `0xB101`，差集对不上账 | [主报告](research/a7c-usb-raw-2026-11.md) §12.4。不用 format 过滤；走全量枚举（约 39 ms/个，1526 个约 59 秒）或按 `parent` 逐目录 |
+| 首次插线需要用户授权 | 系统会弹「是否允许访问 MTP」；首次还要勾一次「一律打开」 | [导片工具 README](../tools/android-mtp-import/README.md) 的安装运行节。应用侧没有正规接口能绕过，只能引导用户操作 |
+| 扫描是串行的 | 扫描与导入不能在同一 MTP 会话上并行发命令 | [ImportGate.java](../tools/android-mtp-import/src/com/rea/mtpimport/ImportGate.java):17 与[导片工具 README](../tools/android-mtp-import/README.md):251。导入前必须等扫描结束；渐进加载期间主操作要禁用 |
+| 单机结论 | 枚举数 1526 个对象 / 511 张 ARW / 11.9 GB 是 ILCE-7C 该卡的单次实测 | [探针 README](../tools/android-mtp-probe/README.md) 的实测结果节。不能当成所有机身、所有卡的固定值 |
 
 ## 二、传输语义
 
-| 限制 | 后果 | 证据 |
+| 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
-| `getPartialObject` 的 `offset` 是绝对偏移 | 续传必须按 `.part` 的实际长度从绝对偏移续读 | [主报告](research/a7c-usb-raw-2026-11.md) §11 |
-| `length` 超过剩余字节会截断到 EOF | 不抛异常，必须靠字节数对账判断是否读完 | 同上 |
-| `offset == size + 1` 会抛 `IOException` | 越界请求会打断读取；越界后会话是否进入错误态**只有首轮观察、尚未复测** | 正常续传实现绝不能发出 `offset > size` 的请求 |
-| 分块不宜过小 | 64 KiB 小块单次只有约 0.38–0.43 MB/s | 分块建议不小于 1 MiB |
+| `getPartialObject` 的 `offset` 是绝对偏移 | 续传必须按 `.part` 的实际长度从绝对偏移续读 | [探针 README](../tools/android-mtp-probe/README.md) 的「PC 探针（getPartialObject）」节 |
+| `length` 超过剩余字节会截断到 EOF | 不抛异常，必须靠字节数对账判断是否读完 | 同上（同一节记录「剩余多少就返回多少」） |
+| `offset == size + 1` 会抛 `IOException` | 越界请求会打断读取；越界后会话是否进入错误态**只有首轮观察、尚未复测** | 同上（同一节的越界观察）。正常续传实现绝不能发出 `offset > size` 的请求 |
+| 分块不宜过小 | 64 KiB 小块单次只有约 0.38–0.43 MB/s | 同上（同一节的吞吐对照）。分块建议不小于 1 MiB |
 
 ## 三、PTP / PTP-IP 路线
 
