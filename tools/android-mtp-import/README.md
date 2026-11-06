@@ -71,6 +71,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ StorageRetry      getStorageIds 带唤醒重试：每轮判取消，最多多睡 1 个 3 秒 [纯 JDK]
 ├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
 ├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
+├─ FinishOutcome     整轮结束去向：全失败优先于「视图已关闭」（issue #64）  [纯 JDK]
 ├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
 ├─ ColorTokens       UI-SPEC 颜色 token 数值 + 对比度/胶囊派生（issue #78）  [纯 JDK]
 ├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
@@ -86,7 +87,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**二十七个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**二十八个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（其中 `DemoTree.java` / `DemoTransfer.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
@@ -150,7 +151,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；338 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；348 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
