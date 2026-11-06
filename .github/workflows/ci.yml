@@ -13,6 +13,11 @@ on:
     types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
+# 同一分支 / 同一 PR 只保留最新一轮：新推送取消上一轮未完成的运行，省额度也避免旧结论覆盖。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # check_pr_body.py 用 gh 读 PR 评论；GITHUB_TOKEN 默认没有 pull-requests 读权限，
 # 不显式声明会报 "Resource not accessible by integration"。
 permissions:
@@ -23,13 +28,14 @@ jobs:
   gates:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 固定到 commit SHA（行尾注版本），防 tag 被移动后换了代码。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # check_no_vendored.py 要读 git ls-files，需要完整历史以外的东西即可；
           # 但 fetch-depth=0 能让 file 大小检查更稳，成本也低
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
