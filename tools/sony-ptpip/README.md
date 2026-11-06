@@ -124,5 +124,7 @@ USB 上跑的是裸 PTP（无 PTP/IP 头），对比两边的 opcode 序列即�
    例如 `captures/init_ied.txt`——`captures/` 已在 `.gitignore` 里，不会入库。
 3. 运行 `python probe.py <相机IP> --replay captures/init_ied.txt`。
 
-不传 `--replay` 时探针用内置的配对凭据按新报文构造握手；若相机已被 IED 的
+不传 `--replay` 时，探针要求用 `--guid` 传入你自己配对得到的 GUID，按新报文构造握手。
+`--guid` 的取值就是上面 `body` 的前 16 字节（GUID 的 ASCII 文本，索尼会把它截断成
+`xxxxxxxx-xxxx-xx` 这类形态）；它同样是配对凭据，不要写进仓库。若相机已被 IED 的
 Remote / Viewer 进程占着，会被 `Init_Fail` 拒绝。

@@ -41,7 +41,7 @@ a7C 上没有任何东西需要"解锁"——它的 USB 口本来就是标准 MT
 ### 1.1 Wi-Fi JSON API 系（Camera Remote API，2014–2019 的旧协议）
 `kz-remote-api`、`locana`、`sony_camera_api`、`sony-remote`、`sonypy`、`Camera-Remote-API`、`sony-camera-api`、`ofxSonyRemoteCamera`、`SonyCameraRemoteAPI`、`RemoteCamera`、`RemoteCam`
 
-- 全部走 `http://192.168.122.1:8080/sony/{camera,avContent}` 这套 JSON 接口
+- 全部走 `http://192.168.122.1:8080/sony/{camera,avContent}` 这套 JSON 接口<!-- allow-sensitive: 相机 AP 的公开默认网关，非本机内网 -->
 - `kz-remote-api` / `locana` 是最完整的两个（SSDP 发现 + 全量 action 封装），但都是 C#/UWP，Windows 端
 - **致命点：这个协议在 AP（手机直连相机）模式下只暴露 JPEG。** `getContentList` 返回的 `content.original[].stillObject` 只有 `jpeg`，`url` 指向 `/contentstransfer/orgjpeg/...`。改扩展名、拼路径都拿不到 ARW——文件根本没通过这个服务暴露。
 - 社区结论一致（StackOverflow 上 2014 年问到现在）：AP 模式 = 只有 JPG；RAW 只能走 USB / PTP-IP 基础设施模式。
@@ -384,9 +384,9 @@ JPEG 几 MB，一眼就能确认 IED 取的是哪种。
 | 发送的 GUID | 结果 |
 |---|---|
 | 我随机生成的 UUID | `Init_Fail` **type=5 reason=1**（被拒），连试 6 次、间隔 4 秒，全部被拒 |
-| IED 当初配对用的 GUID `dd4b11b9-280d-43` | 立刻 `Init_Command_Ack`，相机报 `ILCE-7C` |
+| IED 当初配对用的 GUID `<已配对的 GUID>` | 立刻 `Init_Command_Ack`，相机报 `ILCE-7C` |
 
-**相机把 GUID 当身份记着，不是随便谁都能连。** 想出 `dd4b11b9-280d-43` 是因为
+**相机把 GUID 当身份记着，不是随便谁都能连。** 想出 `<已配对的 GUID>` 是因为
 抓包里 IED 发的就是这个（它是 IED 自己 UUID 截断到 16 字符的结果）。
 真机部署时这个值要改成"本机 IED 首次配对时用过的 GUID"，或者想办法让相机重新配对。
 
@@ -516,7 +516,7 @@ OTG 直连 a7C，相机 `USB连接 = MTP`。探针工程见 `tools/android-mtp-p
 手机侧 `dumpsys usb` 与 App 内 `UsbDevice` 均确认：
 
 ```
-VID=0x054C (Sony)  PID=0x0D2A  product_name=ILCE-7C  iSerial=D010204D8E55
+VID=0x054C (Sony)  PID=0x0D2A  product_name=ILCE-7C  iSerial=<机身序列号>
 接口 class=6 / subclass=1 / protocol=1   ← Still Image (PTP/MTP)
 端点  0x81 bulk IN、0x02 bulk OUT、0x83 interrupt IN   ← 标准 MTP 三端点
 data_role=host，current_mode=dfp
