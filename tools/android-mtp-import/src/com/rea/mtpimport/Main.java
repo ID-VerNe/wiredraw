@@ -791,7 +791,8 @@ public final class Main extends ComponentActivity {
      *
      * 计划大小随勾选变化，所以照片墙显示后与每次勾选变化各算一次；不足时把
      * `lowSpace` 交给 AppModel（主 CTA 禁用 + 一行 `Low space`），差额进 Details。
-     * 计划为空时不拦：点击本来也不会启动导入。
+     * 计划为空只在「catalog 里没有 ARW」时出现（空勾选已在 {@link ImportPlan#of} 里兜底成全选），
+     * 那时没有可导入对象，不做拦截。
      */
     private void refreshSpaceCheck() {
         if (demoActive() || catalog == null || selection == null) {
@@ -835,9 +836,10 @@ public final class Main extends ComponentActivity {
             log.line("先扫描");
             return;
         }
+        // 空勾选已在 ImportPlan.of 里等价于全选（issue #80），走到这里只剩「目录里没有 ARW」。
         ImportPlan plan = ImportPlan.of(catalog, selection);
         if (plan.isEmpty()) {
-            log.line("没有勾选任何文件");
+            log.line("目录里没有可导入的照片");
             return;
         }
         if (service != null && service.isRunning()) {
