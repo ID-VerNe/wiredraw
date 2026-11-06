@@ -209,8 +209,18 @@ public final class ImportService {
                     stop = "已取消";
                     break;
                 }
+                // 暂停时钟以 worker 真正停在文件边界为准：请求暂停后当前文件仍会传完，
+                // 那段有真实字节增量，不能当成暂停扣掉（issue #58）。
+                boolean pauseClockStarted = false;
                 while (paused && !cancelled) {
+                    if (!pauseClockStarted) {
+                        progress.pause(System.nanoTime());
+                        pauseClockStarted = true;
+                    }
                     Thread.sleep(200);
+                }
+                if (pauseClockStarted) {
+                    progress.resume(System.nanoTime());
                 }
                 if (cancelled) {
                     stop = "已取消";

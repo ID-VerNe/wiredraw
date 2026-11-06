@@ -746,6 +746,63 @@ public final class SelfTest {
 
         check("humanBytes 用 1024 进制",
                 "1.0 MB".equals(p.humanBytes(1048576)), "实际 " + p.humanBytes(1048576));
+
+        // ---------------- #58：暂停时长不得计入速率/ETA ----------------
+        // 场景：10 MB 已传、实际传输 1 s、随后暂停 100 s。
+        // 修复前分母是 101 s（≈0.099 MB/s）；修复后应按实际传输的 1 s 算（10 MB/s）。
+        long pauseT0 = 1_000_000_000L;
+        long pauseEnd = pauseT0 + 101_000_000_000L;
+
+        TransferProgress paused = new TransferProgress(20_000_000, 1);
+        paused.start(pauseT0);
+        paused.onBytes(10_000_000);
+        paused.pause(pauseT0 + 1_000_000_000L);
+        paused.resume(pauseEnd);
+        check("暂停 100 s 后速率仍按实际传输 1 s 计（10 MB/s）",
+                Math.abs(paused.bytesPerSec(pauseEnd) - 10_000_000) < 1.0,
+                "实际 " + paused.bytesPerSec(pauseEnd));
+        check("暂停 100 s 后 ETA 与不暂停一致（剩余 10 MB / 10 MB/s = 1 s）",
+                paused.etaSeconds(pauseEnd) == 1,
+                "实际 " + paused.etaSeconds(pauseEnd));
+
+        TransferProgress duringPause = new TransferProgress(20_000_000, 1);
+        duringPause.start(pauseT0);
+        duringPause.onBytes(10_000_000);
+        duringPause.pause(pauseT0 + 1_000_000_000L);
+        check("暂停中读取速率不随暂停时长下降",
+                Math.abs(duringPause.bytesPerSec(pauseT0 + 51_000_000_000L) - 10_000_000) < 1.0,
+                "实际 " + duringPause.bytesPerSec(pauseT0 + 51_000_000_000L));
+
+        TransferProgress doublePause = new TransferProgress(20_000_000, 1);
+        doublePause.start(pauseT0);
+        doublePause.onBytes(10_000_000);
+        doublePause.pause(pauseT0 + 1_000_000_000L);
+        doublePause.pause(pauseT0 + 6_000_000_000L);
+        doublePause.resume(pauseEnd);
+        check("重复 pause 只认第一次，不把暂停拆成两段重复扣",
+                Math.abs(doublePause.bytesPerSec(pauseEnd) - 10_000_000) < 1.0,
+                "实际 " + doublePause.bytesPerSec(pauseEnd));
+
+        TransferProgress noPair = new TransferProgress(20_000_000, 1);
+        noPair.start(pauseT0);
+        noPair.onBytes(5_000_000);
+        noPair.resume(pauseT0 + 2_000_000_000L);
+        check("没有 pause 的 resume 是 no-op（5 MB / 2 s）",
+                Math.abs(noPair.bytesPerSec(pauseT0 + 2_000_000_000L) - 2_500_000) < 1.0,
+                "实际 " + noPair.bytesPerSec(pauseT0 + 2_000_000_000L));
+
+        // 第二轮 start 必须清掉上一轮的暂停累计，否则新一轮会被上一轮的 100 s 拖成负时长。
+        TransferProgress restarted = new TransferProgress(20_000_000, 1);
+        restarted.start(pauseT0);
+        restarted.onBytes(10_000_000);
+        restarted.pause(pauseT0 + 1_000_000_000L);
+        restarted.resume(pauseEnd);
+        long secondStart = pauseT0 + 200_000_000_000L;
+        restarted.start(secondStart);
+        restarted.onBytes(10_000_000);
+        check("start() 重置暂停累计（第二轮按自己的 1 s 计时）",
+                Math.abs(restarted.bytesPerSec(secondStart + 1_000_000_000L) - 10_000_000) < 1.0,
+                "实际 " + restarted.bytesPerSec(secondStart + 1_000_000_000L));
     }
 
     // ---------------- Journal ----------------
