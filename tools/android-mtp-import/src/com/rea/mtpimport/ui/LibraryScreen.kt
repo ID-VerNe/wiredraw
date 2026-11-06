@@ -273,13 +273,13 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
     ) {
         val bitmap = thumb
         if (bitmap != null) {
-            // 已选态沿用 V-11：2 dp 墨色描边（外层 softOutline）+ 去饱和。
+            // 已选态沿用 V-11：外层 softOutline（2 dp 墨色）+ 未选去饱和、已选恢复饱和度。
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                colorFilter = if (checked) {
-                    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+                colorFilter = if (!checked) {
+                    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.55f) })
                 } else {
                     null
                 },
