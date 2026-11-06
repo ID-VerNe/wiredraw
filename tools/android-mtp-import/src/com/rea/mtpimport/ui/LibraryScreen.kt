@@ -214,9 +214,18 @@ private fun ImportBar(model: AppModel) {
     val version = model.selectionVersion
     val selected = model.selectedCount
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        // P-09：空间不足时 CTA 被禁用，并在其上方加一行 `Low space`；差额只进 Details。
+        if (model.lowSpace) {
+            BasicText(
+                "Low space",
+                style = TextSmall.copy(color = UiColors.secondary),
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+        }
         PrimaryButton(
             text = UiText.importCta(selected, model.photoCount),
-            onClick = { model.callbacks?.onImport() }
+            onClick = { model.callbacks?.onImport() },
+            enabled = !model.lowSpace
         )
     }
 }

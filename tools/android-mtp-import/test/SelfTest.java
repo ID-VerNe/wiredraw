@@ -46,6 +46,7 @@ public final class SelfTest {
         scanReleaseCases();
         selectionCases();
         planCases();
+        spaceCases();
         progressCases();
         journalCases();
         cancelTokenCases();
@@ -521,6 +522,29 @@ public final class SelfTest {
                 "isEmpty=" + empty.isEmpty() + " total=" + empty.totalBytes());
     }
 
+    // ---------------- SpaceCheck（PD / P-09） ----------------
+
+    static void spaceCases() {
+        check("SpaceCheck：正好等于计划 + 5% 缓冲时放行",
+                SpaceCheck.enough(1050, 1000), "free=1050 planned=1000");
+        check("SpaceCheck：少 1 字节即判不足",
+                !SpaceCheck.enough(1049, 1000), "free=1049 planned=1000");
+        check("SpaceCheck：5% 向上取整（1 字节计划也留 1 字节缓冲）",
+                SpaceCheck.requiredBytes(1) == 2, "实际 " + SpaceCheck.requiredBytes(1));
+        check("SpaceCheck：0 字节计划不拦",
+                SpaceCheck.requiredBytes(0) == 0 && SpaceCheck.enough(0, 0),
+                "required=" + SpaceCheck.requiredBytes(0));
+        check("SpaceCheck：负数计划按 0 处理",
+                SpaceCheck.requiredBytes(-5) == 0, "实际 " + SpaceCheck.requiredBytes(-5));
+        check("SpaceCheck：负数可用空间不放行",
+                !SpaceCheck.enough(-1, 10), "free=-1 planned=10");
+
+        // describe 的 Need 是**含 5% 缓冲后的需求**（5 GB → 5.3 GB），不是计划原值。
+        String detail = SpaceCheck.describe(3L * 1073741824L, 5L * 1073741824L);
+        check("SpaceCheck.describe 同时给出含缓冲的需求与剩余（GB，1 位小数）",
+                detail.contains("5.3 GB") && detail.contains("3.0 GB"), "实际 " + detail);
+    }
+
     // ---------------- TransferProgress ----------------
 
     static void progressCases() {
@@ -732,6 +756,22 @@ public final class SelfTest {
         }
     }
 
+    /** 每个文件的第一次调用失败、第二次成功；用来钉住单文件同步重试（PD / issue #50）。 */
+    static final class FlakyTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        private final java.util.Set<String> seen = new java.util.HashSet<>();
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            // 同一个 relPath 首次失败，第二次成功（模拟一次偶发读失败）。
+            if (seen.add(item.relPath)) {
+                return new Result(Kind.FAILED, "fake first failure");
+            }
+            return writeFakePart(item, partPath);
+        }
+    }
+
     static final class FinishRecorder implements ImportListener {
         final CountDownLatch done = new CountDownLatch(1);
         boolean cancelled;
@@ -807,9 +847,28 @@ public final class SelfTest {
         check("ImportService：全失败时 ok=0 / failed=3，不冒充完成",
                 r3.ok == 0 && r3.failed == 3 && r3.skipped == 0,
                 "ok=" + r3.ok + " failed=" + r3.failed + " skipped=" + r3.skipped);
+        // PD / issue #50：重试必须有上限。全失败时每个文件恰好尝试 MAX_FILE_ATTEMPTS 次，
+        // 不是 1 次也不是无限次。
+        check("PD 重试：全失败时每个文件恰好尝试 MAX_FILE_ATTEMPTS 次（有上限）",
+                t3.calls.size() == plan.count() * ImportService.MAX_FILE_ATTEMPTS,
+                "calls=" + t3.calls.size() + " 期望=" + (plan.count() * ImportService.MAX_FILE_ATTEMPTS));
+
+        // PD：首次失败、第二次成功的文件仍算完成，且尝试次数有上限。
+        File flakyOut = Files.createTempDirectory("wiredraw-import-flaky").toFile();
+        FlakyTransfer t4 = new FlakyTransfer();
+        FinishRecorder r4 = new FinishRecorder();
+        new ImportService(Log.NOOP, t4, flakyOut).start(plan, r4);
+        check("PD 重试：偶发失败一轮在 5 秒内结束", r4.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PD 重试：首次失败、第二次成功仍算完成",
+                r4.ok == 3 && r4.failed == 0 && r4.skipped == 0,
+                "ok=" + r4.ok + " failed=" + r4.failed);
+        check("PD 重试：每个文件恰好尝试 2 次（首次 + 1 次同步重试）",
+                t4.calls.size() == plan.count() * 2,
+                "calls=" + t4.calls.size());
 
         deleteTree(out);
         deleteTree(badOut);
+        deleteTree(flakyOut);
     }
 
     // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------
@@ -1041,6 +1100,9 @@ public final class SelfTest {
         long afterCancel = System.nanoTime();
         check("PB 卡死：取消后 worker 仍未退出（模拟 pfd.close 打不断原生调用）",
                 svc3.isRunning(), "worker 已退出");
+        // PD / issue #50：onDestroy 关闭会话前先有界 join；worker 卡住时必须如实返回 false。
+        check("PD onDestroy：worker 卡住时 awaitWorker 超时返回 false",
+                !svc3.awaitWorker(50), "实际返回 true");
         check("PB 卡死：宽限期内不判定卡死",
                 !svc3.isCancelStuckAt(afterCancel), "实际 true");
         check("PB 卡死：超过宽限期判定为卡死（界面必须能给 ERROR 出路）",
@@ -1052,6 +1114,8 @@ public final class SelfTest {
         check("PB 放弃：被放弃的轮次跳过续传日志保存（不覆盖磁盘上的现有记录）",
                 !new File(out3, "import-journal.txt").exists(), "日志仍被写出");
         check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
+        check("PD onDestroy：worker 退出后 awaitWorker 返回 true",
+                svc3.awaitWorker(5000), "实际返回 false");
         deleteTree(out3);
     }
 
