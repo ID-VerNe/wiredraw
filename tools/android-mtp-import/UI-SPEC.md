@@ -211,7 +211,7 @@
 
   | 类别 | 落点 | 唯一职责 | 允许出现于 |
   |---|---|---|---|
-  | 常驻指示 | 顶栏连接图标 + 设备短名（相机线稿；**无计数徽标**） | 表达「相机是否已连接」与设备身份 | 全页常驻 |
+  | 常驻指示 | 顶栏连接图标 + 设备短名（相机线稿；**无计数徽标**） | 表达「相机是否已连接」与设备身份 | 容器全页常驻；连接指示按 §2.2 逐视图定义（`IMPORTING` / `PAUSED` 让位给环，`photo` 只留 `Back` / `Location`） |
   | 常驻指示 | 底部主 CTA | 表达「现在能推进什么」（文案见 §4.5） | 按 §1.2「允许操作」；非本态动作不出现 |
   | 内容区唯一焦点 | 图标（相机 56 dp / 禁止）/ 细环 + 计数 / 传输环（180 dp）/ 照片墙 | **状态的主表达**；每个状态恰好一个主表达，字面与形态见 §4.5 `T-xx` 的「唯一焦点」列 | 全状态；形态随状态切换 |
 
@@ -228,15 +228,15 @@
 
 | 状态 | 进入条件 | 设计稿 | 首屏必须显示 | 允许操作 | 必须禁止 |
 |---|---|---|---|---|---|
-| `COLD` 未连接 | 冷启动且无已授权相机 | **缺**（本版按 `T-COLD` 补齐） | 见 `T-COLD` | `Connect camera`（等价于原「重新检测」行为）、返回退出 | 空白首屏；`Waiting` / `Loading` / 「等待开始」这类无对象状态词；主 CTA 被顶栏遮挡；插线后仍要求用户手动点 CTA（插线应自动触发，§0.2，已由 #17 接通） |
-| `PERMISSION_PENDING` 未授权 | 系统 USB 授权弹窗未返回 | **缺**（本版按 `T-PERMISSION` 补齐） | 见 `T-PERMISSION` | `Allow`（再次触发系统弹窗）、返回退出 | 静默等待（当前最长 120 s 无反馈，见 F13）；只给「去设置」而不给 `Allow`；中文说明句 |
+| `COLD` 未连接 | 冷启动且无已授权相机 | **缺**（本版按 `T-COLD` 补齐） | 见 `T-COLD` | `Connect camera`（等价于原「重新检测」行为）、返回退出（§1.3） | 空白首屏；`Waiting` / `Loading` / 「等待开始」这类无对象状态词；主 CTA 被顶栏遮挡；插线后仍要求用户手动点 CTA（插线应自动触发，§0.2，已由 #17 接通） |
+| `PERMISSION_PENDING` 未授权 | 系统 USB 授权弹窗未返回 | **缺**（本版按 `T-PERMISSION` 补齐） | 见 `T-PERMISSION` | `Allow`（再次触发系统弹窗）、返回退出（§1.3） | 静默等待（当前最长 120 s 无反馈，见 F13）；只给「去设置」而不给 `Allow`；中文说明句 |
 | `SCANNING` 扫描中 | 扫描线程启动 | **缺**（本版按 `T-SCANNING` 补齐） | 见 `T-SCANNING` | `Cancel`、返回退出（§1.3） | 照片墙可操作（若显示上一轮，必须 `enabled=false` 置灰并标 `Last import`，见 §1.1 / U-43）；主 CTA 可点；显示速率或剩余时间 |
 | `CATALOG_READY` 日期分组 + 照片墙 | 扫描成功；渐进态下首批 ARW 已发布即可（见下方渐进态） | **有**（`library`，含 0 选 / ≥1 选 / 折叠三子态；CTA 切换需补齐） | 见 `T-CATALOG` | 折叠、过滤抽屉、点格选/取消、`Import all N` / `Import N`、返回退出（§1.3）；渐进态另有 `Cancel` | **不得因未选**而禁用主 CTA（`P-09` 的空间预检除外；任务 A 要求 0 选择也能一键全导，§0.5）；同屏并置两个总量分母；网格内显示文件名/大小/徽标/勾选圈（仅两处例外：`V-19` 降级块的文件名、`V-11` 降级形态的复选框）；已选数写进正文句 |
 | `IMPORTING` 传输中 | 导入线程启动 | **有**（`transfer`，控件与无障碍不完整） | 见 `T-IMPORTING` | `Pause`、`Cancel`、顶部返回（关闭视图，见 §1.3） | 修改已选；返回键直接销毁任务；进度停在 0 不动；主视觉出现速率/剩余时间/协议 |
 | `PAUSED` 已暂停 | 用户暂停 | **缺**（本版按 `T-PAUSED` 补齐） | 见 `T-PAUSED` | `Resume`、`Cancel`、顶部返回（关闭视图，见 §1.3）、返回（回照片墙，见 §1.3） | `Resume` 不可点；把暂停态显示成完成态；环数值继续变化 |
 | `DONE` 完成 | 全部结束且有成功项 | **缺**（本版按 `T-DONE` 补齐） | 见 `T-DONE` | `Open`、位置图标（进 `Location details`）、返回（回照片墙，§1.3） | 四段统计（成功/跳过/失败/总数）；任务 ID、哈希、协议、内部编号；统计卡 |
-| `ERROR` 错误 | 相机相关失败：可恢复错误与 USB 挂起（**不可恢复**）都归此态 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | `Connect camera`、返回、`Details` 抽屉；**不可恢复（USB 挂起）时唯一恢复动作 = 拔插数据线后点 `Connect camera`**（`返回` 与 `Details` 仍是允许操作，见 §1.3） | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉；把 USB 挂起描述成应用内再点一次即可 |
-| `EMPTY_CATALOG` 相机内为空 | 扫描成功但 0 个照片 | **缺**（本版按 `T-EMPTY` 补齐） | 见 `T-EMPTY` | `Connect camera`（重新扫描）、返回退出 | 显示空网格或 `0 GB` 的占位；把空态显示成加载中 |
+| `ERROR` 错误 | 相机相关失败：可恢复错误与 USB 挂起（**不可恢复**）都归此态 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | `Connect camera`、返回（按 §1.3 回照片墙）、`Details` 抽屉；**不可恢复（USB 挂起）时唯一恢复动作 = 拔插数据线后点 `Connect camera`**（`返回` 与 `Details` 仍是允许操作，见 §1.3） | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉；把 USB 挂起描述成应用内再点一次即可 |
+| `EMPTY_CATALOG` 相机内为空 | 扫描成功但 0 个照片 | **缺**（本版按 `T-EMPTY` 补齐） | 见 `T-EMPTY` | `Connect camera`（重新扫描）、返回退出（§1.3） | 显示空网格或 `0 GB` 的占位；把空态显示成加载中 |
 | `UNAVAILABLE` 功能未实现（**内部标签**） | 传输层未就绪 | **缺**（本版按 `T-UNAVAILABLE` 补齐） | 见 `T-UNAVAILABLE` | `OK`、返回（按 §1.3 回退到照片墙） | 显示 0% 进度；显示 `Imported 0 · Failed 0` 式统计；出现 `NOT_IMPLEMENTED` 等枚举；用户可见文案出现「未实现」（状态名只是内部标签，见 C-18） |
 
 > 行文简写：`READY` = `CATALOG_READY`、`EMPTY` = `EMPTY_CATALOG`、`PERMISSION` = `PERMISSION_PENDING`。
@@ -280,7 +280,7 @@
   `setDecorFitsSystemWindows(false)` 的实现方式正是这样，**不得**把根容器 bounds 当作判红依据。实现二选一：
   (a) `WindowCompat.setDecorFitsSystemWindows(false)` + 对内容容器（或根容器的 padding 内边界）施加 `WindowInsets`；
   (b) 使用无 ActionBar 主题（`Theme.Material.NoActionBar` 或等价）并自绘顶栏，再按 insets 让位。
-  **全部视图（10 个状态视图（`IMPORTING` / `PAUSED` 共用 `transfer` 页）+ `photo`）**必须显式施加上下 inset：顶栏吃 `statusBars`，底部 CTA/内容吃 `navigationBars`；
+  **全部视图（11 个状态槽 = 10 个状态 + `photo`；按页面计是 9 个状态页 + `photo` = 10 页，`transfer` 是 `IMPORTING` / `PAUSED` 的共同载体）**必须显式施加上下 inset：顶栏吃 `statusBars`，底部 CTA/内容吃 `navigationBars`；
   实现口径见本节抬头的 `WindowInsets.systemBars`（**不得**照抄原型 HTML 的 `pt-safe` / `pb-safe` 类名）。
 - **L-02** 可点击控件不得被系统栏与顶栏遮挡。任何 `clickable=true` 控件：
   (1) 与系统栏的矩形交集**必须**为空（交集高度 0）；
@@ -343,7 +343,7 @@
 
 ### 2.2 顶栏内容（方案 A，2026-11-06 拍板）
 
-> 顶栏在全部视图常驻（`#44` 决策 2）：10 个状态 + `photo`，共 11 个视图（`transfer` 是 `IMPORTING` / `PAUSED` 的载体，不另计）。容器口径见 §2 术语定义；
+> 顶栏在全部状态槽常驻（`#44` 决策 2）：11 个状态槽 = 10 个状态 + `photo`（按页面计是 9 个状态页 + `photo` = 10 页；`transfer` 是 `IMPORTING` / `PAUSED` 的共同载体）。容器口径见 §2 术语定义；
 > 高度 56 dp（不含状态栏），全宽，语义标签固定 `topBar`，**无填充底色块、无计数胶囊**。
 > 内容**只**允许「图标 + 短英文」：**不得**出现解释句、状态句（断开态短词 `Disconnected` 除外），**不得**成为第二个焦点。
 
@@ -355,7 +355,7 @@
 | `IMPORTING` / `PAUSED` | `Back` | — | 任务视图只留关闭入口，设备身份让位给环 |
 | `photo` | `Back` | `Location` | 详情视图，与状态无关 |
 
-- **V-26** 顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线），**不得**声称是实时 USB 探测；
+- **V-26** 在**渲染连接指示的视图**里（`CATALOG_READY` / `COLD` / `ERROR` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE`），顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线），**不得**声称是实时 USB 探测；`IMPORTING` / `PAUSED` / `photo` 不渲染连接指示（§2.2），本条不适用；
   断开态**必须**用同一条相机线稿加斜线，**不得**另造图标族。
   `ERROR` **一律**按断开画法，含可恢复错误与 USB 挂起：该态的唯一推进动作是 `Connect camera`，
   图标形态不随「相机是否仍物理连接」摆动；是否可恢复只影响 `Details` 文案（§1.2 / `C-14`），不改变顶栏。
