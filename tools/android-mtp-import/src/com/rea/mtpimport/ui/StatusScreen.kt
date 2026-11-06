@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiState
 import com.rea.mtpimport.UiText
 
@@ -192,7 +193,8 @@ private fun StatusLayout(
     customCenter: @Composable ColumnScope.() -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        StatusTopBar(model)
+        // 顶栏判定与 SelfTest 共用 `TopBarSpec.hasBar`（N-1）。
+        if (TopBarSpec.hasBar(model.state)) StatusTopBar(model)
         Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 icon()

@@ -88,8 +88,10 @@ public final class UiState {
      * 顶栏在全部 10 个状态下常驻（issue #44 决策 2），内容按 UI-SPEC §2.2 的**逐态分化**表
      * （`COLD` / `ERROR` / `CATALOG_READY` 各有形态，计数胶囊只在 `CATALOG_READY` 出现）；
      * `photo` / `transfer` 页复用同一个 `topBar` 容器。
+     *
+     * 判定本身归 {@link TopBarSpec}（唯一归属，N-1），这里只保留旧调用点。
      */
     public static boolean hasTopBar(State s) {
-        return true;
+        return TopBarSpec.hasBar(s);
     }
 }

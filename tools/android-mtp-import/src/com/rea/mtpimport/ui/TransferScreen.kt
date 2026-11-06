@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
+import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiState
 import com.rea.mtpimport.UiText
 
@@ -35,11 +36,14 @@ fun TransferScreen(model: AppModel) {
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         // 顶栏常驻（#44 决策 2）：传输页沿用返回 + `topBar` 容器。
-        TopBarRow(horizontalPadding = 8.dp) {
-            // 顶部返回只关闭视图（§1.3 第 2 条）：任务继续跑，取消由 `Cancel` 承担。
-            // 系统返回键另走 `onBack`，在 `IMPORTING` 下会弹 `Pause & exit` / `Resume`。
-            IconAction(desc = "Back", onClick = { model.callbacks?.onCloseTransfer() }) {
-                BackGlyph(20.dp, UiColors.ink)
+        // 判定与 SelfTest 共用 `TopBarSpec.hasBar`（N-1）。
+        if (TopBarSpec.hasBar(model.state)) {
+            TopBarRow(horizontalPadding = 8.dp) {
+                // 顶部返回只关闭视图（§1.3 第 2 条）：任务继续跑，取消由 `Cancel` 承担。
+                // 系统返回键另走 `onBack`，在 `IMPORTING` 下会弹 `Pause & exit` / `Resume`。
+                IconAction(desc = "Back", onClick = { model.callbacks?.onCloseTransfer() }) {
+                    BackGlyph(20.dp, UiColors.ink)
+                }
             }
         }
 

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -57,19 +58,20 @@ fun PhotoScreen(model: AppModel) {
         }
     }
 
-    // photo 页是画布黑：状态栏 / 导航栏图标必须切浅色，离开时恢复深色（P1-4 / P2-4）。
+    // photo 页是画布黑：状态栏 / 导航栏图标必须切浅色，离开时按**原值**恢复（P1-4 / P2-4）。
+    // B-1：进入时两个位一起清掉，退出时必须两个位一起还原——只回 status 会把导航手势条
+    // 留在浅色图标上，回到白底页面就是白压白（V-25 的对比度口径下等于不可见）。
+    // 用 `systemBarsAppearance` 记录原状而不是硬编码「都设」，避免把别处的深色栏设置改坏。
     val view = LocalView.current
     DisposableEffect(Unit) {
         val window = (view.context as? Activity)?.window
         val controller = window?.insetsController
         val lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
             WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        val original = controller?.systemBarsAppearance ?: 0
         controller?.setSystemBarsAppearance(0, lightBars)
         onDispose {
-            controller?.setSystemBarsAppearance(
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                lightBars
-            )
+            controller?.setSystemBarsAppearance(original and lightBars, lightBars)
         }
     }
 
@@ -85,13 +87,16 @@ fun PhotoScreen(model: AppModel) {
         }
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
             // 顶栏常驻（#44 决策 2）：photo 页复用同一个 `topBar` 容器，内容仍是返回 + 位置。
-            TopBarRow(horizontalPadding = 8.dp) {
-                IconAction(desc = "Back", onClick = { model.callbacks?.onBack() }) {
-                    BackGlyph(20.dp, UiColors.canvas)
-                }
-                Spacer(Modifier.weight(1f))
-                IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
-                    LocationGlyph(20.dp, UiColors.canvas)
+            // 判定与 SelfTest 共用 `TopBarSpec.hasBar`（N-1）。
+            if (TopBarSpec.hasBar(model.state)) {
+                TopBarRow(horizontalPadding = 8.dp) {
+                    IconAction(desc = "Back", onClick = { model.callbacks?.onBack() }) {
+                        BackGlyph(20.dp, UiColors.canvas)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
+                        LocationGlyph(20.dp, UiColors.canvas)
+                    }
                 }
             }
 

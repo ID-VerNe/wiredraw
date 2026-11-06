@@ -27,6 +27,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiState
 
 /**
@@ -100,8 +101,9 @@ fun LibraryTopBar(model: AppModel) {
         }
         // 顶栏计数胶囊只在 CATALOG_READY 出现（UI-SPEC V-27）：与主 CTA 同分母，
         // 只作常驻计数，不承担「唯一分母」职责，也不是新的数值口径。
+        // 判定与 SelfTest 共用 `TopBarSpec.showsCountPill`（N-1），页面里不再写条件表达式。
         val count = model.photoCount
-        if (count > 0) {
+        if (TopBarSpec.showsCountPill(model.state, count)) {
             Pill(count.toString())
             Spacer(Modifier.width(8.dp))
         }
@@ -149,8 +151,12 @@ private fun ErrorIdentity(model: AppModel) {
         modifier = Modifier
             .heightIn(min = 48.dp)
             .pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
-            .semantics(mergeDescendants = true) {
+            // N-4：整簇是一个可长按的单节点。`mergeDescendants = true` 会让 dump 在同一
+            // bounds 上留下「描述节点 + 长按动作节点 + 文本节点」三个条目，
+            // 与 `TopBarLabel` 的旧写法不一致；这里改用 `clearAndSetSemantics` 收敛成一个。
+            .clearAndSetSemantics {
                 contentDescription = "Disconnected"
+                role = Role.Button
                 onLongClick(label = "Details") {
                     model.detailsOpen = true
                     true

@@ -50,7 +50,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.Catalog
+import com.rea.mtpimport.ImportGate
 import com.rea.mtpimport.PhotoWall
+import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -68,7 +70,8 @@ import kotlinx.coroutines.withContext
 fun LibraryScreen(model: AppModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 逐态分化，本页是 CATALOG_READY 形态。
-        LibraryTopBar(model)
+        // 「哪些状态有顶栏」与 SelfTest 共用 `TopBarSpec.hasBar`（N-1）。
+        if (TopBarSpec.hasBar(model.state)) LibraryTopBar(model)
         // 渐进态（issue #60 / UI-SPEC V-23）：后台补齐时顶栏下方加 2 dp 进度细线，完成后消失。
         if (model.backgroundScanning) ScanLine(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -293,8 +296,9 @@ private fun ImportBar(model: AppModel) {
             text = UiText.importCta(selected, model.photoCount),
             onClick = { model.callbacks?.onImport() },
             // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
-            // P-09：空间不足时同样禁用，两个条件都必须生效。
-            enabled = !model.backgroundScanning && !model.lowSpace
+            // P-09：空间不足时同样禁用。两个条件都必须生效——判定归 `ImportGate`（N-1），
+            // 页面里不再写 `enabled = ...` 表达式，SelfTest 直接断言同一个函数。
+            enabled = ImportGate.enabled(model.backgroundScanning, model.lowSpace)
         )
     }
 }
