@@ -57,6 +57,7 @@ public final class SelfTest {
         cancelTokenCases();
         importServiceCases();
         importedIndexCases();
+        storageConflictCases();
         pauseCancelCases();
         resumePlanCases();
         importServicePauseClockCases();
@@ -1017,6 +1018,25 @@ public final class SelfTest {
     // ---------------- ImportService（真实传输编排，PA / issue #50） ----------------
 
     /**
+     * 记录日志出口（#54：冲突必须在用户看得见的地方，不能只写调试日志）。
+     */
+    static final class RecordingLog implements Log {
+        final List<String> lines = new ArrayList<>();
+
+        @Override
+        public void line(String s) {
+            lines.add(s);
+        }
+
+        boolean contains(String part) {
+            for (String line : lines) {
+                if (line.contains(part)) return true;
+            }
+            return false;
+        }
+    }
+
+    /**
      * 假传输：只验证编排层（跳过、失败计数、进度、日志），不碰 android。
      * 真实 `MtpTransfer` 用 `MtpDevice.importFile`，只能在 ILCE-7C 真机上验。
      */
@@ -1494,6 +1514,81 @@ public final class SelfTest {
             token.clearOnCancel();
             return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
         }
+    }
+
+    // ---------------- 多存储同名冲突（#54） ----------------
+
+    /** 两个存储卷、同一 relPath、同一尺寸：最容易静默丢数据的场景。 */
+    static Catalog conflictCatalog() {
+        Catalog c = new Catalog();
+        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM", 1));
+        c.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF", 1));
+        c.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW", 1));
+        c.add(new Catalog.Entry(11, 0, Catalog.FMT_FOLDER, 0, "DCIM", 2));
+        c.add(new Catalog.Entry(12, 11, Catalog.FMT_FOLDER, 0, "100MSDCF", 2));
+        c.add(new Catalog.Entry(13, 12, Catalog.FMT_ARW, 300, "DSC02183.ARW", 2));
+        return c.build();
+    }
+
+    static void storageConflictCases() throws Exception {
+        Catalog c = conflictCatalog();
+        List<Catalog.Entry> conflicts = c.storageConflicts();
+        check("多存储同名：storageConflicts 暴露两个同 relPath 同尺寸文件（#54）",
+                conflicts.size() == 2
+                        && "DCIM/100MSDCF/DSC02183.ARW".equals(conflicts.get(0).relPath)
+                        && conflicts.get(1).relPath.equals(conflicts.get(0).relPath)
+                        && conflicts.get(0).size == conflicts.get(1).size,
+                "conflicts=" + conflicts);
+
+        Selection s = new Selection(c);
+        ImportPlan p = ImportPlan.of(c, s, PhotoWall.of(c).units(), PhotoWall.Export.RAW);
+        boolean marked = p.count() == 2;
+        for (ImportPlan.Item it : p.items()) marked &= it.conflict;
+        check("多存储同名：清单把两项都标成冲突（#54）", marked,
+                "count=" + p.count() + " items=" + p.items());
+
+        File out = Files.createTempDirectory("wiredraw-conflict").toFile();
+        RecordingTransfer t = new RecordingTransfer();
+        RecordingLog logs = new RecordingLog();
+        FinishRecorder r = new FinishRecorder();
+        new ImportService(logs, t, out).start(p, r);
+        check("多存储同名：一轮在 5 秒内结束", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("多存储同名：两项都失败、不调 transfer、不冒充跳过",
+                r.ok == 0 && r.failed == 2 && r.skipped == 0 && t.calls.isEmpty(),
+                "ok=" + r.ok + " failed=" + r.failed + " skipped=" + r.skipped
+                        + " calls=" + t.calls.size());
+        check("多存储同名：失败进入 summary（不是一切顺利）",
+                r.summary != null && r.summary.contains("失败 2"), "实际 " + r.summary);
+        check("多存储同名：日志有醒目出口（不只调试日志）", logs.contains("拒绝覆盖"),
+                "日志=" + logs.lines);
+
+        File jf = new File(out, "import-journal.txt");
+        Journal jr = new Journal();
+        try (ByteArrayInputStream in = new ByteArrayInputStream(Files.readAllBytes(jf.toPath()))) {
+            jr.load(in);
+        }
+        check("多存储同名：冲突项不写 Journal（不产生假完成）", jr.size() == 0,
+                "journal 条数=" + jr.size());
+
+        // DestPolicy：落盘冲突策略本身（MtpTransfer.finish 是唯一调用方，真机验）。
+        File base = Files.createTempDirectory("wiredraw-dest").toFile();
+        check("DestPolicy：正常 relPath 落到 outDir 下",
+                DestPolicy.resolve(base, "DCIM/x.jpg").getCanonicalFile()
+                        .equals(new File(base, "DCIM/x.jpg").getCanonicalFile()),
+                "实际 " + DestPolicy.resolve(base, "DCIM/x.jpg"));
+        check("DestPolicy：`..` 越界返回 null", DestPolicy.resolve(base, "../evil") == null,
+                "实际 " + DestPolicy.resolve(base, "../evil"));
+        File same = writeSizedFile(new File(base, "same.jpg"), 300);
+        File diff = writeSizedFile(new File(base, "diff.jpg"), 100);
+        check("DestPolicy：目标不存在 → NONE",
+                DestPolicy.existing(new File(base, "missing.jpg"), 300) == DestPolicy.Existing.NONE,
+                "实际 " + DestPolicy.existing(new File(base, "missing.jpg"), 300));
+        check("DestPolicy：同尺寸视为同一文件，不覆盖（#20 口径）",
+                DestPolicy.existing(same, 300) == DestPolicy.Existing.SAME_SIZE,
+                "实际 " + DestPolicy.existing(same, 300));
+        check("DestPolicy：异尺寸拒绝覆盖（不静默丢数据）",
+                DestPolicy.existing(diff, 300) == DestPolicy.Existing.DIFFERENT_SIZE,
+                "实际 " + DestPolicy.existing(diff, 300));
     }
 
     /**

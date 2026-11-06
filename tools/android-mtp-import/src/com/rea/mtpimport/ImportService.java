@@ -324,6 +324,19 @@ public final class ImportService {
                     break;
                 }
 
+                // #54：同一 relPath 出现在多个存储时，两个文件会争同一落盘路径。
+                // 必须放在 Journal 判定之前：否则同尺寸的第二项会被当成「已完成」静默跳过，
+                // 用户看到的是「一切顺利」，实际少了一张。这里显式计入失败，不调 transfer、不写 Journal。
+                if (item.conflict) {
+                    failed++;
+                    String note = "多存储同名路径冲突：拒绝覆盖"
+                            + "（" + item.relPath + "，storageId=" + item.storageId + "）";
+                    log.line(note);
+                    l.onFileFinished(item, ResumableTransfer.Kind.FAILED, note);
+                    l.onProgress(progress, item);
+                    continue;
+                }
+
                 if (journal.isComplete(item.relPath, item.size)) {
                     skipped++;
                     progress.onBytes(item.size);

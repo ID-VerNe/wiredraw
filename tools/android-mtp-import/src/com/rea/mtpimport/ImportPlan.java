@@ -2,8 +2,10 @@ package com.rea.mtpimport;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 待下载清单：由「当前 filter 可见集合 + 勾选集合 + 档位载荷」固化而来，之后不再受界面变化影响。
@@ -15,11 +17,21 @@ public final class ImportPlan {
         public final int handle;
         public final String relPath;
         public final long size;
+        /** 来源存储；0 = 调用方未提供。 */
+        public final int storageId;
+        /** true = 有另一存储的同名文件争同一落盘路径，本项必须显式失败（#54）。 */
+        public final boolean conflict;
 
         public Item(int handle, String relPath, long size) {
+            this(handle, relPath, size, 0, false);
+        }
+
+        public Item(int handle, String relPath, long size, int storageId, boolean conflict) {
             this.handle = handle;
             this.relPath = relPath == null ? "" : relPath;
             this.size = size;
+            this.storageId = storageId;
+            this.conflict = conflict;
         }
 
         @Override
@@ -62,10 +74,23 @@ public final class ImportPlan {
             String pb = eb == null ? b.relPath : (eb.relPath == null ? eb.name : eb.relPath);
             return pa.compareTo(pb);
         });
+        List<Catalog.Entry> exports = new ArrayList<>();
         for (PhotoWall.Unit u : chosen) {
             Catalog.Entry e = u.export(export);
             if (e == null) continue;   // 档位不适用（理论上不会出现在可见集合里）
-            p.items.add(new Item(e.handle, e.relPath == null ? e.name : e.relPath, e.size));
+            exports.add(e);
+        }
+        // #54：同一 relPath 若来自多个 storage，两个文件会争同一落盘路径。
+        // 本期不改 relPath，只把冲突显式标出来，由 ImportService 拒绝并计入失败，绝不静默跳过/覆盖。
+        Map<String, Set<Integer>> storagesByPath = new HashMap<>();
+        for (Catalog.Entry e : exports) {
+            String path = e.relPath == null ? e.name : e.relPath;
+            storagesByPath.computeIfAbsent(path, k -> new HashSet<>()).add(e.storageId);
+        }
+        for (Catalog.Entry e : exports) {
+            String path = e.relPath == null ? e.name : e.relPath;
+            boolean conflict = storagesByPath.get(path).size() > 1;
+            p.items.add(new Item(e.handle, path, e.size, e.storageId, conflict));
             p.totalBytes += e.size;
         }
         return p;
