@@ -29,33 +29,41 @@ import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * 单张照片页（`photo`）。只有两件信息：`ARW · <size> MB` 胶囊 + 返回。
+ * 单张照片页（`photo`）。只有两件信息：`JPG · 1.7 MB` / `ARW · 23.8 MB` 胶囊 + 返回。
  *
  * 明确不做（§4.2 / U-51）：Share / Edit / Favorite / Delete / Histogram 一律没有。
  *
- * 像素来源（#61）：真实 MTP 路径在 IO 线程走 `ThumbnailStore.loadPreview`
- * （只读 `getThumbnail`：ARW → 同名同目录 JPG），**不在 composition / 主线程解码**。
- * 加载中或拿不到像素时保持单行 `ARW · <size> MB` 胶囊形态（U-51：不显示占位块、不放假图）。
- * demo 模式（issue #46）由 `ThumbnailStore` 注入整图，仍走 `loadPreview` 的 IO 线程解码；
- * 没有素材时与真实路径一样退回胶囊。
+ * 像素来源（#61 / #83，两段式，`V-32`）：
+ * 1. 先在 IO 线程走 `ThumbnailStore.loadPreview` 拿相机缩略图（同名 JPG 优先、缺失回退 ARW），
+ *    首帧只读缓存，**不在 composition / 主线程解码**；
+ * 2. 停留片刻后异步取同名 JPG **整张**并就地替换；取不到（无 JPG / 失败）就保留缩略图。
+ *    绝不为看图页下载整张 ARW——那正是这条两段式要避开的 23.8 MB / 张。
+ * 加载中或拿不到像素时保持单行胶囊形态（U-51：不显示占位块、不放假图）。
+ * demo 模式（issue #46）由 `ThumbnailStore` 注入整图，仍走同一条 IO 线程链路。
  */
 @Composable
 fun PhotoScreen(model: AppModel) {
-    val entry = model.openedPhoto ?: return
+    val unit = model.openedPhoto ?: return
     val store = model.thumbnails
     // 首帧只读缓存；demo 也走同一条异步链路（ThumbnailStore 的 demo 分支在 IO 线程解码），
     // 不在 composition / 主线程同步解码（V-25）。
-    var preview by remember(entry.handle, store) {
-        mutableStateOf(store?.cachedPreview(entry.handle))
+    var preview by remember(unit.key, store) {
+        mutableStateOf(store?.cachedPreview(unit))
     }
 
-    LaunchedEffect(entry.handle, store, model.backgroundScanning) {
-        if (preview == null && store != null && !model.backgroundScanning) {
-            preview = withContext(Dispatchers.IO) { model.loadPreview(entry) }
+    LaunchedEffect(unit.key, store, model.backgroundScanning) {
+        if (store == null || model.backgroundScanning) return@LaunchedEffect
+        if (preview == null) {
+            preview = withContext(Dispatchers.IO) { model.loadPreview(unit) }
         }
+        // 停留后再补整张 JPG：普通网格滚动不会触发这条（只有 photo 页在组合里）。
+        delay(600)
+        val full = withContext(Dispatchers.IO) { model.loadFullJpeg(unit) }
+        if (full != null) preview = full
     }
 
     // photo 页是画布黑：状态栏 / 导航栏图标必须切浅色，离开时按**原值**恢复（P1-4 / P2-4）。
@@ -107,7 +115,10 @@ fun PhotoScreen(model: AppModel) {
                 contentAlignment = Alignment.Center
             ) {
                 // 胶囊 12 sp `mono-data`（#44 / #45 决策），与环内 `12/36` 同族。
-                Pill("ARW · " + UiText.capacity(entry.size), onDark = true)
+                // #83：胶囊描述**当前档位下的导出文件**，不写死 ARW（V-25 / C-05）。
+                val shown = unit.export(model.exportMode) ?: unit.preview()
+                val label = if (shown.isRaw()) "ARW" else "JPG"
+                Pill(label + " · " + UiText.capacity(shown.size), onDark = true)
             }
         }
     }

@@ -53,6 +53,13 @@ public final class Catalog {
             return format == FMT_ARW || name.toUpperCase(Locale.US).endsWith(".ARW");
         }
 
+        /** JPEG 同样格式码与后缀双判（`FMT_JPEG` 实测出现在索尼机身写出的同名 JPG 上）。 */
+        public boolean isJpeg() {
+            if (isFolder() || isRaw()) return false;
+            String upper = name.toUpperCase(Locale.US);
+            return format == FMT_JPEG || upper.endsWith(".JPG") || upper.endsWith(".JPEG");
+        }
+
         @Override
         public String toString() {
             return (relPath == null ? name : relPath) + (isFolder() ? "/" : " (" + size + ")");
@@ -211,7 +218,7 @@ public final class Catalog {
         return n;
     }
 
-    /** ARW 张数（照片墙的照片数口径，与 {@code PhotoWall.photoCount()} 一致）。 */
+    /** ARW 张数（`RAW` 档的单元数口径；照片墙一格按照片单元计，见 {@code PhotoWall}）。 */
     public int rawCount() {
         int n = 0;
         for (Entry e : entries) if (!e.isFolder() && e.isRaw()) n++;

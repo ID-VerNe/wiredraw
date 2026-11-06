@@ -542,7 +542,8 @@ public final class Main extends ComponentActivity {
         }
         stopDemoImport();
         long perFile = payload.totalBytes / payload.totalFiles;
-        int total = model.getSelectedCount() > 0 ? model.getSelectedCount() : payload.totalFiles;
+        int total = model.getVisibleSelectedCount() > 0
+                ? model.getVisibleSelectedCount() : payload.totalFiles;
         demoBytesPerSecond = payload.bytesPerSecond;
         // 实现类 DemoTransfer 只在 debug 源集，release 编译期不引用（DemoRun 是 main 侧接口）
         demoTransfer = demoBridge.newRun(total, perFile * total);
@@ -690,12 +691,10 @@ public final class Main extends ComponentActivity {
                                     selection = new Selection(snapshot);
                                 }
                                 catalog = snapshot;
-                                // 渐进快照就是当前能解析同名 JPG 的范围（#59）。
-                                thumbnails.setCatalog(snapshot);
                                 model.showPartialCatalog(snapshot, selection, done, total);
                                 log.line(String.format(Locale.US,
-                                        "渐进发布：已扫描 %d/%d，照片墙 %d 张",
-                                        done, total, snapshot.rawCount()));
+                                        "渐进发布：已扫描 %d/%d，照片墙 %d 格",
+                                        done, total, model.getPhotoCount()));
                             });
                         }
                     });
@@ -713,7 +712,6 @@ public final class Main extends ComponentActivity {
                 // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
                 if (model.getBackgroundScanning()) selection.retarget(scanned);
                 else selection = new Selection(scanned);
-                thumbnails.setCatalog(scanned);
                 model.showCatalog(scanned, selection);
                 // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
                 refreshSpaceCheck();
@@ -791,15 +789,16 @@ public final class Main extends ComponentActivity {
      *
      * 计划大小随勾选变化，所以照片墙显示后与每次勾选变化各算一次；不足时把
      * `lowSpace` 交给 AppModel（主 CTA 禁用 + 一行 `Low space`），差额进 Details。
-     * 计划为空只在「catalog 里没有 ARW」时出现（空勾选已在 {@link ImportPlan#of} 里兜底成全选），
-     * 那时没有可导入对象，不做拦截。
+     * 计划按当前 filter 的**可见集合**算（issue #83），与主 CTA 的分母同口径；
+     * 计划为空（可见集合里没有可导出文件）时不做拦截。
      */
     private void refreshSpaceCheck() {
         if (demoActive() || catalog == null || selection == null) {
             model.setSpaceStatus(false, "");
             return;
         }
-        ImportPlan plan = ImportPlan.of(catalog, selection);
+        ImportPlan plan = ImportPlan.of(catalog, selection,
+                model.getVisibleUnits(), model.getExportMode());
         if (plan.isEmpty()) {
             model.setSpaceStatus(false, "");
             return;
@@ -836,10 +835,12 @@ public final class Main extends ComponentActivity {
             log.line("先扫描");
             return;
         }
-        // 空勾选已在 ImportPlan.of 里等价于全选（issue #80），走到这里只剩「目录里没有 ARW」。
-        ImportPlan plan = ImportPlan.of(catalog, selection);
+        // 空勾选已在 ImportPlan.of 里等价于「当前 filter 可见集合」（#80 / #83），
+        // 走到这里只剩可见集合里没有可导出文件。
+        ImportPlan plan = ImportPlan.of(catalog, selection,
+                model.getVisibleUnits(), model.getExportMode());
         if (plan.isEmpty()) {
-            log.line("目录里没有可导入的照片");
+            log.line("当前 filter 下没有可导入的照片");
             return;
         }
         if (service != null && service.isRunning()) {

@@ -35,8 +35,12 @@ interface AppCallbacks {
     fun onBackToCatalog()
 }
 
-/** 过滤抽屉的三种口径（U-52 要求 `All` / `RAW` / 日期三项都在）。 */
-enum class FilterKind { ALL, RAW, DATE }
+/**
+ * 过滤抽屉的四类口径（U-52：`All` / `RAW` / `JPG` 各一项 + 日期逐行）。
+ *
+ * filter 只决定「显示哪些照片单元」，不改变像素来源；载荷格式只作用在导出侧（`V-16` / `V-32`）。
+ */
+enum class FilterKind { ALL, RAW, JPG, DATE }
 
 /**
  * Compose 侧的状态持有者。只做「状态映射」：所有 USB / 扫描 / 传输逻辑仍在 Main 里，
@@ -109,7 +113,7 @@ class AppModel {
     var demoActive by mutableStateOf(false)
         private set
 
-    var openedPhoto by mutableStateOf<Catalog.Entry?>(null)
+    var openedPhoto by mutableStateOf<PhotoWall.Unit?>(null)
         private set
 
     /** 照片墙缩略图（issue #59）：由 Main 注入；demo 与真实 MTP 走同一个 store。 */
@@ -146,18 +150,63 @@ class AppModel {
 
     var callbacks: AppCallbacks? = null
 
+    /** 全部照片单元数（只用于空态判定；CTA / 胶囊的分母见 [visibleExportCount]）。 */
     val photoCount: Int get() = wall?.photoCount() ?: 0
-    val selectedCount: Int get() = selection?.fileHandles()?.size ?: 0
+
+    /** 当前档位对应的导出载荷（`V-32`）；`All` / 日期档 JPG 优先、`RAW` 只要 ARW、`JPG` 只要 JPG。 */
+    val exportMode: PhotoWall.Export
+        get() = when (filterKind) {
+            FilterKind.RAW -> PhotoWall.Export.RAW
+            FilterKind.JPG -> PhotoWall.Export.JPG
+            else -> PhotoWall.Export.JPG_FIRST
+        }
+
+    val allUnits: List<PhotoWall.Unit> get() = wall?.units() ?: emptyList()
+
+    /**
+     * 当前 filter 可见的照片单元集合。
+     *
+     * 这是「所见即所得」的唯一分母来源（issue #83）：导出计划、CTA 文案、顶栏胶囊都取它；
+     * 已勾选但被 filter 隐藏的项保留在 [selection] 里，只是不计入本轮可见集合。
+     */
+    val visibleUnits: List<PhotoWall.Unit>
+        get() = when (filterKind) {
+            FilterKind.ALL -> allUnits
+            FilterKind.RAW -> allUnits.filter { it.hasArw() }
+            FilterKind.JPG -> allUnits.filter { it.hasJpg() }
+            FilterKind.DATE -> visibleGroups.flatMap { it.photos }
+        }
+
+    /** 可见集合的导出文件数（每单元恒 1 个文件）；顶栏胶囊与主 CTA 同分母（`C-08`）。 */
+    val visibleExportCount: Int get() = visibleUnits.size
+
+    /** 可见已选数（CTA 的 `N`，`C-10`）；隐藏的已选项不计。 */
+    val visibleSelectedCount: Int get() = visibleUnits.count { it.isChecked(selection) }
+
     val allGroups: List<PhotoWall.Group> get() = wall?.groups() ?: emptyList()
 
     val visibleGroups: List<PhotoWall.Group>
-        get() {
-            val groups = allGroups
-            return when (filterKind) {
-                FilterKind.ALL, FilterKind.RAW -> groups
-                FilterKind.DATE -> groups.filter { it.key == filterDate }
+        get() = when (filterKind) {
+            FilterKind.ALL -> allGroups
+            FilterKind.DATE -> allGroups.filter { it.key == filterDate }
+            FilterKind.RAW -> allGroups.mapNotNull { g ->
+                g.select(PhotoWall.UnitFilter { u -> u.hasArw() })
+            }
+            FilterKind.JPG -> allGroups.mapNotNull { g ->
+                g.select(PhotoWall.UnitFilter { u -> u.hasJpg() })
             }
         }
+
+    /** 顶栏 filter 芯片（`V-31`）：`All` 档不显示；日期档取组标签（如 `Jun 7`）。 */
+    val filterChip: String?
+        get() = when (filterKind) {
+            FilterKind.ALL -> null
+            FilterKind.RAW -> "RAW"
+            FilterKind.JPG -> "JPG"
+            FilterKind.DATE -> allGroups.firstOrNull { it.key == filterDate }?.label
+        }
+
+    fun isUnitChecked(unit: PhotoWall.Unit): Boolean = unit.isChecked(selection)
 
     // 名字不能叫 `setDeviceName` / `setLocationPath`：这两个 property 的 setter 已经占用
     // `setDeviceName(Ljava/lang/String;)V` 这个 JVM 签名，再写同名方法会平台声明冲突。
@@ -304,15 +353,23 @@ class AppModel {
         callbacks?.onBackToCatalog()
     }
 
-    fun toggleSelection(entry: Catalog.Entry) {
-        selection?.toggle(entry.handle)
+    /**
+     * 单格勾选（issue #83）：勾的是一个**照片单元**，同名 ARW + JPG 两个句柄一起写。
+     *
+     * 这样 filter 切换与导出载荷切换都不会出现「选了 ARW 却导 JPG」的半选状态；
+     * 隐藏的已选项保留，由 [visibleUnits] 决定本轮是否计入（`C-10`）。
+     */
+    fun toggleUnitSelection(unit: PhotoWall.Unit) {
+        val sel = selection ?: return
+        val on = !unit.isChecked(sel)
+        for (handle in unit.handles()) sel.setChecked(handle, on)
         selectionVersion++
         // P-09：计划大小随勾选变化，交给 Main 重新预检空间（决定主 CTA 是否禁用）。
         callbacks?.onSelectionChanged()
     }
 
     /**
-     * 日期组选（issue #62）：组内有未选 → 全选；已全选 → 全不选。
+     * 日期组选（issue #62 / #83）：组内有未选 → 全选；已全选 → 全不选。
      *
      * 全选时自动展开（让 V-11 的格子形态变化可见）。只回调一次 `onSelectionChanged`，
      * 空间预检不按张数重复跑；空组直接返回（没有可选对象）。
@@ -320,29 +377,33 @@ class AppModel {
     fun toggleGroupSelection(group: PhotoWall.Group) {
         val sel = selection ?: return
         if (group.photos.isEmpty()) return
-        val select = !sel.allCheckedOf(group.photos)
-        sel.setCheckedAllOf(group.photos, select)
+        val handles = group.photos.flatMap { it.handles() }
+        val select = !sel.allCheckedHandles(handles)
+        sel.setCheckedAll(handles, select)
         selectionVersion++
         if (select) collapsed.remove(group.key)
         callbacks?.onSelectionChanged()
     }
 
-    fun openPhoto(entry: Catalog.Entry) {
-        openedPhoto = entry
+    fun openPhoto(unit: PhotoWall.Unit) {
+        openedPhoto = unit
     }
 
     fun bindThumbnails(store: ThumbnailStore) {
         thumbnails = store
     }
 
-    /** 读网格缩略图（**必须**在 IO 线程调用）；null 表示该条目没有可用预览。 */
-    fun loadThumbnail(entry: Catalog.Entry): Bitmap? = thumbnails?.load(entry)
+    /** 读网格缩略图（**必须**在 IO 线程调用）；单元内同名 JPG 优先、缺失回退 ARW（`V-32`）。 */
+    fun loadThumbnail(unit: PhotoWall.Unit): Bitmap? = thumbnails?.load(unit)
 
-    /** 看图页首帧只读缓存（预览缓存优先，其次网格缓存），不触发相机调用。 */
-    fun cachedPreview(handle: Int): Bitmap? = thumbnails?.cachedPreview(handle)
+    /** 看图页首帧只读缓存（整张 JPG 缓存优先，其次预览/网格缓存），不触发相机调用。 */
+    fun cachedPreview(unit: PhotoWall.Unit): Bitmap? = thumbnails?.cachedPreview(unit)
 
-    /** 读看图页预览（**必须**在 IO 线程调用）；null 时保持 U-51 胶囊形态。 */
-    fun loadPreview(entry: Catalog.Entry): Bitmap? = thumbnails?.loadPreview(entry)
+    /** 读看图页缩略图（**必须**在 IO 线程调用）；null 时保持 U-51 胶囊形态。 */
+    fun loadPreview(unit: PhotoWall.Unit): Bitmap? = thumbnails?.loadPreview(unit)
+
+    /** 停留后补同名 JPG 整张（**必须**在 IO 线程调用）；没有 JPG 或取图失败时返回 null。 */
+    fun loadFullJpeg(unit: PhotoWall.Unit): Bitmap? = thumbnails?.loadFullJpeg(unit)
 
     fun closePhoto() {
         openedPhoto = null

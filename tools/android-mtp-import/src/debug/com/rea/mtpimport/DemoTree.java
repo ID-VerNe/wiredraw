@@ -10,8 +10,9 @@ import java.util.Locale;
  *
  * 口径与真机一致（`RESEARCH-android-usb-raw-a7c.md` §12.3 / #17 的复验行）：
  * 1526 个对象 = 503 个文件夹 + 511 张 ARW + 512 张 JPEG，合计 12.75 GB，其中 ARW 11.89 GB。
- * 文件夹里只有 12 个日期目录挂了照片，其余是空的日期目录——这样照片墙正好 12 个日期组，
- * 顶栏计数胶囊 `511` 与 `Import all 511` 同分母。
+ * 文件夹里只有 12 个日期目录挂了照片，其余是空的日期目录——这样照片墙正好 12 个日期组。
+ * issue #83 起照片墙按照片单元计（512 个单元 = 511 双格式 + 1 仅 JPG），
+ * 顶栏计数胶囊与 `Import all 512` 同分母，默认载荷 JPG 优先（923 408 256 字节 ≈ 0.86 GB）。
  *
  * 本类不 import android.*：它和 main 侧的纯逻辑类一起在**空 classpath**下编译，
  * 并进 selfTest 的 classpath（U-54 的四个总量由 JVM 断言守住）。
@@ -27,6 +28,8 @@ public final class DemoTree {
     public static final long TOTAL_BYTES = 13_690_208_256L;
     /** 11.89 GB（1024 进制）≈ 12 766 800 000 字节，与真机扫描行同口径。 */
     public static final long RAW_BYTES = 12_766_800_000L;
+    /** JPEG 合计 = 923 408 256 字节 ≈ 0.86 GB，即 `All` / `JPG` 档的默认导出量（#83）。 */
+    public static final long JPEG_BYTES = TOTAL_BYTES - RAW_BYTES;
 
     /** 传输屏的假批次：36 张，与定稿屏的 `33%` + `12/36` 同源（U-45 要求两者自洽）。 */
     public static final int BATCH_PHOTOS = 36;
@@ -116,8 +119,9 @@ public final class DemoTree {
                 return new DemoPayload(state, null, 320, OBJECT_COUNT,
                         0, 0, 0, 0, 0, "", 0, 0);
             case CATALOG_READY:
+                // #83：照片单元数 = 512，默认载荷 JPG 优先 → 512 个文件 / 923 408 256 字节。
                 return new DemoPayload(state, catalog(), 0, 0,
-                        0, ARW_COUNT, 0, RAW_BYTES, 0, "", 0, 0);
+                        0, JPEG_COUNT, 0, JPEG_BYTES, 0, "", 0, 0);
             case IMPORTING:
             case PAUSED: {
                 long per = arwSize();

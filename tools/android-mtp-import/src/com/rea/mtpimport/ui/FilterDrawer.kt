@@ -22,10 +22,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
- * 过滤抽屉（U-52）：`All` / `RAW` / 日期（组头原样）三类，每行热区 ≥48 dp。
+ * 过滤抽屉（U-52 / issue #83）：`All` / `RAW` / `JPG` 各一项 + 日期标签逐行，每行热区 ≥48 dp。
  *
- * 三类都只是**过滤**，不改分母：计数胶囊、`Import all N`、组头聚合始终按完整照片墙算
- * （U-53 的「同分母」要求）。
+ * filter **只决定显示哪些照片单元**，不改变像素来源；分母跟随可见集合：
+ * 计数胶囊、`Import all N`、组头聚合全部按当前档位的可见单元算（U-53 / `C-08`）。
  */
 @Composable
 fun FilterDrawer(model: AppModel) {
@@ -55,6 +55,10 @@ fun FilterDrawer(model: AppModel) {
             }
             FilterRow("RAW", model.filterKind == FilterKind.RAW) {
                 model.setFilter(FilterKind.RAW)
+                model.filterOpen = false
+            }
+            FilterRow("JPG", model.filterKind == FilterKind.JPG) {
+                model.setFilter(FilterKind.JPG)
                 model.filterOpen = false
             }
             model.allGroups.forEach { group ->

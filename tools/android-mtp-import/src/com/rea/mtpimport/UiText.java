@@ -40,20 +40,33 @@ public final class UiText {
             // 100 MB 以上按整数展示（`871 MB` / `284 MB`），与 U-44 的组头正则一致。
             return String.format(Locale.US, "%.0f MB", rounded);
         }
+        if (rounded >= 10.0) {
+            // 10～99 MB 固定 1 位小数：U-53 / U-55 的 `Jun 7 · 43 · 74.0 MB` 是字面量，
+            // 组头与 filter 芯片的负向断言都按它判定（`.0` 不能被吞掉）。
+            return String.format(Locale.US, "%.1f MB", rounded);
+        }
         if (Math.abs(rounded - Math.rint(rounded)) < 1e-9) {
+            // 个位数容量仍按整数（`1 MB` / `0 MB`），避免小组头出现 `1.0 MB` 的噪声。
             return String.format(Locale.US, "%.0f MB", rounded);
         }
         return String.format(Locale.US, "%.1f MB", rounded);
     }
 
-    /** 日期组头：`Jun 7 · 12 · 284 MB`，数字是组内聚合（§0.6 / V-12 / U-44）。 */
+    /** 日期组头：`Jun 7 · 43 · 74.0 MB`，数字是当前档位下的组内导出载荷（§0.6 / V-12 / U-44）。 */
     public static String groupHeader(String label, int count, long bytes) {
         return label + " · " + count + " · " + capacity(bytes);
     }
 
-    /** 主 CTA：已选 0 → `Import all N`；已选 ≥1 → `Import N`（§4.5 唯一出处）。 */
-    public static String importCta(int selectedCount, int totalPhotos) {
-        return selectedCount <= 0 ? "Import all " + totalPhotos : "Import " + selectedCount;
+    /**
+     * 主 CTA（§4.5 唯一出处 / `C-08` / `C-10` / issue #83）：
+     * 可见已选数为 0 → `Import all N`（N = 当前 filter 可见集合的导出文件数）；
+     * 可见已选数 ≥1 → `Import N`（N = 可见已选数）。
+     *
+     * 分母与分子都只算**当前可见集合**：隐藏的已选项保留但不计入，避免出现可达的 `Import 0`。
+     */
+    public static String importCta(int visibleSelected, int visibleExportFiles) {
+        return visibleSelected <= 0 ? "Import all " + visibleExportFiles
+                : "Import " + visibleSelected;
     }
 
     /** 环下计数：`12/36`（P-03）。 */
