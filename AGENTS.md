@@ -68,7 +68,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 
 | # | 分片 | 门禁 | 命令 | 防什么 |
 |---|---|---|---|---|
-| 1 | `static` | `check_gates_manifest.py` | `python scripts/check_gates_manifest.py` | 元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：--warn/--soft/--dry-run/--fix 一律红，flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131） |
+| 1 | `static` | `check_gates_manifest.py` | `python scripts/check_gates_manifest.py` | 元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：--warn/--soft/--dry-run/--fix/--write/--self-test 一律红，flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131） |
 | 2 | `static` | `check_no_vendored.py` | `python scripts/check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
 | 3 | `static` | `check_doc_links.py` | `python scripts/check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
 | 4 | `static` | `py_compile` | `python -m compileall -q scripts tools` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |

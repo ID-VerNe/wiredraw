@@ -8,8 +8,8 @@
 它会用清单重写 AGENTS.md 里 `<!-- gates:ci:begin -->` 与 `<!-- gates:ci:end -->` 之间那一段。
 
 顺带校验：条目引用的脚本确实在磁盘上、没有重复的门禁名、以及 `cmd` 的参数没有被
-静默降级（#131）：门禁命令里不许出现只报告不阻断或会改写工作区的参数（`--warn` /
-`--soft` / `--dry-run` / `--fix`）；条目可用 `flags.require` 声明必须在命令里原样
+静默降级（#131）：门禁命令里不许出现只报告不阻断、会改写工作区或只跑用例的参数
+（`--warn` / `--soft` / `--dry-run` / `--fix` / `--write` / `--self-test`）；条目可用 `flags.require` 声明必须在命令里原样
 出现的参数；脚本自己声明了降级开关时，必须用 `flags.require` 显式选阻断模式；
 命令里跟在仓库内 `.py` 脚本后的长参数必须被该脚本的 `--help` 声明过（拼错即红）。
 
@@ -30,9 +30,10 @@ AGENTS = ROOT / "AGENTS.md"
 BEGIN = "<!-- gates:ci:begin -->"
 END = "<!-- gates:ci:end -->"
 
-# 出现在门禁命令里就等于把门关掉：前三个只报告不阻断，`--fix` 会在跑门禁时改写工作区
-# （门禁必须只读）。这张表是**策略**，不是「某条命令应该怎么写」的期望值。
-FORBIDDEN_FLAGS = {"--warn", "--soft", "--dry-run", "--fix"}
+# 出现在门禁命令里就等于把门关掉：前三个只报告不阻断；`--fix` / `--write` 会在跑门禁时
+# 改写工作区（门禁必须只读）；`--self-test` 只跑用例、跳过清单与生成段比对。
+# 这张表是**策略**，不是「某条命令应该怎么写」的期望值。
+FORBIDDEN_FLAGS = {"--warn", "--soft", "--dry-run", "--fix", "--write", "--self-test"}
 # 脚本自带这些开关时，清单必须用 `flags.require` 显式声明一个阻断模式。
 DOWNGRADE_FLAGS = {"--warn", "--soft", "--dry-run"}
 LONG_FLAG = re.compile(r"--[a-z][a-z0-9-]*")
@@ -253,6 +254,16 @@ def self_test() -> int:
         })
 
     run("新增门禁直接用 --warn", new_gate_warn, want=True, must=("会关掉门禁的参数：--warn",))
+
+    def meta_self_test(d):
+        _ci_entry(d, "check_gates_manifest.py")["cmd"] = ["python", "scripts/check_gates_manifest.py", "--self-test"]
+
+    run("元门禁自己被改成 --self-test", meta_self_test, want=True, must=("会关掉门禁的参数：--self-test",))
+
+    def meta_write(d):
+        _ci_entry(d, "check_gates_manifest.py")["cmd"] = ["python", "scripts/check_gates_manifest.py", "--write"]
+
+    run("元门禁自己被改成 --write", meta_write, want=True, must=("会关掉门禁的参数：--write",))
 
     def duplicate(d):
         d["ci"].append(copy.deepcopy(d["ci"][0]))
