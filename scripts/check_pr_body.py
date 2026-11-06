@@ -9,20 +9,26 @@
   本地 `--pr N` 用 `gh pr view N --json body`；`--body-file` 供离线自查。
 - 评论：`gh pr view N --json comments`（issue comments，不含 review 线程）；定位用评论 URL
   里的 `#issuecomment-<数字>`，拿不到 URL 时退回 node id 或本次返回序号。
+- `--all`：手动盘点全部历史 PR（`gh pr list --state all`），逐个复用同一套抓取与扫描。
+  **只读、不进 `scripts/gates.json`、不在 CI 跑**（#136）。
 
 规则：直接复用 `check_sensitive.scan_text`，命中即退出 1；只打印打码值与确定性占位符，
 不回显原值。PR 正文/评论是外部输入，**不认行内 `allow-sensitive` 豁免**（任何人都能自带
 理由绕过），但脚本内 `ALLOWLIST` 仍生效，因为它的值固定在仓库里。
 
-已知边界（issue #125）：
+已知边界（issue #125 / #136）：
 - 不扫 commit message（由 `check_commit_messages.py` 覆盖，#134）、review 评论 / review 正文。
 - 评论只在 PR 事件上复扫；晚于最后一次 PR 事件的评论不会被自动覆盖，必要时手跑 `--pr N`。
+- **历史 PR 不回扫**：support 档只在 `pull_request` 事件上跑，合并后的 PR 不再触发；盘点时手跑
+  `--all`（只读，单次最多枚举 1000 个 PR，gh 上限）。GitHub 的编辑历史（`userContentEdits`）、
+  issue 正文、review 行内评论不在覆盖范围。
 - 跨行切断的 token 不保证命中（沿用 `check_sensitive.py` 的逐行扫描）。
 - 无 PR 上下文时 SKIP；有上下文但正文/评论取不全时退出 2——不许把「取不到」当绿。
 
 用法：
     python scripts/check_pr_body.py                          # CI：读事件载荷；本地无上下文则 SKIP
     python scripts/check_pr_body.py --pr 129                 # 本地查指定 PR（正文 + 评论）
+    python scripts/check_pr_body.py --all                    # 手动盘点全部历史 PR（只读，不进 CI）
     python scripts/check_pr_body.py --body-file .tmp/pr.md   # 离线只查正文
     python scripts/check_pr_body.py --self-test
 """
@@ -30,6 +36,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -128,6 +136,37 @@ def scan_sources(
     return hits
 
 
+def list_pr_numbers(runner=None) -> list[int]:
+    """列出全部状态的 PR 编号（`--all` 手动盘点专用，只读）。"""
+    data = _gh_json(
+        ["pr", "list", "--state", "all", "--limit", "1000", "--json", "number"], runner
+    )
+    if not isinstance(data, list):
+        raise EnvProblem("gh pr list 返回的不是数组")
+    numbers: list[int] = []
+    for item in data:
+        number = item.get("number") if isinstance(item, dict) else None
+        if not isinstance(number, int) or number <= 0:
+            raise EnvProblem("gh pr list 返回项缺合法 number")
+        numbers.append(number)
+    return numbers
+
+
+def scan_all_prs(runner=None) -> tuple[int, int, list[tuple[int, list[Hit]]]]:
+    """遍历全部历史 PR（只读）；返回 (PR 数, 评论数, [(PR 号, 命中)])。"""
+    numbers = list_pr_numbers(runner)
+    repo = _repo_slug()
+    total_comments = 0
+    bad: list[tuple[int, list[Hit]]] = []
+    for number in numbers:
+        body, comments = fetch_pr(number, runner)
+        total_comments += len(comments)
+        hits = scan_sources(body, comments, repo)
+        if hits:
+            bad.append((number, hits))
+    return len(numbers), total_comments, bad
+
+
 def _report(hits: list[Hit], comments: list[tuple[str, str]]) -> int:
     scope = "PR 正文" if not comments else f"PR 正文 + {len(comments)} 条评论"
     if not hits:
@@ -142,10 +181,35 @@ def _report(hits: list[Hit], comments: list[tuple[str, str]]) -> int:
     return 1
 
 
+def _report_all(
+    pr_count: int, comment_count: int, hits_by_pr: list[tuple[int, list[Hit]]]
+) -> int:
+    """`--all` 的汇总报告：先总后分，命中只打码。"""
+    if not hits_by_pr:
+        print(f"[绿] 历史 PR 回扫：{pr_count} 个 PR、{comment_count} 条评论，无敏感信息命中")
+        return 0
+    for number, hits in hits_by_pr:
+        print(f"[红] PR #{number}：命中 {len(hits)} 处")
+        for hit in hits:
+            print(
+                f"[红] PR #{number} {hit.path}:{hit.line} [{hit.category}] "
+                f"{hit.masked()} → {hit.placeholder()}"
+            )
+    total = sum(len(hits) for _, hits in hits_by_pr)
+    print(
+        f"[红] 历史 PR 回扫：{pr_count} 个 PR、{comment_count} 条评论，"
+        f"命中 {total} 处（{len(hits_by_pr)} 个 PR）。只显示打码值，原值不落日志"
+    )
+    return 1
+
+
 def main(argv: list[str] | None = None, runner=None) -> int:
     parser = argparse.ArgumentParser(description="PR 正文与评论的敏感信息门禁（#125）")
     parser.add_argument("--pr", type=int, help="查指定 PR（正文 + 评论），需要 gh 登录态")
     parser.add_argument("--body-file", help="离线只查一份正文文本")
+    parser.add_argument(
+        "--all", action="store_true", help="手动盘点全部历史 PR（只读；不进 CI）"
+    )
     parser.add_argument("--self-test", action="store_true", help="跑内置自检")
     args = parser.parse_args(argv)
 
@@ -154,8 +218,13 @@ def main(argv: list[str] | None = None, runner=None) -> int:
     if args.pr and args.body_file:
         print("[红] --pr 与 --body-file 只能二选一", file=sys.stderr)
         return 2
+    if args.all and (args.pr or args.body_file):
+        print("[红] --all 不能与 --pr/--body-file 同用", file=sys.stderr)
+        return 2
 
     try:
+        if args.all:
+            return _report_all(*scan_all_prs(runner))
         if args.body_file:
             try:
                 body = Path(args.body_file).read_text(encoding="utf-8", errors="replace")
@@ -192,6 +261,27 @@ def _self_test() -> int:
         if not ok:
             bad += 1
         print(f"[{'PASS' if ok else 'FAIL'}] {name}")
+
+    def expect_exit(name: str, argv: list[str], want: int, runner=None) -> None:
+        try:
+            got: object = main(argv, runner=runner)
+        except SystemExit as exc:  # argparse 拒绝参数时抛 SystemExit，不能让它炸掉用例
+            got = exc.code
+        except Exception as exc:  # 用例本身不许因未实现而炸掉
+            got = f"异常 {type(exc).__name__}: {exc}"
+        record(f"{name}（期望退出 {want}，实际 {got}）", got == want)
+
+    def capture(argv: list[str], runner=None) -> tuple[object, str]:
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code: object = main(argv, runner=runner)
+        except SystemExit as exc:
+            code = exc.code
+            out.write(f"SystemExit {exc.code}")
+        except Exception as exc:
+            code = f"异常 {type(exc).__name__}: {exc}"
+        return code, out.getvalue()
 
     sample = "-".join(("0123abcd", "4567", "89"))  # 明显虚构，与自检夹具同值
     clean = "这是一段没有任何敏感信息的正文。"
@@ -294,6 +384,53 @@ def _self_test() -> int:
     handle.close()
     record("--body-file 干净退出 0", main(["--body-file", handle.name]) == 0)
     Path(handle.name).unlink()
+
+    # --all：手动盘点全部历史 PR（只读，不在 CI 跑）。
+    def all_runner(numbers: list[int], payloads: dict[int, tuple[str, list[dict]]]):
+        def run(args: list[str], **_kwargs):
+            # `_gh_json` 传的是 ["gh", ...]，所以子命令从下标 1 开始。
+            if args[1:3] == ["pr", "list"]:
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps([{"number": n} for n in numbers]),
+                    stderr="",
+                )
+            if args[1:3] == ["pr", "view"]:
+                number = int(args[3])
+                body, comments = payloads[number]
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({"body": body, "comments": comments}),
+                    stderr="",
+                )
+            raise AssertionError(f"未预期的 gh 调用：{args}")
+
+        return run
+
+    expect_exit(
+        "--all 全干净退出 0", ["--all"], 0,
+        all_runner([1, 2], {1: (clean, []), 2: (clean, [{"body": "干净评论"}])}),
+    )
+    expect_exit(
+        "--all 正文命中退出 1", ["--all"], 1,
+        all_runner([1], {1: ("配对值 " + sample, [])}),
+    )
+    expect_exit(
+        "--all 评论命中退出 1", ["--all"], 1,
+        all_runner([3], {3: (clean, [{"body": "评论 " + sample}])}),
+    )
+    expect_exit("--all gh 枚举失败退出 2", ["--all"], 2, fail)
+    expect_exit("--all 与 --pr 互斥退出 2", ["--all", "--pr", "1"], 2)
+    expect_exit("--all 与 --body-file 互斥退出 2", ["--all", "--body-file", "x.md"], 2)
+
+    code, output = capture(
+        ["--all"],
+        all_runner([1, 2], {1: (clean, []), 2: (clean, [{"body": "干净评论"}])}),
+    )
+    record(
+        "--all 汇总计数正确",
+        code == 0 and "2 个 PR、1 条评论" in output,
+    )
 
     if bad:
         print(f"== 自检失败：{bad} / {total} 项 ==", file=sys.stderr)

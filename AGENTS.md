@@ -210,7 +210,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `docs/contributing/LOCAL_WORKSPACE.md` | 本地专属目录与内部工具：哪些目录只留本地、15 个参考仓库的来历、证据存放与占位约定 |
 | `scripts/review_prompt.py` | 生成合并评审的派发文案（默认不含 PR 正文，`--self-test` 自检） |
 | `scripts/check_pr_sections.py` | PR 正文分段结构校验（`support` 档，CI 在 `pull_request` 上跑） |
-| `scripts/check_pr_body.py` | PR 正文与评论的敏感信息校验：复用 `check_sensitive.py` 的规则，不认行内豁免（`support` 档，评论走 gh） |
+| `scripts/check_pr_body.py` | PR 正文与评论的敏感信息校验：复用 `check_sensitive.py` 的规则，不认行内豁免（`support` 档，评论走 gh）；`--all` 手动盘点全部历史 PR（只读、不进 CI，#136） |
 | `scripts/check_commit_messages.py` | commit message 的敏感信息门禁：`support` 档扫 PR 的 `base..head` 新增提交，本地 `.githooks/commit-msg` 调 `--message-file` 先拦（#134） |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移；cmd 参数不许降级（`--self-test` 跑回归用例） |
