@@ -1,7 +1,7 @@
 # 怎么开 PR（PR 操作指引）
 
 > 本文件是本仓库内所有 Agent 与协作者的 PR 规范，**必须遵照执行**。
-> 配套：怎么发 issue 见 [ISSUE_GUIDE.md](ISSUE_GUIDE.md)；流程总览见 [AGENTS.md](../AGENTS.md) §0。
+> 配套：怎么发 issue 见 [ISSUE_GUIDE.md](ISSUE_GUIDE.md)；流程总览见 [AGENTS.md](../../AGENTS.md) §0。
 
 ## 定位：PR 是最小可审查单元
 
@@ -15,7 +15,7 @@
 
 | 关键词 | 适用 PR | 关闭时机 |
 |---|---|---|
-| `Closes #NN` | 纯文档（`doc/`、`docs/`、`*.md`）、纯重构（不改外部行为） | 合并即关闭 |
+| `Closes #NN` | 纯文档（`docs/`、`*.md`）、纯重构（不改外部行为） | 合并即关闭 |
 | `Refs #NN` | 行为类：`fix` / `feat` / `perf`，以及任何触及运行时代码路径的 PR | 合并只进待验收队列（`needs-live-verify`），回签后才关闭 |
 
 判据一句话：**合并后是否还需要在真机上再观察一次症状才能确认有效**——需要就是行为类。

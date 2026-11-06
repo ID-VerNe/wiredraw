@@ -10,7 +10,7 @@
 ## 0. 迭代流程（先读这一节）
 
 所有仓库改动（代码、文档、门禁、配置）走五步，缺一步即不合规。
-细则：发 issue 看 [`doc/ISSUE_GUIDE.md`](doc/ISSUE_GUIDE.md)，开 PR 看 [`doc/PR_GUIDE.md`](doc/PR_GUIDE.md)。
+细则：发 issue 看 [`docs/contributing/ISSUE_GUIDE.md`](docs/contributing/ISSUE_GUIDE.md)，开 PR 看 [`docs/contributing/PR_GUIDE.md`](docs/contributing/PR_GUIDE.md)。
 
 1. **先发 issue（发现即提，不等批准）**：正文四要素齐全——现象（行为类必须带一条可直接粘贴的
    复现命令）/ 证据链（`文件:行号`）/ 影响面（P0–P2）/ 修复候选。给不出复现命令就贴 `needs-repro`。
@@ -24,13 +24,13 @@
    `Closes` 只给纯文档与纯重构，**行为类用 `Refs`**。
    **正文里举例一律写 `#NN` 占位**，不写具体编号——GitHub 对 PR 原始全文跑自动关闭解析，
    行内代码 / 围栏里的 closing 关键词加真实编号也会真的关掉 issue（见
-   [`doc/PR_GUIDE.md`](doc/PR_GUIDE.md)「硬规则」）。
+   [`docs/contributing/PR_GUIDE.md`](docs/contributing/PR_GUIDE.md)「硬规则」）。
    **合并审批权归全新上下文的 subagent**：提交者写完全部文档、门禁转绿后，
    用 `python scripts/review_prompt.py --pr <号>` 生成派发文案（**不要手写**，它默认不带 PR 正文，
    「不投喂结论」靠结构保证），原样交给只拿到 PR 编号、仓库路径与分支/标题/改动文件清单的评审会话；
    它出 `APPROVE` 就直接合并（merge commit，不 squash、不 rebase），
    不需要维护者逐 PR 人工点头。提交者不能给自己评审。契约见
-   [`doc/REVIEW_DISPATCH.md`](doc/REVIEW_DISPATCH.md)。
+   [`docs/contributing/REVIEW_DISPATCH.md`](docs/contributing/REVIEW_DISPATCH.md)。
 5. **合并后对账与回签**：修复者逐项核对「自述 vs 实际」（`git status`、文件存在性、门禁原始输出），
    给行为类 issue 贴 `needs-live-verify`；由发现者或**全新上下文**的会话按 PR_GUIDE 的模板回签，
    **回签通过才关 issue**。修复者不能给自己回签。
@@ -124,7 +124,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 ## 3. 现状：已经证实的事（别再重推一遍）
 
 这一节是花了一整晚真机实测换来的，**动相关代码前先读**。细节与原始输出见
-[`RESEARCH-android-usb-raw-a7c.md`](RESEARCH-android-usb-raw-a7c.md) 第 11、12 节。
+[`docs/research/a7c-usb-raw-2026-11.md`](docs/research/a7c-usb-raw-2026-11.md) 第 11、12 节。
 
 | 结论 | 证据 |
 |---|---|
@@ -141,14 +141,14 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 关注点 | 唯一归属 |
 |---|---|
 | 门禁清单 / 执行器 | `scripts/gates.json` + `scripts/run_gates.py`（**不要在别处再写一份命令数组**） |
-| 迭代流程细则 | `doc/ISSUE_GUIDE.md` / `doc/PR_GUIDE.md` |
-| 合并评审（派发 + 评审清单） | `doc/REVIEW_DISPATCH.md`（派发文案用 `scripts/review_prompt.py` 生成，**不要手写**） |
+| 迭代流程细则 | `docs/contributing/ISSUE_GUIDE.md` / `docs/contributing/PR_GUIDE.md` |
+| 合并评审（派发 + 评审清单） | `docs/contributing/REVIEW_DISPATCH.md`（派发文案用 `scripts/review_prompt.py` 生成，**不要手写**） |
 | MTP 枚举与下载 | `tools/android-mtp-probe/src/com/rea/mtpprobe/Main.java` |
 | APK 构建流程（探针） | `tools/android-mtp-probe/build.sh`（**keystore 必须在工程根目录**，见 §4） |
 | APK 构建流程（导片工具） | `tools/android-mtp-import/build.gradle.kts` + `gradle/wrapper/`（工具链版本锁在 wrapper 里，别用全局 Gradle） |
 | PTP/IP 连相机 | `tools/sony-ptpip/probe.py` |
 | pcap 解析 | `tools/sony-ptpip/parse_ptpip.py` |
-| 全部实测数据与历史 | `RESEARCH-android-usb-raw-a7c.md` |
+| 全部实测数据与历史 | `docs/research/a7c-usb-raw-2026-11.md` |
 
 ## 4. 环境坑（每个都真实踩过）
 
@@ -195,10 +195,10 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 文件 | 内容 |
 |---|---|
 | `README.md` | 对外门面：结论速览、实测数据、三个坑、仓库结构 |
-| `RESEARCH-android-usb-raw-a7c.md` | **主报告**，12 节，全部实测与踩坑记录 |
-| `doc/ISSUE_GUIDE.md` | 怎么发 issue：正文四要素、复现命令与 `needs-repro`、关闭方式、模板 |
-| `doc/PR_GUIDE.md` | 怎么开 PR：拆分命名、正文分段、基线验证、门禁改动、合并条件、对账与回签 |
-| `doc/REVIEW_DISPATCH.md` | 合并评审契约：派发方式、评审者必做清单、结论格式、常见误判 |
+| `docs/research/a7c-usb-raw-2026-11.md` | **主报告**，12 节，全部实测与踩坑记录 |
+| `docs/contributing/ISSUE_GUIDE.md` | 怎么发 issue：正文四要素、复现命令与 `needs-repro`、关闭方式、模板 |
+| `docs/contributing/PR_GUIDE.md` | 怎么开 PR：拆分命名、正文分段、基线验证、门禁改动、合并条件、对账与回签 |
+| `docs/contributing/REVIEW_DISPATCH.md` | 合并评审契约：派发方式、评审者必做清单、结论格式、常见误判 |
 | `scripts/review_prompt.py` | 生成合并评审的派发文案（默认不含 PR 正文，`--self-test` 自检） |
 | `scripts/check_pr_sections.py` | PR 正文分段结构校验（`support` 档，CI 在 `pull_request` 上跑） |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
@@ -207,9 +207,9 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `tools/android-mtp-import/README.md` | 导片工具骨架：类职责、实现状态表、为什么不做真续传、真机待验清单 |
 | `tools/android-mtp-import/UI-SPEC.md` | 导片工具界面规范（约束式）：两条主任务与任务流验收、状态机、布局安全区、视觉/文案基线、U-01–U-30 + T-01～T-06 |
 | `tools/sony-ptpip/README.md` | PTP/IP 抓包与探针的操作手册 |
-| `tools/sony-ptpip/FINDINGS-a7c-ptpip-session.md` | 抓包会话逐条分析 + 直连探针实测 |
-| `tools/pe/FINDINGS-Lja_PTP_IP.md` | `Lja_PTP_IP.dll` 静态分析结论 |
-| `docs/history/` | 早期可行性核查与 15 个仓库审计的产出（存档，不再更新） |
+| `docs/research/a7c-ptpip-session.md` | 抓包会话逐条分析 + 直连探针实测 |
+| `docs/research/lja-ptp-ip-static-analysis.md` | `Lja_PTP_IP.dll` 静态分析结论 |
+| `docs/archive/2026-11-audit/` | 早期可行性核查与 15 个仓库审计的产出（存档，不再更新） |
 
 ## 7. 工作习惯
 

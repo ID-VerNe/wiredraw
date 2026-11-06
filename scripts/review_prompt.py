@@ -3,7 +3,7 @@
 
 默认**不输出 PR 正文**：评审者拿到的只有 PR 编号、仓库路径、分支与改动文件清单，
 正文必须自己去 GitHub 读。这是结构性保证 —— 派发者想「顺手把提交者的结论也贴过去」
-只能显式加 `--with-body`（会打印警告），而不是默认就带。契约见 `doc/REVIEW_DISPATCH.md`。
+只能显式加 `--with-body`（会打印警告），而不是默认就带。契约见 `docs/contributing/REVIEW_DISPATCH.md`。
 
 用法：
     python scripts/review_prompt.py --pr 12
@@ -137,7 +137,7 @@ def render_prompt(meta: dict, body: str = "", with_body: bool = False) -> str:
         lines.extend(
             [
                 "",
-                f"**涉及门禁链：是**（{len(hits)} 个文件命中）——按 `doc/PR_GUIDE.md` 的"
+                f"**涉及门禁链：是**（{len(hits)} 个文件命中）——按 `docs/contributing/PR_GUIDE.md` 的"
                 "「门禁改动与独立复核」清单逐条查，重点看断言有没有被删弱/放宽、"
                 "基线在未打补丁的 base 上是不是真红。",
             ]
@@ -155,7 +155,7 @@ def render_prompt(meta: dict, body: str = "", with_body: bool = False) -> str:
             "不要向派发者要摘要，也不要让派发者转述。",
             f"2. **自己去读 diff**：`gh pr diff {n}`"
             f"（或 `git diff origin/{base}...{head}`）。",
-            "3. **读契约**：`doc/REVIEW_DISPATCH.md`，按其中的「评审者必做清单」逐条走。",
+            "3. **读契约**：`docs/contributing/REVIEW_DISPATCH.md`，按其中的「评审者必做清单」逐条走。",
             f"4. **自己复跑门禁**：在这个 worktree 里跑 `python scripts/run_gates.py ci`，"
             "把原始输出贴进结论。不采信 PR 正文里的绿，也不采信「CI 是绿的」。",
             "5. **出结论**：`APPROVE` 或 `REQUEST_CHANGES`，附证据（门禁原始输出、"
@@ -203,7 +203,7 @@ SAMPLE_META = {
     "head": "chore/999-sample",
     "author": "someone",
     "url": "https://example.invalid/pull/999",
-    "files": ["scripts/review_prompt.py", "doc/REVIEW_DISPATCH.md"],
+    "files": ["scripts/review_prompt.py", "docs/contributing/REVIEW_DISPATCH.md"],
 }
 SAMPLE_META_GATE = dict(SAMPLE_META, files=["scripts/gates.json", "scripts/run_gates.py"])
 
