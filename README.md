@@ -94,6 +94,7 @@ docs/
   testing.md            三档门禁与回归约定
   architecture.md       三条链路与导片工具分层
   known-limitations.md  已知限制与未验证项
+  verification-matrix.md 验证环境矩阵（哪条结论在哪套环境验过）
   safety-and-privacy.md 只读边界、设备身份与签名密钥
   contributing/         ISSUE_GUIDE / PR_GUIDE / REVIEW_DISPATCH / LOCAL_WORKSPACE
   research/             调研主报告、PTP/IP 会话分析与探索记录索引
