@@ -6,19 +6,21 @@ import android.util.Log;
 import android.util.LruCache;
 
 /**
- * 照片墙缩略图（issue #59）。
+ * 照片墙缩略图与看图页预览（issue #59 / #61）。
  *
  * 真实 MTP 路径按顺序尝试：
  * 1. 相机对 ARW 句柄的 `getThumbnail`（GetThumb 只读，不取整张 24 MP RAW）；
  * 2. 同名同目录 JPG 的 `getThumbnail`（索尼机身默认同时写 JPEG，回退不需要相机额外能力）；
- * 3. 都拿不到就返回 null，界面退回 V-19 的灰块 + 文件名降级形态。
+ * 3. 都拿不到就返回 null，界面退回 {@code V-19} 灰块 + 文件名 / {@code U-51} 胶囊降级形态。
  *
  * `getThumbnail` 对 ARW 的支持**未在真机验证**（2026-11-06 相机被另一会话探针占用）；
- * 因此这里把能力当成运行时可失败：任何 Throwable 都只记 logcat 并回退，不让它把照片墙打崩。
+ * 因此这里把能力当成运行时可失败：任何 Throwable 都只记 logcat 并回退，不让界面崩。
  *
  * 并发：所有相机调用都在 {@code session.ioLock()} 下串行，与导入的 `importFile` /
- * `getPartialObject` 共用同一把锁；内存用 24 MiB 的 LruCache，离屏/被淘汰的位图不会常驻
- * （用户要求「不显示的就从内存删掉」），会话关闭时 {@link #clear()} 整块释放。
+ * `getPartialObject` / 会话探活共用同一把锁；内存用 24 MiB 的网格 LruCache，
+ * 离屏/被淘汰的位图不会常驻（用户要求「不显示的就从内存删掉」），会话关闭时
+ * {@link #clear()} 整块释放。看图页另用 8 MiB 的 `previewCache`，让连续打开同一张
+ * 不重复读相机（#61 验收项），仍然有界。
  */
 public final class ThumbnailStore {
 
@@ -27,6 +29,8 @@ public final class ThumbnailStore {
     private static final int CACHE_BYTES = 24 << 20;
     /** 网格单元约 344 px 宽；按 512 长边解码，避免大图整张进内存。 */
     private static final int MAX_EDGE = 512;
+    /** 看图页只保留最近几张预览：验证「连续打开两次不重复读相机」，又不让离屏图常驻。 */
+    private static final int PREVIEW_BYTES = 8 << 20;
 
     private final LruCache<Integer, Bitmap> cache = new LruCache<Integer, Bitmap>(CACHE_BYTES) {
         @Override
@@ -34,6 +38,14 @@ public final class ThumbnailStore {
             return value.getByteCount();
         }
     };
+
+    private final LruCache<Integer, Bitmap> previewCache =
+            new LruCache<Integer, Bitmap>(PREVIEW_BYTES) {
+                @Override
+                protected int sizeOf(Integer key, Bitmap value) {
+                    return value.getByteCount();
+                }
+            };
 
     /** 缓存代际：清空 / 换会话时自增，挡住旧会话的在飞请求写进新会话缓存。 */
     private final Object epochLock = new Object();
@@ -69,6 +81,7 @@ public final class ThumbnailStore {
         synchronized (epochLock) {
             epoch++;
             cache.evictAll();
+            previewCache.evictAll();
         }
     }
 
@@ -123,6 +136,53 @@ public final class ThumbnailStore {
             // 否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2）。
             if (epoch != startEpoch) return null;
             cache.put(entry.handle, decoded);
+        }
+        return decoded;
+    }
+
+    /**
+     * 看图页首帧只读缓存（预览缓存优先，其次网格缓存），不触发相机调用。
+     *
+     * demo 有整图（≤1440），网格缓存里只有降采样版（≤512），所以 demo 未命中预览缓存时
+     * 返回 null，让 {@link #loadPreview} 在 IO 线程取整图；真实路径仍可先显示网格缩略图。
+     */
+    public Bitmap cachedPreview(int handle) {
+        Bitmap hit = previewCache.get(handle);
+        if (hit != null) return hit;
+        if (demo != null) return null;
+        return cache.get(handle);
+    }
+
+    /**
+     * 读一张看图页预览（issue #61）。**必须在 IO 线程调用**；返回 null 表示没有可用像素，
+     * 界面保持 {@code U-51} 的 `ARW · <size>` 胶囊形态。
+     *
+     * 像素来源与照片墙同一条只读链路（ARW `getThumbnail` → 同名 JPG），
+     * 分辨率上限为 min(`getThumbnail` 源分辨率, `MAX_EDGE`=512)，源分辨率属真机未验项；
+     * 这里不下载整张 RAW。
+     */
+    public Bitmap loadPreview(Catalog.Entry entry) {
+        if (entry == null) return null;
+        Bitmap hit = cachedPreview(entry.handle);
+        if (hit != null) return hit;
+
+        int startEpoch = epoch;
+        Bitmap decoded = null;
+        try {
+            PhotoPreview d = demo;
+            if (d != null) {
+                // demo 素材本身就是看图页要用的整图，不再降采样。
+                decoded = d.previewFor(entry);
+            }
+            if (decoded == null) decoded = fromCamera(entry);
+        } catch (Throwable t) {
+            Log.w(TAG, "看图页预览失败 handle=" + entry.handle + "：" + t);
+        }
+        if (decoded == null) return null;
+
+        synchronized (epochLock) {
+            if (epoch != startEpoch) return null;
+            previewCache.put(entry.handle, decoded);
         }
         return decoded;
     }
