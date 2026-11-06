@@ -2138,13 +2138,15 @@ public final class SelfTest {
     // ---------------- 无主半成品清理（issue #52） ----------------
 
     /**
-     * 钉住 S1 判据：保留与否只看 `relPath` 是否还在本次目录，**不看 size**。
+     * 钉住 S1（改 A）判据：保留集 = `relPath + size`，与 {@link Journal#partPath} 同口径。
      *
      * 两个关键方向：
-     * - `relPath` 已不在目录、`.part` 还在 → 必须删（对象已不存在，接不上）；
-     * - `relPath` 在目录、但 `.part` 的 size 不同 → 必须留（异尺寸拒绝留下的合法半成品）。
+     * - 同 `relPath`、旧 size（size 已不被任何目录对象认领）→ 必须删（#52 主症状）；
+     * - `relPath` 已完全不在目录 → 必须删（对象已不存在，接不上）。
      *
-     * 干扰项覆盖账本、索引、`.tmp`、没有 size 段的 `.part`、子目录里的 `.part`。
+     * 保留：`relPath + size` 都能对上（含异尺寸拒绝留下的合法半成品）。
+     * 干扰项覆盖账本、索引、`.tmp`、没有 size 段的 `.part`、子目录里的 `.part`；
+     * 另钉住 `keepNames == null` 的安全语义：一个都不删。
      */
     static void partResidueCases() throws Exception {
         File out = Files.createTempDirectory("wiredraw-part-residue").toFile();
@@ -2152,14 +2154,14 @@ public final class SelfTest {
         Set<String> keep = PartResidue.keepNames(c.all());
         Journal j = new Journal();
 
-        String sameSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
-        writeSizedFile(new File(sameSize), 40);
+        String keepSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
+        writeSizedFile(new File(keepSize), 40);
 
-        // 关键方向 2：同 relPath、异 size —— 异尺寸拒绝留下的合法半成品，必须保留。
-        String otherSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 299);
-        writeSizedFile(new File(otherSize), 40);
+        // 关键方向 1：同 relPath、旧 size —— 目录里已没有这个 size 的对象，必须删。
+        String staleSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 299);
+        writeSizedFile(new File(staleSize), 40);
 
-        // 关键方向 1：relPath 已完全不在目录 —— 无主，必须删。
+        // 关键方向 2：relPath 已完全不在目录 —— 无主，必须删。
         String gone = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC99999.ARW", 300);
         writeSizedFile(new File(gone), 40);
 
@@ -2169,14 +2171,23 @@ public final class SelfTest {
         writeSizedFile(new File(out, "plain.part"), 5);
         writeSizedFile(new File(out, "DCIM/stray.300.part"), 5);
 
+        check("无主半成品：保留集与 partPath 同口径（relPath + size）",
+                keep.contains(new File(keepSize).getName())
+                        && !keep.contains(new File(staleSize).getName()),
+                "keep 集不含当前 size 或不排斥旧 size");
+        check("无主半成品：keepNames(null) 返回空集，不退化成全删",
+                PartResidue.keepNames(null).isEmpty(), "返回非空");
+        check("无主半成品：keep 集为 null 时 orphans 为空",
+                PartResidue.orphans(out, null).isEmpty(), "返回非空");
+
         int cleaned = PartResidue.clean(out, keep, Log.NOOP);
-        check("无主半成品：只删 relPath 已不在目录的那一个", cleaned == 1, "实际 " + cleaned);
-        check("无主半成品：relPath 已不在目录 → 被删（#52）",
+        check("无主半成品：删掉旧 size 与消失对象两个", cleaned == 2, "实际 " + cleaned);
+        check("无主半成品：同 relPath、旧 size → 被删（#52 主症状）",
+                !new File(staleSize).exists(), "仍存在：" + staleSize);
+        check("无主半成品：relPath 已不在目录 → 被删",
                 !new File(gone).exists(), "仍存在：" + gone);
-        check("无主半成品：relPath 在目录、size 相同 → 保留",
-                new File(sameSize).isFile(), "被删：" + sameSize);
-        check("无主半成品：relPath 在目录、size 不同 → 保留（异尺寸拒绝的合法半成品）",
-                new File(otherSize).isFile(), "被删：" + otherSize);
+        check("无主半成品：relPath + size 都能对上 → 保留（异尺寸拒绝的合法半成品）",
+                new File(keepSize).isFile(), "被删：" + keepSize);
         check("无主半成品：账本 / 索引 / .tmp / 无 size 段的 .part 不被动",
                 new File(out, "import-journal.txt").isFile()
                         && new File(out, ImportedIndex.FILE_NAME).isFile()

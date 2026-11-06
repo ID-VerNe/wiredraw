@@ -7,36 +7,36 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 无主 `.part` 清理（issue #52，S1）。
+ * 无主 `.part` 清理（issue #52，S1 的 A 版）。
  *
- * 判据只看 `relPath`，**不看 size**：
+ * 保留集与 {@link Journal#partPath} 同口径：`relPath + size`。
  *
- * - 合法保留集 = 本次 {@link Catalog} 里的所有 `relPath` 压平名；
- * - 可删集 = 顶层里 `relPath` 已完全不在本次目录的 `.part`（对象在相机侧已不存在，接不上）；
- * - `relPath` 仍在目录、但 size 不同的 `.part` **保留**——异尺寸拒绝留下的那只仍属合法半成品，
- *   每项至多一个（{@link DestPolicy} 保证）。
+ * - 合法保留 = `relPath` 仍在本次目录、且 size 能对上某个对象的 `.part`
+ *   （含异尺寸拒绝留下的那只——它的 size 就是当前对象 size，每项至多一个，由 {@link DestPolicy} 保证）；
+ * - 可删 = `relPath` 已完全不在目录，或同 `relPath` 但 size 已不被任何对象认领的 `.part`
+ *   （换卡 / 编号复用 / 文件替换留下的旧尺寸残留，接不上）。
  *
  * 为什么不用 Journal 判定：{@link Journal} 只在成功时写 `done = size`，失败轮次从不记部分进度，
  * 用它当依据会把所有可续传的 `.part` 判成无主。
  *
  * 只扫 `outDir` 顶层：{@link Journal#partPath} 把半成品平铺在这里，成品在子目录。
  *
- * **调用前提（由调用方保证）**：本类不做并发保护。调用方必须在「没有活动写者」时调用——
- * 当前实现放在 `Main.doStart()` 里 `new ImportService` 之前，那时 `service` 与 `orphanService`
- * 的 `isRunning()` 都已被双闸挡掉。
+ * **调用前提（由调用方保证）**：本类不做并发保护。调用方必须在「没有活动写者」时调用，
+ * 且只在该相机枚举**完整成功**时调用——用不完整的目录当保留集，会把仍可续传的 `.part` 误删。
+ * 当前实现由 `Main.cleanupPartResidue()` 负责这两个前提。
  */
 public final class PartResidue {
 
     private PartResidue() {
     }
 
-    /** 合法保留集：本次目录里所有对象的 `relPath` 压平名（不看 size）。 */
+    /** 合法保留集：本次目录里每个对象的 `relPath + size`（与 {@link Journal#partPath} 同口径）。 */
     public static Set<String> keepNames(Iterable<Catalog.Entry> entries) {
         Set<String> keep = new HashSet<>();
         if (entries == null) return keep;
         for (Catalog.Entry e : entries) {
             if (e == null || e.relPath == null || e.relPath.isEmpty()) continue;
-            keep.add(Journal.partName(e.relPath));
+            keep.add(Journal.partName(e.relPath) + "." + e.size + ".part");
         }
         return keep;
     }
@@ -54,25 +54,22 @@ public final class PartResidue {
         return true;
     }
 
-    /** 从 `<base>.<size>.part` 取回压平后的 relPath 名；不是半成品返回 null。 */
-    static String partBase(String name) {
-        if (!isPartName(name)) return null;
-        String stem = name.substring(0, name.length() - ".part".length());
-        return stem.substring(0, stem.lastIndexOf('.'));
-    }
-
-    /** 顶层里无人认领的半成品（不递归）。 */
+    /**
+     * 顶层里无人认领的半成品（不递归）。
+     *
+     * `keepNames == null` 一律返回空列表：保留集缺失时**一个都不删**。
+     * 这是安全默认值——宁可留下残留，也不能因为 API 误用把可续传的半成品全删掉。
+     */
     public static List<File> orphans(File outDir, Set<String> keepNames) {
         List<File> dead = new ArrayList<>();
-        if (outDir == null || !outDir.isDirectory()) return dead;
+        if (outDir == null || !outDir.isDirectory() || keepNames == null) return dead;
         File[] kids = outDir.listFiles();
         if (kids == null) return dead;
         for (File kid : kids) {
             if (!kid.isFile()) continue;
             String name = kid.getName();
             if (!isPartName(name)) continue;
-            String base = partBase(name);
-            if (base != null && keepNames != null && keepNames.contains(base)) continue;
+            if (keepNames.contains(name)) continue;
             dead.add(kid);
         }
         return dead;
