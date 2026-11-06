@@ -36,13 +36,13 @@
 /tools/android-mtp-probe/build/
 /tools/android-mtp-import/build/
 
-# ---- Gradle（导片工具构建，issue #36）----
+# ---- Gradle（导片工具构建）----
 # wrapper 与版本锁入库；缓存、机器相关的 SDK 路径、堆转储不入库
 /tools/android-mtp-import/.gradle/
 /tools/android-mtp-import/local.properties
 *.hprof
 
-# ---- demo 照片占位（issue #46）----
+# ---- demo 照片占位 ----
 # 由 generateDemoPhotos 从本机素材降采样生成，产物随构建重建，不入库
 /tools/android-mtp-import/src/debug/assets/demo/
 
@@ -57,7 +57,7 @@
 # ---- 归档区只收文本记录（.md / .txt）：原始 logcat / dump / 截图 / pcapng / APK 一律只留本地 ----
 # 第二行必须先重新包含子目录，否则被忽略目录内部的文本无法再被白名单召回。
 # 放行 .txt 是为了防静默丢记录：审计产物里有纯文本清单（如 docs/archive/2026-11-audit/），
-# 只放行 .md 的话，以后新加的 .txt 会被无声忽略——比目录里多一个文本危险得多（issue #94）。
+# 只放行 .md 的话，以后新加的 .txt 会被无声忽略——比目录里多一个文本危险得多。
 /docs/archive/**
 !/docs/archive/**/
 !/docs/archive/**/*.md
@@ -68,7 +68,7 @@
 
 # ---- 本地记忆与交接文档不入库 ----
 # `.workbuddy/` 是本地过程记忆、`.handoffs/` 是会话交接；它们每天新增，对协作者无可复用价值，
-# 且交接里含会话上下文，只留本地（issue #12）。
+# 且交接里含会话上下文，只留本地。
 /.workbuddy/
 /.handoffs/
 

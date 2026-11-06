@@ -87,7 +87,7 @@ MD5 = 060f09ec9eb37139060a9f49c52c98a5   （与 PC 侧 pull 下来后一致）
 
 ## PC 探针（`getPartialObject`，2026-11-06）
 
-环境：小米 9 / Android 15 (API 35) / ILCE-7C 2.00 / USB MTP（issue #67，#50 的 PC 分节）。
+环境：小米 9 / Android 15 (API 35) / ILCE-7C 2.00 / USB MTP。
 
 实测结论：
 
