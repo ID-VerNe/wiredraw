@@ -45,6 +45,9 @@ git config core.hooksPath .githooks
 新增门禁只改 `scripts/gates.json`，然后跑
 `python scripts/check_gates_manifest.py --write` 同步 AGENTS.md 的生成段。
 
+另有 `support` 档（`python scripts/run_gates.py support`）：它校验需要 PR 上下文的项，
+本地没有 PR 上下文时会 `SKIP`，属正常。
+
 ## issue 与 PR 的最小要求
 
 完整细则见 [doc/ISSUE_GUIDE.md](doc/ISSUE_GUIDE.md) 与
