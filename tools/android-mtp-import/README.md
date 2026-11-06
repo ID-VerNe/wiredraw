@@ -207,21 +207,35 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 一条命令验完（JVM 自检 + APK 构建）：
 
 ```bash
+# Linux / macOS / Git Bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
+```
+
+Windows PowerShell 用 `.bat` 包装脚本（`gradlew` 的 LF shell 脚本在 WSL 下会报
+`$'\r': command not found`）：
+
+```powershell
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest assembleDebug
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
 以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 441 项）：
 
 ```bash
+# Linux / macOS / Git Bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
+# Windows PowerShell
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest
 ```
 
 单独构建 APK：
 
 ```bash
+# Linux / macOS / Git Bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import assembleDebug
 # 产物 tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
+# Windows PowerShell
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import assembleDebug
 ```
 
 环境要求：JDK 17+（本机用 Temurin 21）、Android SDK（platform 35 + build-tools 35）。

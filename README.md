@@ -27,6 +27,7 @@
 
 ```bash
 # 1) 构建两个 APK（需要 Android SDK + JDK，细节见 docs/building.md）
+#    Linux / macOS / Git Bash：
 bash tools/android-mtp-probe/build.sh
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import assembleDebug
 
@@ -36,6 +37,21 @@ python scripts/run_gates.py ci
 # 3) 装到测试机
 adb install -g tools/android-mtp-probe/build/mtp-probe.apk
 adb install -g tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
+```
+
+**Windows PowerShell 注意**：PowerShell 里的 `bash` 落到 WSL，上面两条构建命令会失败
+（WSL 内看不到 Windows 的 SDK 路径，`gradlew` 还会报 `$'\r': command not found`）。
+用下面几条等价命令（本机已实测通过）：
+
+```powershell
+# 两个 APK 一起验：探针 build.sh + 导片工具自检 / 构建 / 验签
+python scripts/run_gates.py manual
+
+# 只要探针 APK：用 Git for Windows 的 bash（不是 PowerShell 里的 bash）
+& "C:\Program Files\Git\bin\bash.exe" tools/android-mtp-probe/build.sh
+
+# 只要导片工具
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest assembleDebug
 ```
 
 相机侧：`MENU → 设置 → USB连接 → MTP`（不是 PC 遥控）。首次插线系统会弹授权，
