@@ -119,7 +119,7 @@
 | 能力 | 验证状态 | 若可得 | 若不可得（降级） |
 |---|---|---|---|
 | 缩略图（PTP `GetThumb` 或 ObjectInfo 附带预览） | **缩略图已实现、真机未验证**（#59 已按 `getThumbnail` 异步取图，当前顺序 ARW → 同名 JPG）；**JPG 优先顺序未实现**（`V-32`，随 issue #83 的实现 PR 落地）；ARW 句柄是否支持仍未知 | 网格缩略图（宽 ≥88 dp，长按进 `photo` 页） | **同尺寸灰块 + 文件名 12 sp**，可正常点选（这是网格内**唯一**允许出现文件名的场景，见 V-19）；不显示已导入标记（依赖 §0.11 第 1 行） |
-| 同名 JPG 整张（`photo` 页） | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步补同名 JPG 整张，均值 1.7 MB/张） | `photo` 页先出缩略图，停留后异步取整张 JPG 替换；失败保留缩略图 | 拿不到像素时 `photo` 页只显示该单元**实际格式 + 容量**的单行胶囊（`ARW · 23.8 MB`；仅 JPG 单元为 `JPG · 1.7 MB`，按 `C-05` 取整），不显示假图；**不得**回退去下载整张 ARW |
+| 同名 JPG 整张（`photo` 页） | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步补同名 JPG 整张，均值 1.7 MB/张） | `photo` 页先出缩略图，停留后异步取整张 JPG 替换；失败保留缩略图 | 拿不到像素时 `photo` 页只显示「格式 · 容量」单行胶囊（格式与容量 = **当前档位下的导出文件**：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`），不显示假图；**不得**回退去下载整张 ARW |
 | EXIF 拍摄时间 | **未验证** | 按拍摄日期分组 | 按文件修改日期分组（见下一行），组头标「按文件时间」 |
 | 文件修改时间（ObjectInfo 的 `DateModified`） | **未验证**（`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name，无日期字段） | 按修改日期分组 | 按 MTP 目录分组（目录名即日期），组头标「按目录名」 |
 
@@ -181,7 +181,7 @@
 |---|---|---|---|---|---|
 | 1 | **已导入照片索引**（任务 A「新片」判定依据，也是「已导入标记」的唯一来源） | §0.2 的「新片」定义、§0.2.1「首屏『新片』数量」行、`T-CATALOG` 的降级写法、`T-01`；§0.7 降级块的已导入标记、V-16 的未导入过滤 | 无此索引：`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name/relPath，无「已导入」标记；`Journal.java` 类注释里「size + relPath」那句与 `public void markDone` 是按 handle 的续传日志，跨会话主键是 `size+relPath`，不是「哪些照片导入过」的记录 | 首屏不承诺「新片」数量；顶栏计数胶囊与 `Import all N` 同分母（§2.2 / `V-27`，日期组头只承担组内数量）；主 CTA 退化为 `Import all N`（`T-CATALOG` 唯一允许的降级写法，首次使用即如此）；**网格不显示已导入标记**（如需表达，只允许在 `Location details` 里写 `Import state unknown`）；过滤抽屉不出现未导入项 | 任务 A 首屏的「新片」语义、`T-01`；V-16 的未导入过滤 |
 | 2 | **缩略图**（PTP `GetThumb` 或 ObjectInfo 附带预览） | §0.3 任务 B 的网格、§0.5 挑图型首屏、§0.6 的缩略图载体、V-18/V-19、U-29、`T-04`、`T-CATALOG` 正文的选片提示 | **缩略图已实现、真机未验证**（#59 已按 `getThumbnail` 实现，当前顺序 ARW → 同名 JPG）；**JPG 优先顺序未实现**（`V-32`，见 §0.7 第 1 行） | 同尺寸灰块 + 文件名 12 sp（§0.7，可正常点选）；`T-CATALOG` 不再写「点缩略图选片」 | 任务 B 的缩略图载体、U-29 的缩略图/降级块形态、`T-04`、`T-CATALOG` 的选片提示 |
-| 3 | **同名 JPG 整张（`photo` 页）** | §0.7 第 2 行、`V-32`、`T-04` / `V-25` | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步取同名 JPG 整张，缺失回退缩略图） | `photo` 页有缩略图就全幅 `Fit`；拿不到像素时只显示该单元实际格式与容量的单行胶囊（`ARW · 23.8 MB`；仅 JPG 单元为 `JPG · 1.7 MB`，按 `C-05`），不显示假图；**不得**回退下载整张 ARW | `T-04` / `V-25` |
+| 3 | **同名 JPG 整张（`photo` 页）** | §0.7 第 2 行、`V-32`、`T-04` / `V-25` | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步取同名 JPG 整张，缺失回退缩略图） | `photo` 页有缩略图就全幅 `Fit`；拿不到像素时只显示「格式 · 容量」单行胶囊（格式与容量 = 当前档位下的导出文件：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`），不显示假图；**不得**回退下载整张 ARW | `T-04` / `V-25` |
 | 4 | **EXIF 拍摄时间** | §0.2 的可选辅助字段、§0.6 日期分组一级依据、V-18、U-29 | **未验证**（ObjectInfo 是否含该字段未真机确认，§0.7 第 3 行） | 按文件修改日期分组（未验证，见第 5 行）；再降级按 MTP 目录分组，组头标「按目录名」 | 任务 B 的「按拍摄日期」分组、U-29 的日期分组、`T-03` |
 | 5 | **文件修改时间**（ObjectInfo `DateModified`） | §0.6 分组依据（EXIF 缺失时的回退）、§0.7 第 3 行降级 | **未验证**（`Catalog.java` 的 `public static final class Entry` 无日期字段，§0.7 第 4 行） | 按 MTP 目录分组（目录名即日期） | 任务 B 的日期分组、U-29 的日期分组、`T-03`（同第 4 行） |
 | 6 | **传输实现** | `IMPORTING`/`PAUSED`/`DONE` 状态、`T-02`、U-45～U-47 | `ImportService.java` 类注释里「只有真正搬字节那一步委托给 `ResumableTransfer`」那段，当前是 `ResumableTransfer.NotImplemented`；`Journal.java` 注释里「跨会话续传要先按 relPath」那句：跨会话续传的真实现未做 | 界面按状态机照常渲染；点主 CTA（`T-CATALOG`）会进入 `UNAVAILABLE`（见 `T-UNAVAILABLE`），不得伪装成传输中 | `T-02` 及一切真实传输验收 |
@@ -373,7 +373,7 @@
   `ERROR` **一律**按断开画法，含可恢复错误与 USB 挂起：该态的唯一推进动作是 `Reconnect`（顶栏标签 + 内容区插头图标两个入口），
   图标形态不随「相机是否仍物理连接」摆动；是否可恢复只影响 `Details` 文案（§1.2 / `C-14`），不改变顶栏。
 - **V-27（改写，issue #83）** 顶栏计数胶囊**只在 `CATALOG_READY` 出现**：12 sp `mono-data` 等宽数字，底 `surface-container` `#eeeeee`、字 `on-surface` `#1a1c1c`（14.75:1）；其它任何状态**不得**出现计数数字/数字节点（设备短名内的数字不算，见 `U-44`；`V-31` 的 filter 芯片不算计数节点）。
-  胶囊的数值**始终** = 当前 filter 可见集合的**导出文件数**，不随已选变化：已选 0 时与 `Import all N` 数值相同；已选 ≥1 时 CTA 转为 `Import N`（N = 可见已选数），胶囊仍显示可见集合的导出文件数，**不得**改成已选数（`C-08` / `C-10`）。
+  胶囊的数值**始终** = 当前 filter 可见集合的**导出文件数**，不随已选变化：可见已选数为 0 时与 `Import all N` 数值相同；可见已选数 ≥1 时 CTA 转为 `Import N`（N = 可见已选数），胶囊仍显示可见集合的导出文件数，**不得**改成已选数（`C-08` / `C-10`）。
   **同屏两处 `512` 是本版显式接受的例外**（胶囊 + `Import all 512`）：胶囊**不**承担「唯一分母」职责，只作顶栏常驻计数；「唯一分母」职责仍归主 CTA。
   **不得**出现两个不同口径的分母（对象总数 `1526` 与可见导出文件数同屏即违规，`C-09`）。
 - **V-28（新图标规范）** `ERROR` 顶栏的断线图标与既有相机线稿**同族**：同一 1.5 dp stroke、同一 24 dp 光栅框（渲染 20 dp）、**不填充底色**、描边圆头；描边一律 `on-surface` `#1a1c1c`（on `#ffffff` = 17.1:1）。
@@ -405,7 +405,7 @@
 | `body-sm` | 12 sp | 16 | 400 | 0 | 日期组头；顶栏 `Disconnected` / `Reconnect` 标签（12 sp） |
 | `label-md` | 13 sp | 16 | 500 | 0.01em | 环下 `12/36`（`photo` 胶囊与顶栏**不用**本档） |
 | `label-sm` | 11 sp | 14 | 500 | 0.02em | 未使用（不得用于数字/状态） |
-| `mono-data` | 12 sp | 16 | 400 | 0 | `photo` 页胶囊（`ARW · 23.8 MB`，格式 + 该单元容量）与 `CATALOG_READY` 顶栏计数胶囊（`512`）；字体族仍是 Geist，靠 `tabular-nums` 对齐 |
+| `mono-data` | 12 sp | 16 | 400 | 0 | `photo` 页「格式 · 容量」胶囊（按当前档位与单元取：`JPG · 1.7 MB` / `ARW · 23.8 MB`）与 `CATALOG_READY` 顶栏计数胶囊（`512`）；字体族仍是 Geist，靠 `tabular-nums` 对齐 |
 
 - **V-01** 正文**不得**小于 14 sp；辅助说明与数字**不得**小于 12 sp；**不得**用 <12 sp 承载状态、错误或数字。
 - **V-02** 单位**必须**用 sp（随系统字号缩放）；尺寸**必须**用 dp。
@@ -595,7 +595,7 @@
 - **V-25（`photo` 页预览异步，issue #61 / #83）** 看图页像素也**必须**在 IO 线程异步取与解码，
   `composition` / 主线程**不得**同步取图或解码；首帧**必须**用 `getThumbnail`（同名 JPG 优先）立即出图，
   用户停留后**必须**异步取同名 JPG 整张并就地替换（均值 1.7 MB/张，见 §0.7 第 2 行）；
-  补图失败**必须保持**当前缩略图，无缩略图时保持 `U-51` 的单行「格式 · 容量」胶囊（该单元实际导出文件：`ARW · 23.8 MB`；仅 JPG 单元 `JPG · 1.7 MB`，按 `C-05`），**不得**出现占位块、
+  补图失败**必须保持**当前缩略图，无缩略图时保持 `U-51` 的单行「格式 · 容量」胶囊（格式与容量 = **当前档位下的导出文件**：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`；均按 `C-05`），**不得**出现占位块、
   假图或加载文字；**不得**回退去下载整张 ARW。预览缓存**必须**有上限并与网格缓存分离
   （允许「连续打开同一张不重复读相机」），会话关闭时一并清空。
 
@@ -637,7 +637,7 @@
   定稿组头的 `11.9 GB` 是 1 位，**不得**照抄，落成 `11.89 GB`。
 - **C-06** 小于 0.1 GB **必须**自动降级为 MB（例：`1.2 MB`）；**不得**出现 `0.00 GB`（当前见 F15）。
 - **C-07** **不得**在用户区显示原始字节值、`double` 精度尾数或科学计数法。
-- **C-08（改写，issue #83）** 总量在界面上**由两处同口径承担**：`CATALOG_READY` 的主 CTA 与同屏顶栏的 12 sp 计数胶囊（`V-27`），口径 = **当前 filter 可见集合的导出文件数**（按照片单元与档位载荷计，`V-16` / `V-32`）。已选 0 时 CTA = `Import all N`，两处**数值必须相同**；已选 ≥1 时 CTA = `Import N`（N = 可见已选数），胶囊仍显示可见集合的导出文件数，两处口径相同、数值不同，**不属于**「两个不同口径的分母」。日期组头只承担组内数量，**不**承担总量。
+- **C-08（改写，issue #83）** 总量在界面上**由两处同口径承担**：`CATALOG_READY` 的主 CTA 与同屏顶栏的 12 sp 计数胶囊（`V-27`），口径 = **当前 filter 可见集合的导出文件数**（按照片单元与档位载荷计，`V-16` / `V-32`）。**可见已选数为 0**（含「总已选 ≥1 但全被 filter 隐藏」）时 CTA = `Import all N`，两处**数值必须相同**；可见已选数 ≥1 时 CTA = `Import N`（N = 可见已选数），胶囊仍显示可见集合的导出文件数，两处口径相同、数值不同，**不属于**「两个不同口径的分母」。日期组头只承担组内数量，**不**承担总量。
   **胶囊只在 `CATALOG_READY` 出现**，且**不**承担「唯一分母」职责（唯一分母仍归主 CTA）；**不得**写「已渲染/总数」这类句子，**不得**同屏并置两个**不同口径**的总量分母。filter 芯片（`V-31`）不是计数，不参与分母。
 - **C-09（改写，issue #83）** 若出现「还有 N 未显示」这类提示，N **必须** = 全树 catalog 总数 − 已渲染数；
   **不得**用截断集合的差值（当前恒 ≤200，实际缺口 726，见 F6 / #15）。
@@ -647,7 +647,7 @@
   顶栏的数字**只**是 `CATALOG_READY` 的计数胶囊（可见导出文件数、与 CTA 同分母，`V-27`），**不**承载对象总数；`V-31` 的 filter 芯片是非计数字文本，其日期字面量中的数字不算计数节点；`SCANNING` 顶栏不出现胶囊，因此「对象总数」与「可见导出文件数」在结构上**不可能同屏**；
   `SCANNING` 的进度分母判定见 `U-43`。
 - **C-10（改写，issue #83）** 已选数**只**出现在主 CTA（`Import N`），且 N = **可见已选数**（已选 ∩ 当前 filter，`U-12`）；**不得**写「已选 N 个文件（ARW N 张）· N 个文件夹」这类正文句，
-  网格内不得标已选数。切 filter 时隐藏的已选项**保留**，但不计入 CTA 分母。
+  网格内不得标已选数。切 filter 时隐藏的已选项**保留**，但不计入 CTA 分母；**可见已选数为 0 时**（包括「总已选 ≥1、但全部被 filter 隐藏」这种可达状态）CTA **必须**回到 `Import all N`（N = 可见导出文件数），**不得**出现 `Import 0`，也**不得**因此禁用 CTA（`V-10`）。
 
 ### 4.3 错误话术模板
 
@@ -687,7 +687,7 @@ Next:    <一个可执行动作>
 | `T-COLD` | `COLD` | 居中相机线性图标（56 dp） | `No camera` | 主按钮 `Connect camera` | `Waiting`、`No device`、`等待开始`、`无设备` |
 | `T-PERMISSION` | `PERMISSION_PENDING` | 同一相机图标，环的位置放主按钮 | `Allow` | 点 `Allow` 后由系统弹窗接管 | `Waiting…`（无动作）、`等待授权中…`、只给「去设置」 |
 | `T-SCANNING` | `SCANNING` | 居中细环（180 dp）+ 环下计数 | `320/1526` | `Cancel` 图标 | `Scanning 320/1526`、`扫描中…`、速率、剩余时间 |
-| `T-CATALOG` | `CATALOG_READY` | 照片墙 | CTA `Import all 512` / `Import 12`（已选 0 时 N = 当前 filter 可见集合的导出文件数，已选 ≥1 时 N = 可见已选数；顶栏计数胶囊始终显示可见集合的导出文件数，与 CTA 同口径，见 §2.2 / `V-27`；非 `All` 档顶栏另有 `RAW` / `JPG` / 日期芯片，`V-31`） | 组头 `Jun 7 · 43 · 74.0 MB` | 「获得文件…」、已选正文句、同屏两个**不同口径**的分母 |
+| `T-CATALOG` | `CATALOG_READY` | 照片墙 | CTA `Import all 512` / `Import 12`（可见已选数为 0 时 N = 当前 filter 可见集合的导出文件数，可见已选数 ≥1 时 N = 可见已选数；顶栏计数胶囊始终显示可见集合的导出文件数，与 CTA 同口径，见 §2.2 / `V-27`；非 `All` 档顶栏另有 `RAW` / `JPG` / 日期芯片，`V-31`） | 组头 `Jun 7 · 43 · 74.0 MB` | 「获得文件…」、已选正文句、同屏两个**不同口径**的分母 |
 | `T-IMPORTING` | `IMPORTING` | 大环（180 dp） | 环内 `33%` | 环下 `12/36`；`Pause` / `Cancel` 图标 | 速率卡、`~58 min`、协议、第二个百分比 |
 | `T-PAUSED` | `PAUSED` | 同一环，数值冻结 | 环内 `33%`（不变） | `Resume` / `Cancel` 图标 | 「已暂停」长句、把暂停显示成完成 |
 | `T-DONE` | `DONE` | 环的位置换成完成标记 | `Done` | `36 · 871 MB` + 位置图标；`Open` 次按钮 | `Imported … Skipped … Failed …`、任务 ID、哈希、统计卡 |
@@ -695,7 +695,7 @@ Next:    <一个可执行动作>
 | `T-EMPTY` | `EMPTY_CATALOG` | 居中相机图标 | `No photos` | `Connect camera` 图标 | 空网格、`0 GB`、`0%` |
 | `T-UNAVAILABLE` | `UNAVAILABLE` | 居中禁止图标 | `Not available` | `OK`，或返回（回退到照片墙） | `NOT_IMPLEMENTED`、`Unimplemented`、长句版本说明 |
 
-- **`CATALOG_READY` 主 CTA 文案（本文件唯一出处）**：已选 0 → `Import all N`，N = **当前 filter 可见集合的导出文件数**；已选 ≥1 → `Import N`，N = **可见已选数**（已选 ∩ 当前 filter）。两个分支的 N **不得**混用：`Import all` 的 N 不是已选数，`Import` 的 N 也不是可见总量（见 `C-08` / `C-10` / `U-12`）。已导入索引缺失时（§0.11 第 1 行），
+- **`CATALOG_READY` 主 CTA 文案（本文件唯一出处）**：**可见已选数为 0** → `Import all N`，N = **当前 filter 可见集合的导出文件数**；可见已选数 ≥1 → `Import N`，N = **可见已选数**（已选 ∩ 当前 filter）。分支判据是**可见已选数**，不是总已选数：切 filter 后总已选 ≥1 但全部被隐藏时，仍走 `Import all N`（`C-10`）。两个分支的 N **不得**混用：`Import all` 的 N 不是已选数，`Import` 的 N 也不是可见总量（见 `C-08` / `C-10` / `U-12`）。已导入索引缺失时（§0.11 第 1 行），
   「新片」不可计算，CTA 同为 `Import all N`——这是唯一允许的降级写法，其余位置不得另造。
 - **`T-CATALOG` 的「主文案」列**只列 CTA：**CTA 不属于状态主文案**（`C-01` 只约束状态主文案的一行 ≤20 字符），
   本状态的主表达是照片墙首行；`U-03` 在该状态判「主按钮 + 照片墙首行同屏」。
@@ -709,8 +709,8 @@ Next:    <一个可执行动作>
   | 取消（扫描/导入） | `Cancel` | `SCANNING` / `IMPORTING` / `PAUSED` |
   | 暂停 | `Pause` | `IMPORTING` |
   | 继续 | `Resume` | `PAUSED` |
-  | 导入（全部） | `Import all N` | `CATALOG_READY` 已选 0；N = 当前 filter 可见集合的导出文件数（`C-08` / `U-12`） |
-  | 导入（已选） | `Import N` | `CATALOG_READY` 已选 ≥1；N = 可见已选数（已选 ∩ 当前 filter） |
+  | 导入（全部） | `Import all N` | `CATALOG_READY` 可见已选数为 0（含总已选 ≥1 但全被 filter 隐藏）；N = 当前 filter 可见集合的导出文件数（`C-08` / `C-10` / `U-12`） |
+  | 导入（已选） | `Import N` | `CATALOG_READY` 可见已选数 ≥1；N = 可见已选数（已选 ∩ 当前 filter） |
   | 打开 | `Open` | `DONE` 次按钮 |
   | 知道了 | `OK` | `UNAVAILABLE` |
   | 暂停并退出 | `Pause & exit` | `IMPORTING` 返回键对话框选项（§1.3）；是对话框选项，不占主按钮额度 |
@@ -728,7 +728,7 @@ Next:    <一个可执行动作>
   | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` / `photo` 顶栏**无设备名**，**无长按入口**（默认不可见，L-05） |
 
 - **过滤抽屉与 `Location details` 标记的用法（字面量登记在 §4.5 词表，本条只讲用在哪）**：过滤项写
-  `All` / `RAW` / `JPG` / 日期（组头原样）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张
+  `All` / `RAW` / `JPG` / 日期标签（如 `Jun 7`，**不含**张数与容量）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张
   标记写 `Imported` / `New`；索引缺失时统一写 `Import state unknown`。网格内不出现上述任何标记（V-15 / V-20）。
 
 ---
@@ -807,7 +807,7 @@ Next:    <一个可执行动作>
 | U-08 | 改写 | 分组可折叠/展开，折叠后可见单元数下降 | 操作前后 dump 计数对比 |
 | U-09 | 改写 | 可点目标 ≥48 dp；正文 ≥14 sp；说明/数字 ≥12 sp | dump bounds + 代码/资源核对 |
 | U-10 | 改写 | 日期组头与网格视觉可区分；`Folder` 只出现在 `Location details` | dump：组头文本匹配 `Date group` 前缀或组头格式；网格单元无文本（`V-19` 降级块的文件名除外）；`Folder` 字面量只允许出现在 `Location details` 展开后的节点 |
-| U-12 | 改写 | 主 CTA 文案数与口径一致：已选 0 时 `Import all N` 的 N = 当前 filter 可见集合的导出文件数，已选 ≥1 时 `Import N` 的 N = 可见已选数 | `Import N` 的 N = 可见已选数（已选 ∩ 当前 filter）；已选 0 时必须是 `Import all N`，N = 当前 filter 可见集合的导出文件数（`C-08` / `U-53`）；切档后隐藏的已选保留但不计数；不要求渲染节点数与 N 相等 |
+| U-12 | 改写 | 主 CTA 文案数与口径一致：可见已选数为 0 时 `Import all N` 的 N = 当前 filter 可见集合的导出文件数，可见已选数 ≥1 时 `Import N` 的 N = 可见已选数 | `Import N` 的 N = 可见已选数（已选 ∩ 当前 filter）；可见已选数为 0（含总已选 ≥1 但全被 filter 隐藏）时必须是 `Import all N`，N = 当前 filter 可见集合的导出文件数（`C-08` / `C-10` / `U-53`）；切档后隐藏的已选保留但不计数；不出现 `Import 0`；不要求渲染节点数与 N 相等 |
 | U-13 | 改写 | 未显示计数若出现，N = catalog 总数 − 已渲染数（1526/800 时为 726） | dump 文本 + catalog 总数；`1526` 的允许位置见 `C-09`（含 `T-SCANNING` 的进度分母） |
 | U-14 | 保留 | 容量无 `0.00 GB`；GB 2 位、MB 1 位；<0.1 GB 显示 MB | 截图/单测 |
 | U-17 | 改写 | 非传输态不出现 `Pause` / `Resume` / `Cancel` 传输控件 | dump：`IMPORTING` / `PAUSED` 以外状态的节点里不得有 `contentDescription` 为 `Pause` / `Resume` / `Cancel` 且属于传输区的控件（`SCANNING` 的 `Cancel` 属扫描区，不在此判） |
@@ -827,7 +827,7 @@ Next:    <一个可执行动作>
 | U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个；顶栏存在 `Disconnected` 短词 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
 | U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏不出现计数胶囊**（胶囊只在 `CATALOG_READY`，`V-27`；`1526` 只作进度分母，不与可见导出文件数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
-| U-44 | `CATALOG_READY` | 顶栏有 **1 个** 12 sp 计数胶囊，数值 = 当前 filter 可见集合的导出文件数（已选 ≥1 时**仍**是这个数，不改成已选数），与 CTA 同口径（`V-27` 的同分母例外；设备短名 `a7C` 里的 `7` 是名称，不算计数）；非 `All` 档另有 **1 个** filter 芯片（`RAW` / `JPG` / 日期标签，`V-31`），`All` 档没有芯片；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个**不同口径**的总量分母；顶栏出现**第二个纯数字节点**（设备短名内的数字与 filter 芯片中的日期数字不算，见 `V-31`） |
+| U-44 | `CATALOG_READY` | 顶栏有 **1 个** 12 sp 计数胶囊，数值 = 当前 filter 可见集合的导出文件数（已选 ≥1 时**仍**是这个数，不改成已选数），与 CTA 同口径（`V-27` 的同分母例外；设备短名 `a7C` 里的 `7` 是名称，不算计数）；非 `All` 档另有 **1 个** filter 芯片（`RAW` / `JPG` / 日期标签，`V-31`），`All` 档没有芯片；CTA 为 `Import all N`（可见已选 0）或 `Import N`（可见已选 ≥1）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个**不同口径**的总量分母；顶栏出现**第二个纯数字节点**（设备短名内的数字与 filter 芯片中的日期数字不算，见 `V-31`） |
 | U-45 | `IMPORTING` | 文本匹配 `\d+%` 恰好 1 处、`\d+/\d+` 恰好 1 处；`Pause` 与 `Cancel` 各 1 个且 `clickable=true`；`round(已完成/总数×100)` 与百分比差 ≤1 | `MB/s`、`~\d+ min`、`MTP`、`USB`、第二个百分比；已选可修改；`Done` |
 | U-46 | `PAUSED` | 环内数值与暂停瞬间相同；`Resume` 与 `Cancel` 存在且可点 | 完成标记、`Done`；环数值继续变化；`Import` 可点 |
 | U-47 | `DONE` | `Done`；文本匹配 `\d+ · \d+(\.\d)? MB` 或 `\d+ · \d+\.\d{2} GB`（按 C-05）；`contentDescription` 含 `Location` 且 `clickable=true`；`Open` 存在 | `Imported\s*\d+`、`Skipped\s*\d+`、`Failed\s*\d+`、`total`、`TASK`、哈希、`§`；统计卡 |
@@ -839,9 +839,9 @@ Next:    <一个可执行动作>
 
 | 编号 | 对象 | 断言 | 验证方法 |
 |---|---|---|---|
-| U-51 | `photo` 页 | 全幅照片；首帧用 `getThumbnail`（同名 JPG 优先，`V-32`），停留后异步补同名 JPG 整张，补图失败保留缩略图；不可得时按 §0.7 第 2 行只显示单行「格式 · 容量」胶囊（`ARW · 23.8 MB`；仅 JPG 单元为 `JPG · 1.7 MB`，按 `C-05` 取整），**不显示占位块/假图**；**不得**下载整张 ARW；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：有图时存在图片节点且无胶囊以外的说明文字；无图时 `contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
+| U-51 | `photo` 页 | 全幅照片；首帧用 `getThumbnail`（同名 JPG 优先，`V-32`），停留后异步补同名 JPG 整张，补图失败保留缩略图；不可得时按 §0.7 第 2 行只显示单行「格式 · 容量」胶囊（格式与容量 = 当前档位下的导出文件：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`），**不显示占位块/假图**；**不得**下载整张 ARW；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：有图时存在图片节点且无胶囊以外的说明文字；无图时 `contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
 | U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / `JPG` 三项各 1 个，加上按日期组数逐行各 1 个的日期标签；抽屉打开不推挤主 CTA（L-03） | dump：前三项各 1 个；日期标签行数 = 日期组数（假数据 12），总项数 = 3 + 日期组数；日期标签形如 `Jun 7`，不含张数与容量；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
-| U-53 | 总量口径 | `Import all N` 的 N = 当前 filter 可见集合的导出文件数；`CATALOG_READY` 顶栏计数胶囊的数字 = 同一个 N（同分母，`V-27`）；已选 ≥1 时 `Import N` 的 N = 可见已选数，胶囊**不改**、仍等于可见集合的导出文件数；同屏不出现第二个**不同口径**的总量分母。假数据各档：`All` 512、`RAW` 511、`JPG` 512；日期组 `Jun 7` 43 | 读 catalog 与 `PhotoWall` 的可见导出文件数；dump CTA 文本、顶栏胶囊与顶栏全部纯数字节点（设备短名 `a7C` 里的数字与 filter 芯片的日期数字不算）；比对 N |
+| U-53 | 总量口径 | `Import all N` 的 N = 当前 filter 可见集合的导出文件数；`CATALOG_READY` 顶栏计数胶囊的数字 = 同一个 N（同分母，`V-27`）；可见已选数 ≥1 时 `Import N` 的 N = 可见已选数，胶囊**不改**、仍等于可见集合的导出文件数；同屏不出现第二个**不同口径**的总量分母。假数据各档：`All` 512、`RAW` 511、`JPG` 512；日期组 `Jun 7` 43 | 读 catalog 与 `PhotoWall` 的可见导出文件数；dump CTA 文本、顶栏胶囊与顶栏全部纯数字节点（设备短名 `a7C` 里的数字与 filter 芯片的日期数字不算）；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 1023 文件 / 511 ARW / 512 JPEG / 512 照片单元；ARW 12,766,800,000 字节 / JPEG 923,408,256 字节 | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列数字一致（`demo_state` 入口在 `src/debug` 源集实现，release 无实现） |
 | U-55 | filter 芯片 | 非 `All` 档顶栏出现恰好 1 个非计数芯片，字面量 ∈ {`RAW`, `JPG`, 日期标签}；日期标签形如 `Jun 7`，**不得**含张数与容量（`· 43 · 74.0 MB`）；`All` 档不出现；芯片不含计数语义、不形成第二个纯数字节点 | dump：切三个非 `All` 档（`RAW` / `JPG` / 任一日期）各一次，按 `V-31` 判定；`All` 档顶栏纯数字节点数 = 1 |
 
