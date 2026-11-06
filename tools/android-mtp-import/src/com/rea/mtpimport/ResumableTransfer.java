@@ -1,23 +1,28 @@
 package com.rea.mtpimport;
 
 /**
- * 断点续传的**契约**。PA 的 {@link MtpTransfer} 只做整文件传输；真正的 offset 续读
- * 留给 PC 分节（issue #50），在 `getPartialObject` 语义于 ILCE-7C 上验证之前不实现。
+ * 断点续传的**契约**。PA / PB 的 {@link MtpTransfer} 先只做整文件传输与取消；
+ * PC 分节（issue #50）已按下面钉死的语义补上 offset 续读。
  *
- * 为什么不做真续传：`MtpDevice.getPartialObject(handle, offset, size, buffer)`
- * 对 a7C 的 `0xB101` 对象是否支持 offset 续读、超界时是报 `InvalidParameter` 还是
- * 静默少传，**本机一次都没验证过**（探针只用了 `importFile()`，它没有 offset 语义）。
- * 写一个「看起来能续传」的实现比没有实现危险得多：它会让我们以为断点续传已经可用，
- * 而真机上可能写出一堆截断的 ARW。
+ * `MtpDevice.getPartialObject(handle, offset, size, buffer)` 在 ILCE-7C（固件 2.00）
+ * 上的语义已由 `tools/android-mtp-probe` 实测（issue #67）：
  *
- * 真实现该做的三件事（留给 PC 分节，先在真机把语义钉死）：
+ * 1. **offset 是绝对偏移**：`offset=0` 连读两次拿到相同字节；1 MiB 分块拼满 24.4 MB ARW
+ *    的字节数、MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）。
+ * 2. **边界**：`length` 超过剩余字节会截断到 EOF；`offset == size` 返回 0；
+ *    **`offset == size + 1` 抛 IOException 并污染整个 MTP 会话**——实现必须保证
+ *    `0 <= offset <= size` 且 `length <= size - offset`，永不越界。
+ * 3. **支持面**：4 张 ARW + 1 张 JPEG 的首块都成功（普通对象都支持；`0xFFFFC001` 未测）。
  *
- * 1. **跨会话重识别**：MTP 的 object handle 不跨会话稳定，重连后要按
- *    `size + relPath` 在 `Catalog` 里找到新 handle，`Journal` 存的就是这两样。
- * 2. **从 resumeFrom 续读**：`getPartialObject(handle, resumeFrom, chunk, buf)` 循环，
- *    每块 append 到 `<handle>.part`，成功后 rename 成最终文件名。
- * 3. **对账**：落盘字节必须等于 `oi.getCompressedSizeLong()`；不等就判 FAILED 并保留
- *    `.part`，不要静默当成成功（探针里出现过「大小❌」的分支）。
+ * 实现契约：
+ *
+ * - **跨会话身份**：MTP 的 object handle 不跨会话稳定；半成品 `.part` 按 `relPath + size`
+ *   命名（{@link Journal#partPath}），续传起点按磁盘实际长度（{@link Journal#resumeFrom}），
+ *   不依赖 handle 的持久性。`size` 进文件名后，同路径异 size 的旧残留不会被误认。
+ * - **从 resumeFrom 续读**：`getPartialObject(handle, resumeFrom, min(1 MiB, size - resumeFrom), buf)`
+ *   循环，每块 append 到 `.part`，成功后 rename 成最终文件名。
+ * - **对账**：落盘字节必须等于 `ImportPlan.Item.size`；不等就判 FAILED 并保留
+ *   `.part`，不要静默当成成功。
  */
 public interface ResumableTransfer {
 
@@ -59,8 +64,10 @@ public interface ResumableTransfer {
      * 传一个文件。实现方负责写 `partPath`，成功后再改名到最终路径。
      *
      * @param item       待传项（句柄、相对路径、期望大小）
-     * @param partPath   半成品落盘路径（已由 {@link Journal#partPath} 算好）
-     * @param resumeFrom 已落盘字节数，0 表示从头开始
+     * @param partPath   半成品落盘路径（已由 {@link Journal#partPath} 按 relPath + size 算好，
+ *                   跨会话稳定）
+     * @param resumeFrom 已落盘字节数（由 {@link Journal#resumeFrom} 按磁盘实际长度判定），
+     *                   0 表示从头开始；等于 item.size 表示半成品已满，只需落盘
      * @param token      取消令牌；实现方必须在文件内注册中断动作（见 {@link CancelToken}）
      */
     Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token);

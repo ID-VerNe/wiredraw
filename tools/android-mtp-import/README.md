@@ -3,13 +3,17 @@
 把 `tools/android-mtp-probe/`（一次性验证工具）里已经跑通的 MTP 结论，
 沉淀成一个**能日常用**的导片工具的骨架。
 
-> **PA（issue #50）起，整文件传输是真的；PB 补齐暂停 / 取消 / 恢复语义。**
+> **PA（issue #50）起，整文件传输是真的；PB 补齐暂停 / 取消 / 恢复；PC 补齐真续传。**
 > `Import all N` / `Import N` 会用 `MtpDevice.importFile()` 把对象读到
 > `getFilesDir()/imported/<relPath>`，逐文件校验字节数并推进进度。
 > `Pause` 落在文件边界（在传的那个文件会传完），`Cancel` 会关闭正在写的 fd，尝试中断
 > 当前 `importFile`：本次机型实测约 0.6 s 返回；能否打断没有跨机型保证，打不断时由
-> `isCancelStuck()` 给界面出路；`getPartialObject` 断点续传仍未做，`resumeFrom > 0` 依然拒绝，
-> 见「为什么不做真续传」与 issue #50 的 PC/PD 分节。
+> `isCancelStuck()` 给界面出路。
+>
+> PC（#50）用探针 #67 钉死的 `getPartialObject` 语义做真续传：失败/断线保留按
+> `relPath + size` 命名的 `.part`，下一轮按它的实际长度从绝对偏移续读（1 MiB 块，永不越界），
+> 成功后才 rename 并记账；取消会删除整个半成品（从 0 重来）。
+> 见「断点续传（PC）」与 issue #50 的 PD 分节（仍未做）。
 
 ## 它现在能做什么
 
@@ -29,7 +33,7 @@
 | **暂停（文件边界）/ 取消（关 fd 尝试中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 约 0.6 s 返回并重传；打断没有跨机型保证） |
 | **取消后 / 暂停恢复前复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1 / 三审 B-1：取消后与 `Pause & exit` 恢复前都探活；卡死轮次放弃后拦住扫描/新导入且不覆写 journal。探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
-| **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节；`resumeFrom > 0` 拒绝） |
+| **断点续传（`getPartialObject` offset 续读）** | ✅ 实现（PC / issue #50；语义由 #67 探针在 ILCE-7C 上验证，App 内端到端待真机） |
 
 ## 类职责
 
@@ -41,12 +45,12 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ Selection         勾选集合；勾目录 = 把子孙写进集合                   [纯 JDK]
 ├─ ImportPlan        勾选 → 去重清单 + totalBytes()                     [纯 JDK]
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
-├─ Journal           续传日志：markDone / isComplete / partPath / 存取   [纯 JDK]
+├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
 ├─ ImportService     编排：线程、暂停（文件边界）、取消、逐文件调 transfer  [纯 JDK]
 ├─ CancelToken       取消令牌：置位 + 立即执行传输层的中断动作（PB）       [纯 JDK]
-├─ ResumableTransfer 传输契约（整文件 / 取消 / 续传待 PC）                 [纯 JDK]
-├─ MtpTransfer       真实传输：importFile → 校验字节 → rename 到 relPath  [android]
-│                    取消时关 pfd 尝试打断 importFile，删本次半成品（PB）
+├─ ResumableTransfer 传输契约（整文件 / 取消 / offset 续传，语义见 #67）    [纯 JDK]
+├─ MtpTransfer       真实传输：importFile（从头）/ getPartialObject（续传）
+│                    → 校验字节 → rename 到 relPath；取消删本次半成品（PB/PC） [android]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -76,24 +80,28 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `pureJdkClasses` 清单还有第 0 步漂移检查兜底——`checkPureJdkList` 拿「磁盘上不 import android
 的文件」与清单比对，漏列一个文件就判红（否则新加的纯逻辑类会悄悄脱离这条保护）。
 
-## 为什么不做真续传
+## 断点续传（PC / issue #50）
 
-PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 张 24 MP RAW，
-73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）。它没有 offset 语义，所以 `MtpTransfer`
-明确拒绝 `resumeFrom > 0`。PB 的取消没有改用 `getPartialObject`：它只是把 pfd 关掉，
-尝试让原生写失败、`importFile` 返回；本次机型实测约 0.6 s 返回，能否打断没有跨机型保证，
-打不断时由 `isCancelStuck()` 给界面出路。读的仍是同一条已验证的整对象路径。
+`getPartialObject` 的语义先由 `tools/android-mtp-probe` 在 ILCE-7C 上实测（issue #67），
+结论已钉死：`offset` 是**绝对偏移**；普通 ARW / JPEG 对象都支持；1 MiB 分块拼满
+24.4 MB ARW 的字节数、MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）；
+`length` 超剩余截断到 EOF；`offset == size` 返回 0；**`offset == size + 1` 抛 IOException
+并污染整个 MTP 会话**。
 
-`MtpDevice.getPartialObject(handle, offset, size, buffer)` 对 a7C 的 `0xB101` 对象
-是否支持 offset 续读、超界时是报 `InvalidParameter` 还是静默少传，**本机一次都没验证过**。
+对应实现：
 
-写一个「看起来能续传」的实现比不写危险得多：它会让所有人以为断点续传已经可用，
-而真机上可能写出一堆截断的 ARW —— 而且 MD5 要等到很久以后才会对不上。
+- `resumeFrom == 0` 仍走已验的 `importFile`；
+- `0 < resumeFrom < size` 走 `getPartialObject(handle, offset, min(1 MiB, size - offset), buf)`
+  循环 append 到 `.part`，**永不请求 `offset > size`**；
+- `resumeFrom == size` 直接把半成品 rename 落盘；
+- 半成品按 `<relPath 压平>.<size>.part` 命名（`Journal.partPath`），与跳过判定的
+  `relPath + size` 同口径、跨会话稳定；同路径异 size 的旧残留不会被当成本对象的前缀
+  （旧文件清理由 #52 负责）；续传起点取自 `.part` 实际长度（`Journal.resumeFrom`），
+  超过目标大小视为损坏、从 0 重传；
+- 失败 / 断线保留 `.part`，取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）；
+- 结束时字节数必须等于相机侧 `ImportPlan.Item.size`，否则 FAILED 且保留 `.part`。
 
-真实现要做的三件事已写在 `ResumableTransfer` 的 javadoc 里：跨会话按 `size + relPath`
-重新拿到新句柄、从 `resumeFrom` 循环 `getPartialObject`、落盘字节与
-`getCompressedSizeLong()` 对账。PC 分节会先用 `tools/android-mtp-probe` 把 offset
-语义钉死，再改实现。
+PD（错误与重试、空间预检、`onDestroy` 竞态）仍未做。
 
 ## 构建与自检
 
@@ -107,7 +115,7 @@ PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 �
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；236 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；252 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -223,6 +231,11 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [x] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
       下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）
       —— 2026-11-06 实测：取消后立即再导入，探活通过、无 `ERROR`，继续落盘 7 张
+- [ ] 真续传端到端（PC / issue #50）：导入中断线 / 杀进程，`files/imported/` 留下
+      `<relPath 压平>.<size>.part`；
+      重新插线再点 `Import N`，日志必须出现「发现半成品：… 已有 N 字节，从断点续传」，
+      最终字节数 == 相机侧 `size`、文件头 `49 49 2A 00`、MD5 与整文件结果一致；不得重传已落盘前缀
+      —— **未验**（分块语义由 #67 探针实测，App 内编排与恢复窗口待真机）
 - [ ] 若 `pfd.close()` 打不断原生调用（`MtpTransfer` 未验项）：取消宽限 3 秒后必须判定「卡死」，
       点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`）；旧 worker 未退出前
       `Connect camera` / 新导入都必须保持 `ERROR`（不得 `session.close()` 撞上原生调用），
