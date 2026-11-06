@@ -124,4 +124,6 @@ for (int h : handles) {
 }
 ```
 
-免 root、免权限弹窗。就这样 —— 不需要反协议、不需要 PTP、不需要索尼私有序列。
+免 root。USB 权限靠 manifest 的 `USB_DEVICE_ATTACHED` intent-filter + `res/xml/device_filter.xml`
+自动授予（探针就是这么做的），但**首次插线仍要在系统弹窗里勾一次「一律打开」**，之后静默。
+就这样 —— 不需要反协议、不需要 PTP、不需要索尼私有序列。

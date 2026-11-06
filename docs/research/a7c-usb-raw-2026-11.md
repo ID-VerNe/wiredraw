@@ -24,7 +24,8 @@ a7C 上没有任何东西需要"解锁"——它的 USB 口本来就是标准 MT
 | **B. PC Remote + Termux/gphoto2** | 相机切 PC Remote，手机跑 PTP 客户端 | ❌ **仅最新一张** | 30–80 MB/s | 0.5–1 天 | 基本可以（边拍边传） |
 | **C. 自写安卓 App（双模）** | MTP 导旧片 + PTP 遥控 | ✅ | 同上 | 2–6 周 | 完全 |
 
-**如果只想解决"旧 RAW 传不进手机"，选 A（MTP）。** 已在魅族 20 / Android 15 上跑通：
+**如果只想解决"旧 RAW 传不进手机"，选 A（MTP）。** 实测已跑通
+（魅族 20 Infinity / Android 15 (API 35) / USB MTP / ILCE-7C 固件 2.00）：
 511 张 ARW、11.9 GB 全部可见，三张 24 MP RAW 下载后 MD5 与 PC 侧逐字节一致，
 批量 21.4 MB/s（Wi-Fi PTP 只有 0.95 MB/s，约 22 倍）。
 可直接用的探针工程在 `tools/android-mtp-probe/`，实测结果见第 12 节。
