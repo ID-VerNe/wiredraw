@@ -88,9 +88,11 @@
 
 ## UI 决策取证（2026-11-05）
 
-素材是导片工具定稿设计包：`nordic_precision/DESIGN.md` 的 `colors` 配置与三页 `code.html`。
+素材是导片工具定稿设计包：`nordic_precision/DESIGN.md` 与三页 `code.html` 的 `colors` 配置。
 本地取证目录不入库（`.gitignore` 的日期工作区规则），仓库内无法直接复核文件本身。
 
-复核方式：按设计工具重新导出定稿包，把 `DESIGN.md` 的 colors 配置与
-[`../../tools/android-mtp-import/UI-SPEC.md`](../../tools/android-mtp-import/UI-SPEC.md)
-3.3 节的 47 个值逐项比对（当时结论为逐项一致）。规范实现以 UI-SPEC 的表为准，不依赖本地目录。
+复核方式：按设计工具重新导出定稿包，**以三页 `code.html` 的 `"colors"` 配置（页面实际值）为比对基线**，
+与 [`../../tools/android-mtp-import/UI-SPEC.md`](../../tools/android-mtp-import/UI-SPEC.md)
+3.3 节的 47 个值逐项比对（当时结论为逐项一致）。`DESIGN.md` 与表中的差异
+（如 `primary` / `tertiary` 定稿为纯黑、本版落 `#1d1d1f`）按 UI-SPEC §3.3「落地口径」表记录的
+五处漂移处理，**不作为比对基线**。规范实现以 UI-SPEC 的表为准，不依赖本地目录。
