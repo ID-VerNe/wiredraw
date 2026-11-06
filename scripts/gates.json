@@ -4,7 +4,7 @@
   "shards": [
     {
       "name": "static",
-      "why": "不碰设备、不碰工具链的最便宜一档：清单一致性、仓库卫生、文档链接、Python 语法。红灯最先可见，pre-push 也只跑这一档"
+      "why": "不碰设备、不碰工具链的最便宜一档：清单一致性、仓库卫生、文档链接、Python 语法、敏感信息。红灯最先可见，pre-push 也只跑这一档"
     }
   ],
   "ci": [
@@ -31,6 +31,12 @@
       "cmd": ["python", "-m", "compileall", "-q", "scripts", "tools"],
       "shard": "static",
       "why": "scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高"
+    },
+    {
+      "name": "check_sensitive.py",
+      "cmd": ["python", "scripts/check_sensitive.py", "--warn"],
+      "shard": "static",
+      "why": "敏感信息门禁：相机 GUID 及其 hex/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。首版用 --warn 只报基线（转 block 由 #110 在 #100 清洗完成后单独做）；--fix 才改写，行内豁免必须带理由"
     }
   ],
   "manual": [
