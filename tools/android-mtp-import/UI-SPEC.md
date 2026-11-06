@@ -192,7 +192,7 @@
 | 2026-11-06 / PR #39 第四轮评审 | `ERROR` 的动作写成「循环箭头图标 + 应用内再试」 | `Connect camera`（USB 插头 / 重连语义，`contentDescription` 同名） | 会话结束后相机挂起 USB，应用内反复尝试唤不醒（`AGENTS.md` §4）；对最主要的一类 `ERROR` 该动作无效，`C-14` 要求提示拔插数据线；`ERROR` 进入条件已覆盖可恢复与不可恢复（§1.2）。**该动作词后于 2026-11-06 的顶栏逐态决策改为 `Reconnect`（`C-04`）** |
 | 2026-11-06 / PR #39 第四轮评审 | §0.10 禁用写法「任何地方都不得出现」 | 只在**用户可见文案**里禁止；文档叙述描述原型现状 / 控件形态时可引用 | 该类说法是描述定稿原型控件形态的必要术语（`V-15` 要写「网格不得显示该形态」），改掉反而说不清原型；判定见 §8 抬头 |
 | 2026-11-06 / #44 决策（P1-4 / P1-3 / P1-1） | 纯黑可作画布与主色；顶栏只在 `CATALOG_READY` 与 `transfer` 出现；进度环未完成段与照片格 1 px 边框按图形对比度判 | 画布黑 `#1d1d1f` 与文字近黑 `#111111` 是两个显式 token，**禁用纯黑**；顶栏在 11 个视图全常驻（10 个状态 + `photo`；逐态分化，§2.2）；环轨道与照片格 1 px 边框判为装饰/分隔，**不进 `V-07`** | §3.3 / §2.2 / `V-07`；对应 finding P1-4 画布、P1-1 顶栏、P1-3 环轨道 |
-| 2026-11-06 / #45 决策 | `photo` 胶囊用 `label-md` 13 sp；「网格单元最小尺寸 88 dp」含高 | 胶囊改 `mono-data` 12 sp（等宽数字）；88 dp = **最小宽度**，高按 3:2 由列宽推导 | §3.1 / §2.1 实测表；同时解决 **P2-4**（`photo` 页画布黑上的系统栏必须用浅色图标，`V-25`）与胶囊字号 |
+| 2026-11-06 / #45 决策 | `photo` 胶囊用 `label-md` 13 sp；「网格单元最小尺寸 88 dp」含高 | 胶囊改 `mono-data` 12 sp（等宽数字）；88 dp = **最小宽度**，高按 3:2 由列宽推导 | §3.1 / §2.1 实测表；同时解决 **P2-4**（`photo` 页画布黑上的系统栏必须用浅色图标，`V-30`）与胶囊字号 |
 | 2026-11-06 / #42 | `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` 返回键直接退出，无浮层例外 | 模态浮层优先：`Filter` / `Details` / `Pause & exit` 确认框开着时，返回键只关当前浮层，全部关闭后才进入 §1.3 的退出/回退规则（`UNAVAILABLE` 按现行口径回照片墙，见 #48） | §1.3 |
 | 2026-11-06 / #43 | `photo` 页由 `CATALOG_READY` 的格子**点击**进入 | 由格子**长按**进入；点击保留为 `L-08` 的切换已选 | §1.2 |
 
@@ -218,7 +218,7 @@
   内容区焦点是状态的**主表达**（L-04）：`COLD` / `EMPTY_CATALOG` / `UNAVAILABLE` 用居中图标，
   `SCANNING` 用细环 + `320/1526`，`IMPORTING` / `PAUSED` 用 180 dp 传输环，`CATALOG_READY` 用照片墙；
   扫描环与传输环分属不同状态、互斥显示（见本节上一段）。
-  顶栏的设备短名（如 `a7C`）只作标识，不承担状态；连接状态由图标形态 **+ 断开态短词 `Disconnected`** 共同表达（`COLD` 用相机线稿、`ERROR` 用 `V-28` 的断线图标，§2.2）；日志/详情入口默认不可见（L-05）。
+  顶栏的设备短名（如 `a7C`）只作标识，不承担状态；连接状态：`ERROR` 由 `V-28` 的断线图标 + 断开态短词 `Disconnected` 表达，`COLD` 只由短词 `Disconnected` 表达（相机线稿本身不变化，§2.2）；日志/详情入口默认不可见（L-05）。
   `CATALOG_READY` 的计数胶囊只承担计数，不承担状态（`V-27`）。
 
 ### 1.2 状态表（首屏契约）
@@ -292,7 +292,7 @@
 - **L-04** 纵向分区固定。顺序恒为：顶栏 → 内容区（唯一焦点，可滚动，占剩余高度）→ 底部操作区（固定）→ 手势条安全区。
   状态**不再**单占一条固定状态栏：状态由内容区的唯一焦点承担（环/照片墙/图标）。
   任何区块**不得**因内容变多而挤占其他区块的固定高度。
-- **L-05** 日志不得占首屏。日志/明细**必须**收进可折叠抽屉，默认收起；入口是「长按顶栏设备名」或 `Details` 按钮，
+- **L-05** 日志不得占首屏。日志/明细**必须**收进可折叠抽屉，默认收起；入口是「长按顶栏设备名；`ERROR` 为『图标 + `Disconnected`』整簇」或 `Details` 按钮，
   默认不可见。展开时覆盖内容区，**不得**把主操作向下推。
 - **L-06** 底部操作区避让手势条。底部按钮/进度区**必须**叠加 `navigationBars` inset 的 padding；
   按钮高度 ≥48 dp；与手势条之间视觉间隔 ≥8 dp。
@@ -366,11 +366,11 @@
   **不得**再出现「相机线稿压斜线」这种第三形态（旧的斜线画法由 `V-28` 取代）。
   `ERROR` **一律**按断开画法，含可恢复错误与 USB 挂起：该态的唯一推进动作是 `Reconnect`（顶栏标签 + 内容区插头图标两个入口），
   图标形态不随「相机是否仍物理连接」摆动；是否可恢复只影响 `Details` 文案（§1.2 / `C-14`），不改变顶栏。
-- **V-27** 顶栏计数胶囊**只在 `CATALOG_READY` 出现**：12 sp `mono-data` 等宽数字，底 `surface-container` `#eeeeee`、字 `on-surface` `#1a1c1c`（13.3:1）；其它任何状态**不得**出现数字。
+- **V-27** 顶栏计数胶囊**只在 `CATALOG_READY` 出现**：12 sp `mono-data` 等宽数字，底 `surface-container` `#eeeeee`、字 `on-surface` `#1a1c1c`（14.75:1）；其它任何状态**不得**出现计数数字/数字节点（设备短名内的数字不算，见 `U-44`）。
   胶囊与同屏的 `Import all N` / `Import N` **必须同分母**（都取模型内照片数，`C-08`）。
   **同屏两处 `511` 是本版显式接受的例外**（胶囊 + `Import all 511`）：胶囊**不**承担「唯一分母」职责，只作顶栏常驻计数；「唯一分母」职责仍归主 CTA。
   **不得**出现两个不同口径的分母（对象总数 `1526` 与照片数同屏即违规，`C-09`）。
-- **V-28（新图标规范）** `ERROR` 顶栏的断线图标与既有相机线稿**同族**：同一 1.5 dp stroke、同一 24 dp 光栅框（渲染 20 dp）、**不填充底色**、描边圆头。
+- **V-28（新图标规范）** `ERROR` 顶栏的断线图标与既有相机线稿**同族**：同一 1.5 dp stroke、同一 24 dp 光栅框（渲染 20 dp）、**不填充底色**、描边圆头；描边一律 `on-surface` `#1a1c1c`（on `#ffffff` = 17.1:1）。
   形态为「插头未接」：左侧插头机身 + 两根向右的插针 + 左侧线尾；右侧插座画成开口向左的 C 形括号；插针与插座之间留 ≥0.14 w（约 2 个 stroke）的空隙（**不**画斜线、**不**画叉号）。
   该图标**只**用于 `ERROR` 顶栏，替代 `COLD` / `ERROR` 原本的「相机线稿压斜线」；正文说明与按钮**不得**复用这个图标。
 - **V-29（`Reconnect` 可点标签）** `ERROR` 顶栏右侧的 `Reconnect` 是**动作标签**（不是解释文字）：12 sp `body-sm`、`on-surface` 字色、单行 `maxLines = 1`、文本不换行；热区 ≥48×48 dp 且**独立**于 `Disconnected` 短词；`contentDescription` = `Reconnect`。
@@ -476,7 +476,7 @@
 
 | 项 | 漂移 | 本文口径 |
 |---|---|---|
-| 画布底色 | `surface` / `background` 是 `#f9f9f9`，正文说「Pure White」 | `library` / `transfer` 两页页面底用 `surface-container-lowest` `#ffffff`；`photo` 页按画布黑 `canvas` `#1d1d1f`（见本条与 `V-25`）；`#f9f9f9` 只用于需要与画布区分的面板 |
+| 画布底色 | `surface` / `background` 是 `#f9f9f9`，正文说「Pure White」 | `library` / `transfer` 两页页面底用 `surface-container-lowest` `#ffffff`；`photo` 页按画布黑 `canvas` `#1d1d1f`（见本条与 `V-30`）；`#f9f9f9` 只用于需要与画布区分的面板 |
 | 底色 token 值 | `library` 把 `background` 覆盖为 `#ffffff`，`transfer` / `photo` 仍是 `#f9f9f9` | `library` / `transfer` 两页统一按画布 `#ffffff`；`photo` 页按 `canvas` `#1d1d1f`；`#f9f9f9` 降为次级面板底（结论同上一行，本条只记值差） |
 | 主墨 / 画布黑 | `primary` 定稿值为纯黑，正文说 `#111111` | **两个显式 token，角色互斥、不得互换**：<br>1) **画布黑** `canvas` `#1d1d1f`：**只**用于 `photo` 页全幅画布底、遮罩、胶囊实底、系统栏浅色图标底；<br>2) **文字近黑** `ink` `#111111`：**只**用于主 CTA 实心底（白字 18.9:1），**不得**用于正文/图标。<br>正文/图标按 `V-07` 用 `on-surface` / `on-surface-variant` / `outline`；画布黑上的文字与图标一律 `#ffffff`（16.8:1）。`primary` / `tertiary` 的纯黑值一律落为 `#1d1d1f` |
 | 次级墨 | 页面遮罩/胶囊用纯黑 alpha（实测约 60% / 40%；本文件不以 `black/*` 记法落字），正文写 `#707070` | 次级文字用 `on-surface-variant` `#444748`（9.4:1）；`#666666` 仅作下限示例；装饰性 alpha 一律基于 `canvas`（合成值与阈值见 `V-07` 末段），不得承载正文 |
@@ -501,7 +501,7 @@
   | `#ffffff` on `#1d1d1f` | 16.8:1 | 画布黑上的文字/图标、系统栏浅色图标 |
   | `#111111` on `#1d1d1f` | 1.12:1 | **禁用**（深色面不得用文字近黑） |
   | `outline` `#747878` on `#ffffff` | 4.47:1 | 图标/描边下限（≥3:1） |
-  | `on-surface` `#1a1c1c` on `surface-container` `#eeeeee`（顶栏计数胶囊） | 13.3:1 | 胶囊数字（12 sp `mono-data`） |
+  | `on-surface` `#1a1c1c` on `surface-container` `#eeeeee`（顶栏计数胶囊） | 14.75:1 | 胶囊数字（12 sp `mono-data`） |
   | `#999999` on `#ffffff` | 2.85:1 | **仅装饰**，不得正文 |
   | `outline-variant` `#c4c7c7` on `#ffffff` | 1.7:1 | **仅分隔**，不得图标/文字 |
 
@@ -521,7 +521,7 @@
   - 白字压 `canvas/65`：合成 `#6c6c6d`，**5.25:1**，通过。
 
   日期 chevron 改 `on-surface-variant`；照片遮罩 ≥ `canvas/50`；**胶囊底一律 `canvas` 实底**（`#ffffff` 压 `#1d1d1f` = **16.8:1**），不再提供 `canvas/60` 档。
-- **V-25（P2-4）** `photo` 页是画布黑全幅底：系统栏（status bar + gesture bar）图标**必须**用浅色
+- **V-30（P2-4）** `photo` 页是画布黑全幅底：系统栏（status bar + gesture bar）图标**必须**用浅色
   （关闭 `APPEARANCE_LIGHT_STATUS_BARS` / `APPEARANCE_LIGHT_NAVIGATION_BARS`），**不得**用深色图标压 `#1d1d1f`（1.12:1）；
   离开 `photo` 页**必须**恢复浅色系统栏与深色图标。
 - **V-08（暂不适用）** 跟随系统深色：定稿 47 个颜色 token 无 dark 值、三页无深色类，本版本**只做 light**。
@@ -707,7 +707,7 @@ Next:    <一个可执行动作>
   | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` 顶部；`transfer` 顶部仅 `IMPORTING` / `PAUSED` |
   | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
   | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
-  | 详情 / 日志 | 长按顶栏设备名，或 `Details` | 全页（默认不可见，L-05） |
+  | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 全页（默认不可见，L-05） |
 
 - **过滤抽屉与 `Location details` 标记的用法（字面量登记在 §4.5 词表，本条只讲用在哪）**：过滤项写
   `All` / `RAW` / 日期（组头原样）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张
@@ -784,7 +784,7 @@ Next:    <一个可执行动作>
 | U-01 | 改写 | 在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` 下（与 `U-03` 同一状态范围），冷启动首屏存在唯一主按钮，且完全位于顶栏与状态栏之下；冷启动直接进入无实心主按钮的态时（`SCANNING`：`T-SCANNING` 只有 `Cancel` 图标；`ERROR` / `EMPTY_CATALOG`：`V-09`）本条不判 | dump：主按钮 `bounds` 与系统栏、系统 ActionBar（若存在）、`topBar` 三者交集均为空，且 `bounds.top` ≥ 顶栏 `bounds.bottom`；实心主按钮节点数 = 1 |
 | U-02 | 改写 | 可点击控件不得被系统栏或顶栏遮挡（顶栏自身控件除外） | dump 逐控件矩形检查：对每个 `clickable=true` 且**不是**顶栏后代的节点，其 `bounds` 与系统栏 / `action_bar` / `topBar` 的交集必须为空；顶栏后代的 `bounds` 必须完全落在顶栏内。状态栏底边取 `dumpsys window` 的 `mStatusBarHeight` 或 `status_bar` 节点 `bounds.bottom`，结论注明用了哪一种 |
 | U-03 | 改写 | 在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` 下，不滚动即可看到主按钮与该状态的**主表达**（`COLD` 为用户可见主文案 `No camera`；`PERMISSION_PENDING` 的主表达就是 `Allow` 主按钮本身；`CATALOG_READY` 为照片墙首行） | dump：主按钮 `bounds.bottom` ≤ 屏幕高度 − 手势条高度、`bounds.top` ≥ 顶栏底边；`COLD` / `CATALOG_READY` 另判主表达节点与主按钮同屏且两矩形不相交；`PERMISSION_PENDING` 两者是同一节点，只判主按钮矩形，不判「两矩形不相交」；首屏截图复核 |
-| U-04 | 改写 | 日志/明细默认收起，展开不挤压主操作；入口改为长按顶栏设备名 | 长按前后各 dump 一次：主按钮 `bounds` 四个值完全不变；抽屉容器 `bounds` 高度增大且上边不低于顶栏底边；默认 dump 中不得出现抽屉容器 |
+| U-04 | 改写 | 日志/明细默认收起，展开不挤压主操作；入口改为长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇） | 长按前后各 dump 一次：主按钮 `bounds` 四个值完全不变；抽屉容器 `bounds` 高度增大且上边不低于顶栏底边；默认 dump 中不得出现抽屉容器 |
 | U-06 | 保留 | 扫描可取消，取消后回到稳定状态 | 操作录屏/日志 + 状态截图 |
 | U-08 | 改写 | 分组可折叠/展开，折叠后可见单元数下降 | 操作前后 dump 计数对比 |
 | U-09 | 改写 | 可点目标 ≥48 dp；正文 ≥14 sp；说明/数字 ≥12 sp | dump bounds + 代码/资源核对 |
@@ -806,7 +806,7 @@ Next:    <一个可执行动作>
 
 | 编号 | 状态 | 必须匹配 | 必须不匹配 |
 |---|---|---|---|
-| U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
+| U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个；顶栏存在 `Disconnected` 短词 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
 | U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏不出现计数胶囊**（胶囊只在 `CATALOG_READY`，`V-27`；`1526` 只作进度分母，不与照片数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
 | U-44 | `CATALOG_READY` | 顶栏有 **1 个** 12 sp 计数胶囊，数值 = 照片总数且与 CTA 同分母（`V-27` 的同分母例外；设备短名 `a7C` 里的 `7` 是名称，不算计数）；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个**不同口径**的总量分母；顶栏出现**第二个**数字节点 |
@@ -836,7 +836,7 @@ Next:    <一个可执行动作>
 | U-01 | 改写 | 措辞：`topBar`（若存在）→ `topBar`；判定对象不变，标准不降低 |
 | U-02 | 改写 | 措辞：`系统 action_bar` / `mStatusBarHeight（或 dump 中…）` 的括号写法改为固定取值路径 |
 | U-03 | 改写 | 判定对象：状态清单改为 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY`；`ERROR` 无实心主按钮（V-09），可见性由 `U-48` 承担 |
-| U-04 | 改写 | 判定对象：日志 → `Details` 抽屉；入口固定为「长按顶栏设备名」或 `Details` 按钮（`L-05`） |
+| U-04 | 改写 | 判定对象：日志 → `Details` 抽屉；入口固定为「长按顶栏设备名；`ERROR` 为『图标 + `Disconnected`』整簇」或 `Details` 按钮（`L-05`） |
 | U-05 | 废止 | 原以全选/清空/导入主按钮判定扫描态；定稿无这些控件。并入 U-43，新增「禁速率/ETA」「禁旧墙可点」两条更严断言 |
 | U-07 | 废止 | 原要求扫描进度含预计剩余；定稿删除剩余时间，并入 U-43 并反转为「不得出现」 |
 | U-08 | 改写 | 判定对象：行数 → 单元数、dump 行数 → dump 计数 |
