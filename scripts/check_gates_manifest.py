@@ -8,8 +8,8 @@
 它会用清单重写 AGENTS.md 里 `<!-- gates:ci:begin -->` 与 `<!-- gates:ci:end -->` 之间那一段。
 
 顺带校验：条目引用的脚本确实在磁盘上、没有重复的门禁名、以及 `cmd` 的参数没有被
-静默降级（#131）：门禁命令里不许出现只报告不阻断、会改写工作区或只跑用例的参数
-（`--warn` / `--soft` / `--dry-run` / `--fix` / `--write` / `--self-test`）；条目可用 `flags.require` 声明必须在命令里原样
+静默降级（#131）：门禁命令里不许出现只报告不阻断、会改写工作区、只跑用例或只打印用法的参数
+（`--warn` / `--soft` / `--dry-run` / `--fix` / `--write` / `--self-test` / `--help` / `-h`）；条目可用 `flags.require` 声明必须在命令里原样
 出现的参数；脚本自己声明了降级开关时，必须用 `flags.require` 显式选阻断模式；
 命令里跟在仓库内 `.py` 脚本后的参数（含短别名）必须被该脚本的 `--help` 声明过（拼错即红）。
 
@@ -35,9 +35,13 @@ BEGIN = "<!-- gates:ci:begin -->"
 END = "<!-- gates:ci:end -->"
 
 # 出现在门禁命令里就等于把门关掉：前三个只报告不阻断；`--fix` / `--write` 会在跑门禁时
-# 改写工作区（门禁必须只读）；`--self-test` 只跑用例、跳过清单与生成段比对。
+# 改写工作区（门禁必须只读）；`--self-test` 只跑用例、跳过清单与生成段比对；
+# `--help` / `-h` 只打印用法就退 0，一个字节都不扫（#173）。
+# `-h` 必须单独入表：元门禁不探测自己（拿不到 `-h, --help` 的别名组），只靠别名组兜不住。
 # 这张表是**策略**，不是「某条命令应该怎么写」的期望值。
-FORBIDDEN_FLAGS = {"--warn", "--soft", "--dry-run", "--fix", "--write", "--self-test"}
+FORBIDDEN_FLAGS = {
+    "--warn", "--soft", "--dry-run", "--fix", "--write", "--self-test", "--help", "-h",
+}
 # 脚本自带这些开关时，清单必须用 `flags.require` 显式声明一个阻断模式。
 DOWNGRADE_FLAGS = {"--warn", "--soft", "--dry-run"}
 # 命令里的「参数形状」：长参数 `--xxx` 与单字母短别名 `-x` 都算，其它 `-` 开头的 token
@@ -179,8 +183,8 @@ def check_cmd_contract(data: dict) -> list[str]:
     0. 形状层：`cmd` 必须是非空字符串数组、门禁名必须等于主体脚本文件名——
        不合规的形状直接报红并跳过该条目，不再逐字符/静默跳过（#139）；
     1. 策略层：任何档位都不许出现 `--warn` / `--soft` / `--dry-run` / `--fix` /
-       `--write` / `--self-test`；脚本给降级开关配了短别名时，按 `--help` 的
-       选项行别名组映射回长参数，同样判红；
+       `--write` / `--self-test` / `--help` / `-h`；脚本给降级开关配了短别名时，
+       按 `--help` 的选项行别名组映射回长参数，同样判红；
     2. 声明层：清单里的 `flags.require` 必须在命令里原样出现；
     3. 自证层：脚本 `--help` 声明的参数（含短别名）才准用（拼错即红），并且脚本
        自带降级开关时，条目必须显式声明阻断模式（连字段一起删也红）。
@@ -356,6 +360,37 @@ def self_test() -> int:
         _ci_entry(d, "check_sensitive.py")["cmd"] = ["python", "scripts/check_doc_links.py", "--check"]
 
     run("整条命令换成非 argparse 脚本", swapped_script, want=True, must=("与门禁名不一致",))
+
+    # ---- #173：只打印用法就退 0 的 --help / -h 不能当门禁 ----
+    def help_long(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = [
+            "python", "scripts/check_sensitive.py", "--check", "--help",
+        ]
+
+    run("追加 --help", help_long, want=True, must=("会关掉门禁的参数：--help",))
+
+    def help_short(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = [
+            "python", "scripts/check_sensitive.py", "--check", "-h",
+        ]
+
+    run("追加 -h", help_short, want=True, must=("会关掉门禁的参数：-h",))
+
+    # 元门禁对自身返回 None（`_script_flags` 不探测自己），拿不到别名组。
+    # 这两条钉住：即使没有别名组，策略层也必须直接命中 --help / -h。
+    def meta_help_long(d):
+        _ci_entry(d, "check_gates_manifest.py")["cmd"] = [
+            "python", "scripts/check_gates_manifest.py", "--help",
+        ]
+
+    run("元门禁自己追加 --help", meta_help_long, want=True, must=("会关掉门禁的参数：--help",))
+
+    def meta_help_short(d):
+        _ci_entry(d, "check_gates_manifest.py")["cmd"] = [
+            "python", "scripts/check_gates_manifest.py", "-h",
+        ]
+
+    run("元门禁自己追加 -h", meta_help_short, want=True, must=("会关掉门禁的参数：-h",))
 
     real_script_flags = _script_flags
 

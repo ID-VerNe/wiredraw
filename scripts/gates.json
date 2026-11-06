@@ -12,7 +12,7 @@
       "name": "check_gates_manifest.py",
       "cmd": ["python", "scripts/check_gates_manifest.py"],
       "shard": "static",
-      "why": "元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：--warn/--soft/--dry-run/--fix/--write/--self-test 一律红，flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131）"
+      "why": "元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：--warn/--soft/--dry-run/--fix/--write/--self-test/--help/-h 一律红，flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131、#173）"
     },
     {
       "name": "check_no_vendored.py",
