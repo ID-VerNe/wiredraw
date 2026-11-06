@@ -11,7 +11,11 @@
 静默降级（#131）：门禁命令里不许出现只报告不阻断、会改写工作区或只跑用例的参数
 （`--warn` / `--soft` / `--dry-run` / `--fix` / `--write` / `--self-test`）；条目可用 `flags.require` 声明必须在命令里原样
 出现的参数；脚本自己声明了降级开关时，必须用 `flags.require` 显式选阻断模式；
-命令里跟在仓库内 `.py` 脚本后的长参数必须被该脚本的 `--help` 声明过（拼错即红）。
+命令里跟在仓库内 `.py` 脚本后的参数（含短别名）必须被该脚本的 `--help` 声明过（拼错即红）。
+
+形状层（#139）：`cmd` 必须是非空字符串数组、门禁名必须等于主体脚本的文件名，
+否则明确报红——不认识/不合规的形状一律不许静默跳过。脚本给降级开关配了短别名时，
+策略层按 `--help` 里的「同一行选项组」把别名映射回长参数，同样判红。
 
 回归用例：`python scripts/check_gates_manifest.py --self-test`
 """
@@ -36,7 +40,9 @@ END = "<!-- gates:ci:end -->"
 FORBIDDEN_FLAGS = {"--warn", "--soft", "--dry-run", "--fix", "--write", "--self-test"}
 # 脚本自带这些开关时，清单必须用 `flags.require` 显式声明一个阻断模式。
 DOWNGRADE_FLAGS = {"--warn", "--soft", "--dry-run"}
-LONG_FLAG = re.compile(r"--[a-z][a-z0-9-]*")
+# 命令里的「参数形状」：长参数 `--xxx` 与单字母短别名 `-x` 都算，其它 `-` 开头的 token
+# （例如 `--warn=x`、`-` 本身）一律判形态不对。短别名不能只看 `--`（#139）。
+FLAG_TOKEN = re.compile(r"--[a-z][a-z0-9-]*|-[A-Za-z]")
 
 
 def load() -> dict:
@@ -89,11 +95,16 @@ def check_scripts_exist(data: dict) -> list[str]:
     seen = set()
     for tier in ("ci", "manual", "support"):
         for entry in data.get(tier, []):
-            name = entry["name"]
+            name = entry.get("name")
+            if not isinstance(name, str) or not name:
+                continue  # 形状层（check_cmd_contract）会明确报红
             if name in seen:
                 problems.append(f"门禁名重复：{name}")
             seen.add(name)
-            for token in entry["cmd"]:
+            cmd = entry.get("cmd")
+            if not isinstance(cmd, list):
+                continue  # 形状不对由 check_cmd_contract 明确报红，这里不再 TypeError
+            for token in cmd:
                 if not isinstance(token, str) or token.startswith("-"):
                     continue
                 if "/" not in token or not re.search(r"\.(py|sh|json|md)$", token):
@@ -113,12 +124,15 @@ def _subject_script(entry: dict) -> Path | None:
     return None
 
 
-def _script_flags(script: Path) -> set[str] | None:
-    """取脚本自己声明的长参数（`--xxx`）。
+def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
+    """取脚本自己声明的参数（长参数与短别名）以及它们的别名组。
 
     先看源码是否用 argparse。不走 argparse 的脚本收到 `--help` 会执行真实检查，
     元门禁不能顺手跑别的门禁（也会把元门禁自己递归调起来），所以直接跳过。
     拿不到选项集时返回 None，调用方只保留策略层校验。
+
+    第二项是「同一行里列出的选项」组成的别名组（argparse 把 `-h, --help` 渲染成
+    一行），用来把短别名映射回同组的长参数（#139）。
     """
     if script.resolve() == Path(__file__).resolve():
         return None  # 不探测自己：本脚本没有 argparse，`--help` 会真的跑一遍检查
@@ -144,30 +158,65 @@ def _script_flags(script: Path) -> set[str] | None:
         return None
     if proc.returncode != 0:
         return None
-    flags = set(LONG_FLAG.findall(proc.stdout))
-    return flags or None
+    flags: set[str] = set()
+    groups: list[set[str]] = []
+    for line in proc.stdout.splitlines():
+        stripped = line.strip()
+        # 选项行以 `-` 开头；`usage:` 与折行后的帮助文本都不算
+        if not stripped.startswith("-"):
+            continue
+        group = set(FLAG_TOKEN.findall(stripped))
+        if group:
+            groups.append(group)
+            flags |= group
+    return (flags, groups) if flags else None
 
 
 def check_cmd_contract(data: dict) -> list[str]:
     """校验 `cmd` 的参数没有把门禁降级（#131）。
 
-    三层，各管一种错法，都不维护「命令 → 期望参数」的完整比对表：
+    四层，各管一种错法，都不维护「命令 → 期望参数」的完整比对表：
+    0. 形状层：`cmd` 必须是非空字符串数组、门禁名必须等于主体脚本文件名——
+       不合规的形状直接报红并跳过该条目，不再逐字符/静默跳过（#139）；
     1. 策略层：任何档位都不许出现 `--warn` / `--soft` / `--dry-run` / `--fix` /
-       `--write` / `--self-test`；
+       `--write` / `--self-test`；脚本给降级开关配了短别名时，按 `--help` 的
+       选项行别名组映射回长参数，同样判红；
     2. 声明层：清单里的 `flags.require` 必须在命令里原样出现；
-    3. 自证层：脚本 `--help` 声明的长参数才准用（拼错即红），并且脚本自带
-       降级开关时，条目必须显式声明阻断模式（连字段一起删也红）。
+    3. 自证层：脚本 `--help` 声明的参数（含短别名）才准用（拼错即红），并且脚本
+       自带降级开关时，条目必须显式声明阻断模式（连字段一起删也红）。
     """
     problems = []
     for tier in ("ci", "manual", "support"):
         for entry in data.get(tier, []):
-            name = entry["name"]
-            cmd = entry["cmd"]
-            long_flags = [t for t in cmd if isinstance(t, str) and t.startswith("--")]
-            for flag in long_flags:
-                if not LONG_FLAG.fullmatch(flag):
+            name = entry.get("name")
+            if not isinstance(name, str) or not name:
+                problems.append(f"{tier} 里有条目的 name 不是非空字符串：{entry!r}")
+                continue
+            cmd = entry.get("cmd")
+            if not isinstance(cmd, list) or not cmd or not all(
+                isinstance(t, str) and t for t in cmd
+            ):
+                problems.append(f"`{name}` 的 cmd 必须是非空字符串数组（当前：{cmd!r}）")
+                continue
+
+            script = _subject_script(entry)
+            if script is not None and script.name != name:
+                problems.append(
+                    f"`{name}` 的主体脚本是 {script.relative_to(ROOT)}，与门禁名不一致"
+                    "（整条命令可能被换成了别的脚本）"
+                )
+            declared = _script_flags(script) if script else None
+            declared_flags, alias_groups = declared if declared else (None, [])
+            flags_in_cmd = [t for t in cmd if t.startswith("-")]
+            for flag in flags_in_cmd:
+                if not FLAG_TOKEN.fullmatch(flag):
                     problems.append(f"`{name}` 的参数形态不对：{flag}")
-                elif flag in FORBIDDEN_FLAGS:
+                    continue
+                # 短别名没有独立策略语义：它所在的选项组里有禁用参数，就按该长参数判红。
+                forbidden = flag in FORBIDDEN_FLAGS or any(
+                    flag in group and group & FORBIDDEN_FLAGS for group in alias_groups
+                )
+                if forbidden:
                     problems.append(f"`{name}` 用了会关掉门禁的参数：{flag}")
 
             required = (entry.get("flags") or {}).get("require") or []
@@ -177,16 +226,13 @@ def check_cmd_contract(data: dict) -> list[str]:
                 if flag not in cmd:
                     problems.append(f"`{name}` 缺少清单声明的必需参数：{flag}")
 
-            script = _subject_script(entry)
-            declared = _script_flags(script) if script else None
-            if declared is None:
-                continue
-            for flag in long_flags:
-                if flag not in declared:
-                    problems.append(
-                        f"`{name}` 的参数不在 {script.relative_to(ROOT)} 的 --help 里：{flag}"
-                    )
-            downgrades = sorted(declared & DOWNGRADE_FLAGS)
+            if declared_flags is not None:
+                for flag in flags_in_cmd:
+                    if flag not in declared_flags:
+                        problems.append(
+                            f"`{name}` 的参数不在 {script.relative_to(ROOT)} 的 --help 里：{flag}"
+                        )
+            downgrades = sorted((declared_flags or set()) & DOWNGRADE_FLAGS)
             if downgrades and not required:
                 problems.append(
                     f"`{name}` 的 {script.relative_to(ROOT)} 支持降级参数 {downgrades}，"
@@ -281,6 +327,56 @@ def self_test() -> int:
 
     run("引用不存在的脚本", missing_file, want=True, must=("引用的文件不存在",), which="exist")
 
+    # ---- #139：非常规形状不许静默放行 ----
+    def cmd_as_string(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = "python scripts/check_sensitive.py --check"
+
+    run("cmd 写成字符串", cmd_as_string, want=True, must=("cmd 必须是非空字符串数组",))
+
+    def cmd_has_non_string(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = [
+            "python", "scripts/check_sensitive.py", "--check", 7,
+        ]
+
+    run("cmd 里混入非字符串元素", cmd_has_non_string, want=True, must=("cmd 必须是非空字符串数组",))
+
+    def empty_cmd(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = []
+
+    run("cmd 是空数组", empty_cmd, want=True, must=("cmd 必须是非空字符串数组",))
+
+    def undeclared_short(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = [
+            "python", "scripts/check_sensitive.py", "--check", "-w",
+        ]
+
+    run("追加 --help 未声明的短别名 -w", undeclared_short, want=True, must=("-w", "--help"))
+
+    def swapped_script(d):
+        _ci_entry(d, "check_sensitive.py")["cmd"] = ["python", "scripts/check_doc_links.py", "--check"]
+
+    run("整条命令换成非 argparse 脚本", swapped_script, want=True, must=("与门禁名不一致",))
+
+    real_script_flags = _script_flags
+
+    def fake_script_flags(script):
+        """假设主体脚本给 --warn 加了 -w 别名：策略层必须沿别名组判红。"""
+        return (
+            {"--check", "--warn", "-w", "-h", "--help"},
+            [{"--check"}, {"--warn", "-w"}, {"-h", "--help"}],
+        )
+
+    try:
+        globals()["_script_flags"] = fake_script_flags
+        run(
+            "降级开关的短别名 -w 也判红",
+            undeclared_short,
+            want=True,
+            must=("会关掉门禁的参数：-w",),
+        )
+    finally:
+        globals()["_script_flags"] = real_script_flags
+
     if "python scripts/check_sensitive.py --check" not in render(base):
         failures.append("生成段没有渲染 cmd")
         print("[红] 自检：生成段没有渲染 cmd", file=sys.stderr)
@@ -301,6 +397,14 @@ def main() -> int:
 
     write = "--write" in sys.argv
     data = load()
+
+    # 清单本身不合规时先报红：既不让后续渲染把畸形 cmd 写进 AGENTS.md，
+    # 也避免形状问题在更早的检查里变成异常栈（#139）。
+    problems = check_cmd_contract(data) + check_scripts_exist(data)
+    if problems:
+        for p in problems:
+            print(f"[红] {p}", file=sys.stderr)
+        return 1
 
     if not AGENTS.is_file():
         print(f"[红] 找不到 {AGENTS.name}", file=sys.stderr)
