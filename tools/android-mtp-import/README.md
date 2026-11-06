@@ -91,7 +91,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；177 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；186 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -147,7 +147,8 @@ P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、�
 （`UiText.rate` / `UiText.eta` 只被自检覆盖，界面与 `Main` 都不调），所以主视觉与抽屉里都不出现。
 可达范围：`am start --es demo_state <状态>` 能直达全部 10 态；应用内从照片墙的 `Details` 抽屉
 可以切到任一态，但 `COLD` / `EMPTY_CATALOG` 切过去后假树被清掉、没有回照片墙的路，
-`DONE` 下返回键直接退出——这三种只能重新 `am start`，不要当成「抽屉里随便来回切」。
+这两种只能重新 `am start`，不要当成「抽屉里随便来回切」；`DONE` 及其它非主页终态下
+返回键回照片墙（issue #48）。
 另：`CATALOG_READY` 点 `Import all` 现在会真实进入 `IMPORTING` 并每 250 ms 推进一张，
 约 9 秒落到 `DONE`；`Pause` / `Resume` / `Cancel` 都能点按到达（issue #46）。
 `--es demo_state IMPORTING/PAUSED` 仍是冻结的 `12/36`，那是冷启动直达，不是模拟进度。
