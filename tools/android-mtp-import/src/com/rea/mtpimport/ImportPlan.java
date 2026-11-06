@@ -38,7 +38,8 @@ public final class ImportPlan {
      *    这正是主 CTA `Import all N` 的含义（`T-01` 默认批量路径，issue #80 的口径修正）；
      * 3. 每个单元按 `export` 取**一个**文件：`All` / 日期档 JPG 优先、缺失回退 ARW；`RAW` 档 ARW；`JPG` 档 JPG。
      *
-     * 因此计划条数恒等于照片单元数，不会把同名 ARW + JPG 一起吞进计划（真机 512 单元 = 512 个文件）。
+     * 因此每个单元最多进 1 个文件，不会把同名 ARW + JPG 一起吞进计划（真机 512 单元 = 512 个文件）；
+     * 只有档位与该单元不配套（`export` 返回 null）时才会少一条，正常可见集合不会出现这种组合。
      * 排序沿用 relPath 口径，落盘顺序与续传日志保持一致。
      */
     public static ImportPlan of(Catalog catalog, Selection selection,

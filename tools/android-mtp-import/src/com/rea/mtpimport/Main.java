@@ -332,7 +332,8 @@ public final class Main extends ComponentActivity {
 
         @Override
         public void onSelectionChanged() {
-            // PD / P-09：勾选变化会改变计划大小，空间预检必须跟着刷新（由 Compose 在主线程回调）。
+            // PD / P-09：勾选或 filter（#83）都会改变计划大小，空间预检必须跟着刷新
+            // （由 Compose 在主线程回调）。
             refreshSpaceCheck();
         }
 

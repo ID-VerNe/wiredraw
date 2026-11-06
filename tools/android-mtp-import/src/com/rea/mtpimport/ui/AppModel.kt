@@ -28,7 +28,10 @@ interface AppCallbacks {
     fun onResumeExit()
     fun onDemoState(name: String)
 
-    /** 勾选变化（PD / P-09）：Main 用它重算空间预检，决定主 CTA 是否禁用。 */
+    /**
+     * 计划变更（PD / P-09）：勾选或 filter 变化都会改变可见集合与载荷大小，
+     * Main 用它重算空间预检，决定主 CTA 是否禁用。
+     */
     fun onSelectionChanged()
 
     /** 回到照片墙（PD / P-09）：DONE / ERROR / 取消返回时同样要重算空间预检。 */
@@ -415,9 +418,14 @@ class AppModel {
 
     fun isCollapsed(key: String): Boolean = collapsed.contains(key)
 
+    /**
+     * 切 filter（issue #83）：可见集合与导出载荷都会变（`All` 0.86 GB ↔ `RAW` 11.89 GB），
+     * 所以必须像勾选变化一样触发空间预检；否则 `lowSpace` 会停在上一档的结论上。
+     */
     fun setFilter(kind: FilterKind, date: String? = null) {
         filterKind = kind
         filterDate = date
+        callbacks?.onSelectionChanged()
     }
 
     fun addLog(line: String) {
