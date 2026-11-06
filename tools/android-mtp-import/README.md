@@ -58,6 +58,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
+├─ ImportGate        主 CTA 准入判定：后台扫描 + 空间不足两条件（N-1）         [纯 JDK]
 ├─ ImportService     编排：线程、暂停（文件边界）、取消、重试、逐文件调 transfer  [纯 JDK]
 ├─ CancelToken       取消令牌：置位 + 立即执行传输层的中断动作（PB）       [纯 JDK]
 ├─ ResumableTransfer 传输契约（整文件 / 取消 / offset 续传，语义见 #67）    [纯 JDK]
@@ -70,12 +71,15 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ScanRun           一轮扫描的取消令牌：取消后迟到回调不得改界面           [纯 JDK]
 ├─ StorageRetry      getStorageIds 带唤醒重试：每轮判取消，最多多睡 1 个 3 秒 [纯 JDK]
 ├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
+├─ BackNav           系统返回键路由：浮层 → 照片页 → 传输/终态 → 启动态（#48）  [纯 JDK]
 ├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
 ├─ FinishOutcome     整轮结束去向：全失败优先于「视图已关闭」（issue #64）  [纯 JDK]
 ├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
+├─ TopBarSpec        顶栏常驻 + 计数胶囊条件（仅 CATALOG_READY，V-27）        [纯 JDK]
 ├─ ColorTokens       UI-SPEC 颜色 token 数值 + 对比度/胶囊派生（issue #78）  [纯 JDK]
 ├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
 ├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
+├─ DemoRun           demo 传输模拟的 main 侧接口（实现只在 debug 源集，#46）   [纯 JDK]
 ├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
 ├─ PhotoPreview      demo 素材契约：由 ThumbnailStore 供照片墙与看图页（真实路径不注入） [android]
 ├─ ui/               Compose 三屏 + 两个抽屉 + 图标 + 主题 + AppModel       [android]
@@ -87,8 +91,9 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**二十八个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
-`test/SelfTest.java`（其中 `DemoTree.java` / `DemoTransfer.java` 在 `src/debug`，用单独的清单核对）。
+纯 JDK 类合计**二十八个**——主源集 26 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
+`DemoTransfer` 标 `[debug 变体]`。这些文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+`test/SelfTest.java`（debug 的两个用单独的清单核对）；数量以 `checkPureJdkList` 的输出为准。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
 （classpath 故意为空），所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
