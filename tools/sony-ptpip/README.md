@@ -63,7 +63,7 @@ MENU → 网络 → PC Remote Function
 
 ```bash
 python parse_ptpip.py sony_ptp.pcap          # 事务流水
-python parse_ptpip.py sony_ptp.pcap --hex    # 附带数据阶段前 16 字节
+python parse_ptpip.py sony_ptp.pcap --data   # 附带数据阶段摘要（ObjectInfo 等）
 ```
 
 输出形如：
@@ -113,9 +113,10 @@ USB 上跑的是裸 PTP（无 PTP/IP 头），对比两边的 opcode 序列即�
 1. 用本机抓到的 pcap 取出 `Init_Command_Request`（C→H）的**完整 body**：
 
    ```powershell
-   python tools/sony-ptpip/parse_ptpip.py captures/wlan.pcapng --stream <N> --dump-init
+   python tools/sony-ptpip/parse_ptpip.py <你的抓包路径> --stream <N> --dump-init
    ```
 
+   仓库里没有 `captures/wlan.pcapng` 这类抓包文件（未入库），路径要换成你自己抓到的那个。
    输出形如 `Init_Command_Request  body=<N> B  hex=<连续十六进制>`，`hex=` 后面那一整串
    就是重放要的完整 body（典型 44 字节 = 16 字节 GUID 文本 + UTF-16LE 名称 + u32 版本）。
    `--stream <N>` 先用不带该参数的调用列出流编号。

@@ -281,10 +281,14 @@ def main():
         p = argv[i + 1]
         try:
             replay = open(p).read().strip()
+            size = len(bytes.fromhex(replay))
         except OSError as e:
             print(f"找不到 replay 文件：{p}（{e}），生成方法见 README §6")
             return 2
-        print(f"[0] 用 IED 原始握手 payload 重放（{len(bytes.fromhex(replay))} 字节）")
+        except ValueError as e:
+            print(f"replay 文件内容不是有效十六进制：{p}（{e}），生成方法见 README §6")
+            return 2
+        print(f"[0] 用 IED 原始握手 payload 重放（{size} 字节）")
 
     # 相机偶尔会因为上一轮的残留会话直接拒握手，退避重试几次。
     c, conn, cam = None, None, None
