@@ -37,8 +37,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -182,15 +184,42 @@ private fun PhotoGrid(model: AppModel) {
 /** 日期组头：整行可点（L-08）；文案是组内聚合 `Jun 7 · 12 · 284 MB`（U-44）。 */
 @Composable
 private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
+    // Selection 不是 observable：读版本号让「本组是否全选」随勾选变化重算。
+    val version = model.selectionVersion
+    val allSelected = group.photos.isNotEmpty() && model.selection?.allCheckedOf(group.photos) == true
+    val collapsed = model.isCollapsed(group.key)
+    val haptic = LocalHapticFeedback.current
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .tappable { model.toggleCollapsed(group.key) }
+            // 单击折叠/展开（L-08），长按 ≥500 ms = 组选（#62）；滚动越界会取消手势，
+            // 与单格长按进看图页互不冲突（作用在不同行/格）。
+            .pointerInput(group) {
+                detectTapGestures(
+                    onTap = { model.toggleCollapsed(group.key) },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        model.toggleGroupSelection(group)
+                    }
+                )
+            }
             .semantics {
                 // A-05：`Date group <date>, N photos, <size>`
                 contentDescription = "Date group " + group.label + ", " + group.count() +
                     " photos, " + UiText.capacity(group.bytes)
+                role = Role.Button
+                onClick(label = if (collapsed) "Expand date group" else "Collapse date group") {
+                    model.toggleCollapsed(group.key)
+                    true
+                }
+                // 手势语义由 `detectTapGestures` 提供不了，读屏靠这条进入组选（#62）。
+                onLongClick(
+                    label = if (allSelected) "Deselect date group" else "Select date group"
+                ) {
+                    model.toggleGroupSelection(group)
+                    true
+                }
             },
         verticalAlignment = Alignment.CenterVertically
     ) {

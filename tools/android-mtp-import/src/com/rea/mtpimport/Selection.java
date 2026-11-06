@@ -61,6 +61,25 @@ public final class Selection {
         for (Catalog.Entry e : catalog.all()) checked.add(e.handle);
     }
 
+    /**
+     * 日期组选（issue #62）：组内是否全部已勾选。
+     *
+     * 空组返回 false——没有可选对象时不算「已全选」，避免长按空组后语义变成「取消」。
+     */
+    public boolean allCheckedOf(List<Catalog.Entry> entries) {
+        if (entries == null || entries.isEmpty()) return false;
+        for (Catalog.Entry e : entries) {
+            if (!checked.contains(e.handle)) return false;
+        }
+        return true;
+    }
+
+    /** 日期组选（issue #62）：批量勾选/取消，逐项复用 {@link #setChecked} 的文件/文件夹语义。 */
+    public void setCheckedAllOf(List<Catalog.Entry> entries, boolean on) {
+        if (entries == null) return;
+        for (Catalog.Entry e : entries) setChecked(e.handle, on);
+    }
+
     public void clear() {
         checked.clear();
     }

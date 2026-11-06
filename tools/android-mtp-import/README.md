@@ -31,6 +31,7 @@
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
+| 日期组一键全选（#62） | ✅ 实现（组头整行长按 ≥500 ms：组内未全选→全选、已全选→全不选；折叠组自动展开；复用 `V-11` 与 `Import N`，无新增常驻控件；自检 8 项） |
 | 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
@@ -265,6 +266,10 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （有像素时全幅 `Fit`，否则单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、
       不改徽标与 `Import all N` 分母
+- [ ] 日期组一键全选（#62）：组头整行长按 500 ms → 本组全部 ARW 进入 `V-11` 已选态，CTA 变为
+      `Import <组内张数>`；再长按 → 全不选、CTA 回 `Import all 511`；部分选中时长按**补齐**（不反选）；
+      折叠组长按后自动展开；`uiautomator dump` 里组头高度 ≥48 dp 且带 `long-clickable`，
+      组头文字不新增、网格内无 per-cell 标记 —— **未验**（同上，设备被另一会话占用）
 - [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
       与相机侧 `ImportPlan.Item.size` 一致（PA / issue #50）
       —— 2026-11-06 实测：`DSC04541.ARW` 25393920 字节，落盘一致，文件头 `49 49 2a 00`
