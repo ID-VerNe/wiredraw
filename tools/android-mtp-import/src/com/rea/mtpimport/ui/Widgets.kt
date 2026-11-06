@@ -195,8 +195,8 @@ fun Scrim(onDismiss: () -> Unit) {
 }
 
 /**
- * 小圆角胶囊：只用于 `photo` 页的 `ARW · 24.6 MB`（`mono-data` 12 sp，与环内 `12/36`
- * 同族，等宽数字；`#45` 决策 4）。顶栏方案 A 不出现徽标（`V-24`），因此不再复用本组件。
+ * 小圆角胶囊：`photo` 页的 `ARW · 24.6 MB` 与 `CATALOG_READY` 顶栏计数胶囊（`V-27`），
+ * 统一 `mono-data` 12 sp、等宽数字。顶栏只在 `CATALOG_READY` 复用本组件，其它状态不出现数字。
  */
 @Composable
 fun Pill(
@@ -205,7 +205,7 @@ fun Pill(
     onDark: Boolean = false
 ) {
     val bg = if (onDark) UiColors.photoCapsule else UiColors.container
-    val fg = if (onDark) UiColors.canvas else UiColors.ink
+    val fg = if (onDark) UiColors.canvas else UiColors.onSurface
     Box(
         modifier
             .clip(CircleShape)

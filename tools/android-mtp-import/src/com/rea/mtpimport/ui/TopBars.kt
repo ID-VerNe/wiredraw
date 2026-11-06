@@ -22,6 +22,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.UiState
@@ -48,26 +51,14 @@ fun TopBarRow(
     )
 }
 
-/**
- * 连接指示按状态推定，不是实时 USB 探测：`COLD` 与 `ERROR` 视为不可用
- * （`ERROR` 的恢复动作是拔插数据线，见 §1.2），其余状态视为相机在线。
- */
-fun cameraLive(state: UiState.State): Boolean =
-    state != UiState.State.COLD && state != UiState.State.ERROR
-
-/** 顶栏左侧的相机标记；在线用相机线稿，不可用用带斜线的同一线稿。 */
-@Composable
-fun CameraMark(model: AppModel) {
-    if (cameraLive(model.state)) {
-        CameraGlyph(20.dp, UiColors.ink)
-    } else {
-        CameraOffGlyph(20.dp, UiColors.ink)
-    }
-}
-
 /** 短英文名号；`detailsEntry` 为真时长按仍进 Details（库页原有交互）。 */
 @Composable
-private fun TopBarLabel(text: String, model: AppModel, detailsEntry: Boolean) {
+private fun TopBarLabel(
+    text: String,
+    model: AppModel,
+    detailsEntry: Boolean,
+    style: TextStyle = TextBody
+) {
     val base = if (detailsEntry) {
         Modifier
             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -88,15 +79,15 @@ private fun TopBarLabel(text: String, model: AppModel, detailsEntry: Boolean) {
         },
         contentAlignment = Alignment.CenterStart
     ) {
-        BasicText(text, style = TextBody.copy(color = UiColors.ink))
+        BasicText(text, style = style.copy(color = UiColors.onSurface), maxLines = 1)
     }
 }
 
-/** 照片墙顶栏（方案 A）：相机标记 + 设备名 + `Filter`；不出现计数胶囊。 */
+/** 照片墙顶栏（方案 B）：相机线稿 + 设备名 + 计数胶囊 + `Filter`。 */
 @Composable
 fun LibraryTopBar(model: AppModel) {
     TopBarRow {
-        CameraMark(model)
+        CameraGlyph(20.dp, UiColors.onSurface)
         Spacer(Modifier.width(8.dp))
         TopBarLabel(model.deviceName, model, detailsEntry = true)
         Spacer(Modifier.weight(1f))
@@ -107,24 +98,89 @@ fun LibraryTopBar(model: AppModel) {
                 CloseGlyph(20.dp, UiColors.ink)
             }
         }
+        // 顶栏计数胶囊只在 CATALOG_READY 出现（UI-SPEC V-27）：与主 CTA 同分母，
+        // 只作常驻计数，不承担「唯一分母」职责，也不是新的数值口径。
+        val count = model.photoCount
+        if (count > 0) {
+            Pill(count.toString())
+            Spacer(Modifier.width(8.dp))
+        }
         IconAction("Filter", onClick = { model.filterOpen = true }) {
             FilterGlyph(20.dp, UiColors.outline)
         }
     }
 }
 
-/** 状态页顶栏（方案 A）：相机标记 + 设备名；断开态只换成同一线稿加斜线。 */
+/**
+ * 状态页顶栏（逐态分化，UI-SPEC §2.2 / `V-26`）。
+ *
+ * - `COLD`：相机线稿 + `a7C`，右侧断开短词 `Disconnected`；
+ * - `ERROR`：`V-28` 的断线图标 + `Disconnected`，右侧 `Reconnect` 可点标签（`V-29`）；
+ * - 其余：相机线稿 + `a7C`。
+ */
 @Composable
 fun StatusTopBar(model: AppModel) {
-    val live = cameraLive(model.state)
     TopBarRow {
-        CameraMark(model)
+        if (model.state == UiState.State.ERROR) {
+            ErrorIdentity(model)
+            Spacer(Modifier.weight(1f))
+            ReconnectAction(model)
+        } else {
+            CameraGlyph(20.dp, UiColors.onSurface)
+            Spacer(Modifier.width(8.dp))
+            TopBarLabel(model.deviceName, model, detailsEntry = false)
+            Spacer(Modifier.weight(1f))
+            if (model.state == UiState.State.COLD) {
+                TopBarLabel("Disconnected", model, detailsEntry = false, style = TextSmall)
+            }
+        }
+    }
+}
+
+/**
+ * `ERROR` 顶栏左侧整簇：断线图标 + `Disconnected`（UI-SPEC `V-28` / §2.2）。
+ *
+ * 整簇是 `Details` 的长按入口（`L-05`）：热区 48 dp 高、只吃长按不吃点击，
+ * 与右侧 `Reconnect` 的点击区互不重叠（`V-29`）。
+ */
+@Composable
+private fun ErrorIdentity(model: AppModel) {
+    Row(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Disconnected"
+                onLongClick(label = "Details") {
+                    model.detailsOpen = true
+                    true
+                }
+            },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        UnpluggedGlyph(20.dp, UiColors.onSurface)
         Spacer(Modifier.width(8.dp))
-        TopBarLabel(
-            if (live) model.deviceName else "Disconnected",
-            model,
-            detailsEntry = false
+        BasicText("Disconnected", style = TextSmall.copy(color = UiColors.onSurface), maxLines = 1)
+    }
+}
+
+/**
+ * `ERROR` 顶栏的 `Reconnect` 动作标签（UI-SPEC `V-29`）：12 sp 单行、独立 48 dp 热区，
+ * 与内容区同名的 `Reconnect` 插头图标复用同一个重连入口（不另起并发路径）。
+ */
+@Composable
+private fun ReconnectAction(model: AppModel) {
+    Box(
+        modifier = Modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .tappable { model.callbacks?.onConnectCamera() }
+            .semantics { contentDescription = "Reconnect"; role = Role.Button },
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        BasicText(
+            "Reconnect",
+            style = TextSmall.copy(color = UiColors.onSurface, textAlign = TextAlign.End),
+            maxLines = 1
         )
-        Spacer(Modifier.weight(1f))
     }
 }

@@ -60,37 +60,34 @@ fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
 }
 
 /**
- * 相机未连接：同一台相机的线稿上压一道斜线（图形变化，不靠颜色）。
- * 断口留在中间，避免斜线把镜头完全盖住。
+ * `ERROR` 顶栏的断线图标（UI-SPEC `V-28`）：插头与插座之间留一道空隙，读作「线没插上」。
+ *
+ * 与 [CameraGlyph] 同族：同一 1.5 dp stroke、同一 24 dp 坐标系、不填充底色、圆头描边。
+ * 替代旧的「相机线稿压斜线」画法；不画斜线也不画叉号，靠「插针没进插座」表达断开。
  */
 @Composable
-fun CameraOffGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
+fun UnpluggedGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size)) {
         val w = this.size.width
         val h = this.size.height
         val s = strokePx()
+        // 插头机身
         drawRoundRect(
             color = tint,
-            topLeft = Offset(w * 0.10f, h * 0.30f),
-            size = Size(w * 0.80f, h * 0.48f),
-            cornerRadius = CornerRadius(w * 0.08f),
+            topLeft = Offset(w * 0.14f, h * 0.34f),
+            size = Size(w * 0.38f, h * 0.32f),
+            cornerRadius = CornerRadius(w * 0.05f),
             style = Stroke(s)
         )
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.34f, h * 0.22f),
-            size = Size(w * 0.28f, h * 0.12f),
-            cornerRadius = CornerRadius(w * 0.03f),
-            style = Stroke(s)
-        )
-        drawCircle(
-            color = tint,
-            radius = w * 0.15f,
-            center = Offset(w * 0.50f, h * 0.54f),
-            style = Stroke(s)
-        )
-        drawLine(tint, Offset(w * 0.14f, h * 0.14f), Offset(w * 0.42f, h * 0.42f), s, StrokeCap.Round)
-        drawLine(tint, Offset(w * 0.58f, h * 0.58f), Offset(w * 0.86f, h * 0.86f), s, StrokeCap.Round)
+        // 两根插针（向右，未进入插座；留 0.14 w 的空隙，约 2 个 stroke）
+        drawLine(tint, Offset(w * 0.52f, h * 0.44f), Offset(w * 0.60f, h * 0.44f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.52f, h * 0.56f), Offset(w * 0.60f, h * 0.56f), s, StrokeCap.Round)
+        // 线尾
+        drawLine(tint, Offset(w * 0.04f, h * 0.50f), Offset(w * 0.14f, h * 0.50f), s, StrokeCap.Round)
+        // 插座：开口向左的 C 形括号，与插针之间留 0.14 w 的空隙（≥1 个 stroke）
+        drawLine(tint, Offset(w * 0.74f, h * 0.32f), Offset(w * 0.88f, h * 0.32f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.88f, h * 0.32f), Offset(w * 0.88f, h * 0.68f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.88f, h * 0.68f), Offset(w * 0.74f, h * 0.68f), s, StrokeCap.Round)
     }
 }
 

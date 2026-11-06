@@ -20,6 +20,9 @@ object UiColors {
     /** 主文字与已选描边。 */
     val ink = Color(0xFF111111)
 
+    /** 正文/顶栏文字与图标（on-surface，白底 17.1:1）。 */
+    val onSurface = Color(0xFF1A1C1C)
+
     /** 正文与组头（≥4.5:1）。 */
     val secondary = Color(0xFF444748)
 

@@ -29,7 +29,7 @@ public final class UiState {
         PAUSED,
         /** 完成：完成标记 + `Done` + 数量/容量 + 位置图标 + `Open`。 */
         DONE,
-        /** 出错：一行中文原因 + `Connect camera` + 详情抽屉。 */
+        /** 出错：一行中文原因 + `Reconnect`（顶栏标签与内容区插头图标）+ 详情抽屉。 */
         ERROR
     }
 
@@ -85,8 +85,9 @@ public final class UiState {
     }
 
     /**
-     * 顶栏在全部 10 个状态下常驻（issue #44 决策 2），内容按 UI-SPEC §2.2 的方案 A
-     * 逐态表；`photo` / `transfer` 页复用同一个 `topBar` 容器。
+     * 顶栏在全部 10 个状态下常驻（issue #44 决策 2），内容按 UI-SPEC §2.2 的**逐态分化**表
+     * （`COLD` / `ERROR` / `CATALOG_READY` 各有形态，计数胶囊只在 `CATALOG_READY` 出现）；
+     * `photo` / `transfer` 页复用同一个 `topBar` 容器。
      */
     public static boolean hasTopBar(State s) {
         return true;

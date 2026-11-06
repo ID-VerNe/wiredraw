@@ -42,14 +42,14 @@ import com.rea.mtpimport.UiText
 /**
  * 照片墙（`CATALOG_READY`）。
  *
- * 顶栏：相机线稿 + 设备短名 + 过滤入口（方案 A，UI-SPEC §2.2；不出现计数徽标）。
+ * 顶栏：相机线稿 + 设备短名 + 12 sp 计数胶囊 + 过滤入口（`CATALOG_READY` 形态，UI-SPEC §2.2 / `V-27`）。
  * 内容：按日期分组的缩略图网格；缩略图未落地，按 §0.7 / V-19 用**同尺寸灰块 + 文件名 12 sp**。
  * 底部：单一主 CTA，48 dp，文案唯一出处是 §4.5 `T-CATALOG`。
  */
 @Composable
 fun LibraryScreen(model: AppModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 方案 A。
+        // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 逐态分化，本页是 CATALOG_READY 形态。
         LibraryTopBar(model)
         // 渐进态（issue #60 / UI-SPEC V-23）：后台补齐时顶栏下方加 2 dp 进度细线，完成后消失。
         if (model.backgroundScanning) ScanLine(model)

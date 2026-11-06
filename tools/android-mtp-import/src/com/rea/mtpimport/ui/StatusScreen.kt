@@ -26,7 +26,8 @@ import com.rea.mtpimport.UiText
  *
  * 共同口径（§4.5 `T-xx`）：
  * - 一屏一个图标 + 一行主文案，动作固定在底部；
- * - `ERROR` 的动作词是 `Connect camera`，全文没有 `Retry`（真机实测应用内重试唤不醒相机）；
+ * - `ERROR` 的动作词是 `Reconnect`（顶栏 12 sp 标签 + 内容区插头图标同名），全文没有 `Retry`
+ *   （真机实测应用内重试唤不醒相机）；`COLD` / `EMPTY_CATALOG` 仍用 `Connect camera`；
  * - 不露内部状态名、不加解释句。
  */
 @Composable
@@ -146,8 +147,9 @@ fun StatusScreen(model: AppModel) {
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // V-09 / T-ERROR：错误态没有实心主按钮，`Connect camera` 是次按钮图标。
-                    IconAction(desc = "Connect camera", onClick = { cb?.onConnectCamera() }) {
+                    // V-09 / T-ERROR：错误态没有实心主按钮，动作是 `Reconnect` 次按钮图标
+                    // （与顶栏 12 sp 标签同一动作、同一无障碍名，§4.5 / V-29）。
+                    IconAction(desc = "Reconnect", onClick = { cb?.onConnectCamera() }) {
                         PlugGlyph(24.dp, UiColors.ink)
                     }
                     Spacer(Modifier.width(8.dp))
