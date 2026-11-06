@@ -38,7 +38,7 @@ fun StatusScreen(model: AppModel) {
     when (model.state) {
         UiState.State.COLD -> StatusLayout(
             model = model,
-            icon = { CameraGlyph(56.dp, UiColors.ink) },
+            icon = { CameraGlyph(56.dp, UiColors.onSurface) },
             title = "No camera",
             actions = {
                 // §2.1：主按钮水平 16 dp、底部 `inset + 8 dp`（inset 已由 `systemBarsPadding` 吃掉）。
@@ -52,7 +52,7 @@ fun StatusScreen(model: AppModel) {
 
         UiState.State.PERMISSION_PENDING -> StatusLayout(
             model = model,
-            icon = { CameraGlyph(56.dp, UiColors.ink) },
+            icon = { CameraGlyph(56.dp, UiColors.onSurface) },
             actions = {
                 // 主文案与唯一动作都是 `Allow`（T-PERMISSION）。
                 PrimaryButton(
@@ -89,13 +89,13 @@ fun StatusScreen(model: AppModel) {
 
         UiState.State.EMPTY_CATALOG -> StatusLayout(
             model = model,
-            icon = { CameraGlyph(56.dp, UiColors.ink) },
+            icon = { CameraGlyph(56.dp, UiColors.onSurface) },
             title = "No photos",
             actions = {
                 // V-09：`EMPTY_CATALOG` 没有实心主按钮，`Connect camera` 以图标按钮呈现（次按钮语义）。
                 Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center) {
                     IconAction(desc = "Connect camera", onClick = { cb?.onConnectCamera() }) {
-                        PlugGlyph(24.dp, UiColors.ink)
+                        PlugGlyph(24.dp, UiColors.onSurface)
                     }
                 }
             }
@@ -114,7 +114,7 @@ fun StatusScreen(model: AppModel) {
 
         UiState.State.DONE -> StatusLayout(
             model = model,
-            icon = { CheckGlyph(56.dp, UiColors.ink) },
+            icon = { CheckGlyph(56.dp, UiColors.onSurface) },
             actions = {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -134,14 +134,14 @@ fun StatusScreen(model: AppModel) {
                 Spacer(Modifier.height(8.dp))
                 // `Location` 必须是可点节点（U-47）；路径只在 Location details 里出现。
                 IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
-                    LocationGlyph(20.dp, UiColors.ink)
+                    LocationGlyph(20.dp, UiColors.onSurface)
                 }
             }
         )
 
         UiState.State.ERROR -> StatusLayout(
             model = model,
-            icon = { WarningGlyph(56.dp, UiColors.ink) },
+            icon = { WarningGlyph(56.dp, UiColors.onSurface) },
             actions = {
                 Row(
                     Modifier.fillMaxWidth().padding(8.dp),
@@ -151,7 +151,7 @@ fun StatusScreen(model: AppModel) {
                     // V-09 / T-ERROR：错误态没有实心主按钮，动作是 `Reconnect` 次按钮图标
                     // （与顶栏 12 sp 标签同一动作、同一无障碍名，§4.5 / V-29）。
                     IconAction(desc = "Reconnect", onClick = { cb?.onConnectCamera() }) {
-                        PlugGlyph(24.dp, UiColors.ink)
+                        PlugGlyph(24.dp, UiColors.onSurface)
                     }
                     Spacer(Modifier.width(8.dp))
                     SecondaryButton("Details", onClick = { model.detailsOpen = true })
@@ -166,7 +166,7 @@ fun StatusScreen(model: AppModel) {
 
         else -> StatusLayout(
             model = model,
-            icon = { CameraGlyph(56.dp, UiColors.ink) },
+            icon = { CameraGlyph(56.dp, UiColors.onSurface) },
             title = "No camera",
             actions = {
                 PrimaryButton(

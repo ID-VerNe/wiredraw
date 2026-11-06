@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.ColorTokens
 
 /**
  * `Modifier.clickable` 在纯 Compose（不引 Material）时没有 `LocalIndication` 可拿，
@@ -83,7 +85,7 @@ fun PrimaryButton(
         BasicText(
             text,
             style = TextBody.copy(
-                color = if (enabled) UiColors.canvas else UiColors.secondary,
+                color = if (enabled) UiColors.surfaceWhite else UiColors.secondary,
                 textAlign = TextAlign.Center
             )
         )
@@ -107,7 +109,7 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
         contentAlignment = Alignment.Center
     ) {
         // V-01 / V-03：次按钮与正文同级（14 sp）。
-        BasicText(text, style = TextBody.copy(color = UiColors.ink))
+        BasicText(text, style = TextBody.copy(color = UiColors.onSurface))
     }
 }
 
@@ -197,6 +199,11 @@ fun Scrim(onDismiss: () -> Unit) {
 /**
  * 小圆角胶囊：`photo` 页的 `ARW · 24.6 MB` 与 `CATALOG_READY` 顶栏计数胶囊（`V-27`），
  * 统一 `mono-data` 12 sp、等宽数字。顶栏只在 `CATALOG_READY` 复用本组件，其它状态不出现数字。
+ *
+ * 底色/前景走 `ColorTokens` 的单一事实源：
+ * - `onDark = true`（`photo` 页）：`canvas` **实底** + `#ffffff` 字 = 16.83:1（§3.3:525，
+ *   不再用白色 12% alpha，也不再有 `canvas/60` 档）；
+ * - `onDark = false`（顶栏）：`surface-container #eeeeee` + `on-surface #1a1c1c` = 14.75:1（`V-27`）。
  */
 @Composable
 fun Pill(
@@ -204,8 +211,8 @@ fun Pill(
     modifier: Modifier = Modifier,
     onDark: Boolean = false
 ) {
-    val bg = if (onDark) UiColors.photoCapsule else UiColors.container
-    val fg = if (onDark) UiColors.canvas else UiColors.onSurface
+    val bg = Color(ColorTokens.pillBackground(onDark))
+    val fg = Color(ColorTokens.pillForeground(onDark))
     Box(
         modifier
             .clip(CircleShape)
@@ -217,11 +224,11 @@ fun Pill(
     }
 }
 
-/** 未选格的常态描边（装饰性，不承载文字，不受 V-07 约束）。 */
+/** 已选格描边：V-11 的「1 px 深色描边」，颜色取 on-surface（`ink` 只作主 CTA 底）。 */
 @Composable
 fun softOutline(selected: Boolean): Modifier =
     if (selected) {
-        Modifier.border(2.dp, UiColors.ink, RoundedCornerShape(8.dp))
+        Modifier.border(1.dp, UiColors.onSurface, RoundedCornerShape(8.dp))
     } else {
         Modifier.border(1.dp, UiColors.outlineSoft, RoundedCornerShape(8.dp))
     }

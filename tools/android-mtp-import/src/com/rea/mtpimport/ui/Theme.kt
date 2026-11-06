@@ -5,55 +5,78 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.rea.mtpimport.ColorTokens
 
 /**
  * 视觉 token 的唯一出处（UI-SPEC §3 的 47 个 token 里界面实际用到的子集）。
  *
+ * 数值不在这里手抄：统一取自纯 JDK 的 [ColorTokens]（issue #78），
+ * 这样 `SelfTest` 的对比度断言与 Compose 实际取值是同一份数据。
+ *
  * 只做 light：定稿 §0.5 明确本轮不出 dark，V-08 / A-07 标「暂不适用」。
- * 正文色 `secondary` 在白底上的对比度约 9.8:1；`outline`（#747878 on #FFFFFF）实测约 4.47:1，
- * 略低于正文的 4.5:1，所以它**只用于图标**（图标按 A-02 取 ≥3:1 即可，不违规）。
+ *
+ * 颜色角色（UI-SPEC §3.3:488，违反即评审阻断）：
+ * - [surfaceWhite] `#ffffff`：页面底；深色面（[canvas]）上的文字与图标只能用它。
+ * - [ink] `#111111`：**只**作主 CTA 实心底；正文与图标不得用。
+ * - [onSurface] `#1a1c1c`：正文与图标（on-surface）。
+ * - [canvas] `#1d1d1f`：`photo` 全幅底 / 遮罩 / `photo` 胶囊实底 / 系统栏浅色图标底。
+ *
+ * 2026-11-06 按当前 token 实算（WCAG 2.1，`SelfTest.colorTokensCases` 已断言）：
+ *
+ * | 前景 | 背景 | 对比度 |
+ * |---|---|---|
+ * | `#ffffff` | `ink #111111` | 18.88:1 |
+ * | `#ffffff` | `canvas #1d1d1f` | 16.83:1 |
+ * | `on-surface #1a1c1c` | `#ffffff` | 17.12:1 |
+ * | `on-surface #1a1c1c` | `surface-container #eeeeee` | 14.75:1 |
+ * | `on-surface-variant #444748` | `#ffffff` | 9.37:1（旧注释写的 9.8 是错的） |
+ * | `outline #747878` | `#ffffff` | 4.47:1（只用于图标，按 A-02 ≥3:1 判） |
+ * | `ink #111111` | `canvas #1d1d1f` | 1.12:1（**禁用**，深色面只能用白） |
+ *
+ * alpha 面也按当前 token 重算：抽屉遮罩（40% canvas 压白）合成 `#a5a5a5`，只是装饰、不承载正文；
+ * 未选格灰块（60% surface-container 压白）合成 `#f5f5f5`，其上的 `secondary` 文字仍有 8.6:1。
  */
 object UiColors {
-    /** canvas / surface：界面底色。 */
-    val canvas = Color(0xFFFFFFFF)
+    /** 页面底（library / transfer / 抽屉 / 对话框）。规范名 `surface-container-lowest`。 */
+    val surfaceWhite = Color(ColorTokens.SURFACE_WHITE)
 
-    /** 主文字与已选描边。 */
-    val ink = Color(0xFF111111)
+    /** 主 CTA 实心底；**只**此一处，正文与图标不得用。 */
+    val ink = Color(ColorTokens.INK)
 
-    /** 正文/顶栏文字与图标（on-surface，白底 17.1:1）。 */
-    val onSurface = Color(0xFF1A1C1C)
+    /** 正文/顶栏文字与图标（on-surface，白底 17.12:1）。 */
+    val onSurface = Color(ColorTokens.ON_SURFACE)
 
-    /** 正文与组头（≥4.5:1）。 */
-    val secondary = Color(0xFF444748)
+    /** 正文与组头（`on-surface-variant`，白底 9.37:1）。 */
+    val secondary = Color(ColorTokens.ON_SURFACE_VARIANT)
 
-    /** 图标与次级描边（#747878 on #FFFFFF ≈ 4.47:1，只用于图标，按 A-02 的 ≥3:1 判）。 */
-    val outline = Color(0xFF747878)
+    /** 图标与次级描边（`#747878` on `#ffffff` ≈ 4.47:1，只用于图标，按 A-02 的 ≥3:1 判）。 */
+    val outline = Color(ColorTokens.OUTLINE)
 
     /** 未选格的常态描边（装饰性，不承载文字，不受 V-07 约束）。 */
-    val outlineSoft = Color(0xFFC4C7C7)
+    val outlineSoft = Color(ColorTokens.OUTLINE_SOFT)
 
-    /** 无缩略图时的同尺寸灰块（V-19）。 */
-    val container = Color(0xFFEEEEEE)
+    /** 无缩略图时的同尺寸灰块（V-19）与计数胶囊底（`V-27` 的 `surface-container`）。 */
+    val container = Color(ColorTokens.SURFACE_CONTAINER)
 
     /** 照片页的降级块底色。 */
-    val containerLow = Color(0xFFF3F3F4)
+    val containerLow = Color(ColorTokens.SURFACE_CONTAINER_LOW)
 
     /** `ERROR` 的错误色。 */
-    val error = Color(0xFFBA1A1A)
+    val error = Color(ColorTokens.ERROR)
 
     /**
      * 抽屉遮罩。底子与画布黑同一个色相，只是带 40% 透明（issue #44 决策：全仓不许再用纯黑）。
      */
-    val scrim = Color(0x661D1D1F)
+    val scrim = Color(ColorTokens.SCRIM)
 
     /**
-     * 画布黑（`#1d1d1f`）：`photo` 页底与深色容器。与文字近黑 `ink`（`#111111`）是两个显式
-     * token，不得互换——`ink` 压在 `#1d1d1f` 上对比度只有约 1.12:1，深色面上只能用 `canvas`。
+     * 画布黑（`#1d1d1f`）：`photo` 页底与深色容器。与文字近黑 [ink]（`#111111`）是两个显式
+     * token，不得互换——`ink` 压在 `#1d1d1f` 上对比度只有约 1.12:1，深色面上只能用 [surfaceWhite]。
+     *
+     * 注意：这个 token 以前叫 `photoCanvas`，白色页面底以前叫 `canvas`（issue #78 改名），
+     * 代码里看到 `canvas` 一律指画布黑，不再指白。
      */
-    val photoCanvas = Color(0xFF1D1D1F)
-
-    /** 照片页胶囊底色（白色 12%）。 */
-    val photoCapsule = Color(0x1FFFFFFF)
+    val canvas = Color(ColorTokens.CANVAS)
 }
 
 /**
@@ -62,15 +85,15 @@ object UiColors {
  */
 private val Sans = FontFamily.SansSerif
 
-val TextBody = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 20.sp, color = UiColors.ink)
+val TextBody = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 20.sp, color = UiColors.onSurface)
 val TextSmall = TextStyle(fontFamily = Sans, fontSize = 12.sp, lineHeight = 16.sp, color = UiColors.secondary)
-val TextLabel = TextStyle(fontFamily = Sans, fontSize = 13.sp, lineHeight = 16.sp, color = UiColors.ink)
+val TextLabel = TextStyle(fontFamily = Sans, fontSize = 13.sp, lineHeight = 16.sp, color = UiColors.onSurface)
 val TextDisplay = TextStyle(
     fontFamily = Sans,
     fontSize = 24.sp,
     lineHeight = 28.sp,
     fontWeight = FontWeight.SemiBold,
-    color = UiColors.ink,
+    color = UiColors.onSurface,
     // display-sm 用在状态主文案、环内百分比与 DONE 的 `36 · 871 MB`，等宽数字避免进度跳动。
     fontFeatureSettings = "tnum"
 )

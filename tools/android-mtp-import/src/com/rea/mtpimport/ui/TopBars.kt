@@ -96,7 +96,7 @@ fun LibraryTopBar(model: AppModel) {
         // 完成后消失，不成为常驻控件；热区 48 dp（A-01）。
         if (model.backgroundScanning) {
             IconAction(desc = "Cancel", onClick = { model.callbacks?.onCancel() }) {
-                CloseGlyph(20.dp, UiColors.ink)
+                CloseGlyph(20.dp, UiColors.onSurface)
             }
         }
         // 顶栏计数胶囊只在 CATALOG_READY 出现（UI-SPEC V-27）：与主 CTA 同分母，

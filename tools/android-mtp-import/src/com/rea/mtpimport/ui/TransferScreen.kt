@@ -42,7 +42,7 @@ fun TransferScreen(model: AppModel) {
                 // 顶部返回只关闭视图（§1.3 第 2 条）：任务继续跑，取消由 `Cancel` 承担。
                 // 系统返回键另走 `onBack`，在 `IMPORTING` 下会弹 `Pause & exit` / `Resume`。
                 IconAction(desc = "Back", onClick = { model.callbacks?.onCloseTransfer() }) {
-                    BackGlyph(20.dp, UiColors.ink)
+                    BackGlyph(20.dp, UiColors.onSurface)
                 }
             }
         }
@@ -77,11 +77,11 @@ fun TransferScreen(model: AppModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (model.state == UiState.State.PAUSED) {
-                    PlayGlyph(16.dp, UiColors.ink)
+                    PlayGlyph(16.dp, UiColors.onSurface)
                     Spacer(Modifier.width(8.dp))
                     BasicText("Resume", style = TextBody)
                 } else {
-                    PauseGlyph(16.dp, UiColors.ink)
+                    PauseGlyph(16.dp, UiColors.onSurface)
                     Spacer(Modifier.width(8.dp))
                     BasicText("Pause", style = TextBody)
                 }
