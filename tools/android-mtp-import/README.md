@@ -25,8 +25,8 @@
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
-| **暂停（文件边界）/ 取消（真正中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；真机行为**未验**） |
-| **取消后复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1；真机行为**未验**） |
+| **暂停（文件边界）/ 取消（真正中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 中断并重传） |
+| **取消后复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1；探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节；`resumeFrom > 0` 拒绝） |
 
@@ -199,19 +199,28 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       顶栏徽标 = 511，`Import all 511` 与徽标同分母（U-53）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
-- [ ] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
+- [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
       与相机侧 `ImportPlan.Item.size` 一致（PA / issue #50）
-- [ ] 同一批照片再点一次 `Import all N`：日志必须出现 `Skipped N existing`，不重复搬字节（PA / issue #50）
-- [ ] 导入中（第 1 张还没传完）点 `Pause`：当前这张必须传完并落盘，进度停在文件边界，后续文件不启动；
-      点 `Resume` 从下一个文件继续（PB / issue #50）——**未验**（相机未接入）
-- [ ] `Pause & exit` 回照片墙后，已完成的文件不再重传，再点 `Import all N` 会继续被暂停的那轮；
-      期间不得被迟到的进度回调拽回 `IMPORTING`（#48 / PB）——**未验**
-- [ ] 导入中点 `Cancel`：正在传的那个 `importFile` 被真正打断（不是等整张传完），
-      回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）——**未验**
-- [ ] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
-      下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）——**未验**
+      —— 2026-11-06 实测：`DSC04541.ARW` 25393920 字节，落盘一致，文件头 `49 49 2a 00`
+- [x] 同一批照片再点一次 `Import all N`：日志必须出现 `Skipped N existing`，不重复搬字节（PA / issue #50）
+      —— 2026-11-06 实测：`Skipped 1 existing`（4 张里 3 张新传、1 张跳过）
+- [x] 导入中（第 1 张还没传完）点 `Pause`：当前这张必须传完并落盘，进度停在文件边界，后续文件不启动；
+      点 `Resume` 从下一个文件继续（PB / issue #50）
+      —— 2026-11-06 实测：58%（33/57）时界面切到 `Resume`/`Cancel`；恢复后日志出现
+      `继续已暂停的一轮`，从下一张 `DSC02705` 继续，`Skipped 30 existing`
+- [x] `Pause & exit` 回照片墙后，已完成的文件不再重传，再点 `Import all N` 会继续被暂停的那轮；
+      期间不得被迟到的进度回调拽回 `IMPORTING`（#48 / PB）
+      —— 2026-11-06 实测：`Pause & exit` 后回照片墙，再点 `Import` 继续同一轮，未回跳 `IMPORTING`
+- [x] 导入中点 `Cancel`：正在传的那个 `importFile` 被真正打断（不是等整张传完），
+      回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）
+      —— 2026-11-06 实测：`DSC02707.ARW` 取消后 `已取消（未传满，半成品已删除）`、
+      `[CANCELLED]`、无 `[OK]`；随后同一会话的下一轮把它正常传完并记账，`.part` 无残留
+- [x] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
+      下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）
+      —— 2026-11-06 实测：取消后立即再导入，探活通过、无 `ERROR`，继续落盘 7 张
 - [ ] 若 `pfd.close()` 打不断原生调用（`MtpTransfer` 未验项）：取消宽限 3 秒后必须判定「卡死」，
-      点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`），且 `Connect camera` 不再被旧 worker 拦住——**未验**
+      点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`），且 `Connect camera` 不再被旧 worker 拦住
+      —— **未验**（2026-11-06 实测 pfd 关闭约 0.6 s 就打断，没造出卡死条件；逻辑由 SelfTest 覆盖）
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
