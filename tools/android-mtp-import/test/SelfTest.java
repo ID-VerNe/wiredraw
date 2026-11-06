@@ -819,16 +819,55 @@ public final class SelfTest {
     /** 每个文件的第一次调用失败、第二次成功；用来钉住单文件同步重试（PD / issue #50）。 */
     static final class FlakyTransfer implements ResumableTransfer {
         final List<String> calls = new ArrayList<>();
+        /** 每次调用收到的 resumeFrom，用来钉住「第二次按 `.part` 实际长度续传」。 */
+        final List<Long> resumeFroms = new ArrayList<>();
         private final java.util.Set<String> seen = new java.util.HashSet<>();
+        /** 首次失败前落盘的字节数；模拟失败时已经写进部分字节。0 表示不落盘。 */
+        long firstFailureBytes;
 
         @Override
         public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
             calls.add(item.relPath);
+            resumeFroms.add(resumeFrom);
             // 同一个 relPath 首次失败，第二次成功（模拟一次偶发读失败）。
             if (seen.add(item.relPath)) {
+                if (firstFailureBytes > 0) {
+                    try {
+                        File part = new File(partPath);
+                        File parent = part.getParentFile();
+                        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                            return new Result(Kind.FAILED, "mkdir failed");
+                        }
+                        try (FileOutputStream out = new FileOutputStream(part)) {
+                            out.write(new byte[(int) firstFailureBytes]);
+                        }
+                    } catch (IOException e) {
+                        return new Result(Kind.FAILED, e.toString());
+                    }
+                }
                 return new Result(Kind.FAILED, "fake first failure");
             }
             return writeFakePart(item, partPath);
+        }
+    }
+
+    /**
+     * 第一次调用先请求取消、再返回 FAILED：钉住「取消优先于失败」的分支（PD / issue #50）。
+     * 若编排层把这条计成失败，`failed` 会变成 1，用例即红。
+     */
+    static final class CancelOnFailTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        Runnable onFirstCall;
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            Runnable r = onFirstCall;
+            if (r != null) {
+                onFirstCall = null;
+                r.run();
+            }
+            return new Result(Kind.FAILED, "fake failure after cancel");
         }
     }
 
@@ -907,11 +946,11 @@ public final class SelfTest {
         check("ImportService：全失败时 ok=0 / failed=3，不冒充完成",
                 r3.ok == 0 && r3.failed == 3 && r3.skipped == 0,
                 "ok=" + r3.ok + " failed=" + r3.failed + " skipped=" + r3.skipped);
-        // PD / issue #50：重试必须有上限。全失败时每个文件恰好尝试 MAX_FILE_ATTEMPTS 次，
-        // 不是 1 次也不是无限次。
-        check("PD 重试：全失败时每个文件恰好尝试 MAX_FILE_ATTEMPTS 次（有上限）",
-                t3.calls.size() == plan.count() * ImportService.MAX_FILE_ATTEMPTS,
-                "calls=" + t3.calls.size() + " 期望=" + (plan.count() * ImportService.MAX_FILE_ATTEMPTS));
+        // PD / issue #50：重试必须有上限。全失败时每个文件恰好尝试 2 次（硬编码，
+        // 不引用 MAX_FILE_ATTEMPTS，避免「断言跟着实现走」的自指）。
+        check("PD 重试：全失败时每个文件恰好尝试 2 次（有上限）",
+                t3.calls.size() == plan.count() * 2,
+                "calls=" + t3.calls.size() + " 期望=" + (plan.count() * 2));
 
         // PD：首次失败、第二次成功的文件仍算完成，且尝试次数有上限。
         File flakyOut = Files.createTempDirectory("wiredraw-import-flaky").toFile();
@@ -926,9 +965,44 @@ public final class SelfTest {
                 t4.calls.size() == plan.count() * 2,
                 "calls=" + t4.calls.size());
 
+        // PD / B-2：首次失败已落 40 字节，第二次 attempt 必须按 `.part` 实际长度重算
+        // resumeFrom（40），不能沿用 0 或只算一次。
+        File partialOut = Files.createTempDirectory("wiredraw-import-partial").toFile();
+        FlakyTransfer t5 = new FlakyTransfer();
+        t5.firstFailureBytes = 40L;
+        FinishRecorder r5 = new FinishRecorder();
+        new ImportService(Log.NOOP, t5, partialOut).start(plan, r5);
+        check("PD 重试：落部分字节的一轮在 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PD 重试：落部分字节后第二次仍算完成",
+                r5.ok == 3 && r5.failed == 0 && r5.skipped == 0,
+                "ok=" + r5.ok + " failed=" + r5.failed + " skipped=" + r5.skipped);
+        boolean resumesOk = t5.resumeFroms.size() == plan.count() * 2;
+        for (int i = 0; resumesOk && i < t5.resumeFroms.size(); i += 2) {
+            resumesOk = t5.resumeFroms.get(i) == 0L && t5.resumeFroms.get(i + 1) == 40L;
+        }
+        check("PD 重试：第二次 attempt 按 .part 实际长度重算 resumeFrom（40 字节）",
+                resumesOk, "实际 " + t5.resumeFroms);
+
+        // PD / B-2：首次 FAILED 同时已请求取消 → 归为已取消，不计失败、也不再重试。
+        File cancelOut = Files.createTempDirectory("wiredraw-import-cancel-fail").toFile();
+        CancelOnFailTransfer t6 = new CancelOnFailTransfer();
+        ImportService svc6 = new ImportService(Log.NOOP, t6, cancelOut);
+        t6.onFirstCall = svc6::cancel;
+        FinishRecorder r6 = new FinishRecorder();
+        svc6.start(plan, r6);
+        check("PD 重试：取消与失败竞态一轮在 5 秒内结束",
+                r6.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PD 重试：FAILED 同时已请求取消归为 CANCELLED，failed 不增",
+                r6.cancelled && r6.failed == 0 && r6.ok == 0,
+                "cancelled=" + r6.cancelled + " failed=" + r6.failed + " ok=" + r6.ok);
+        check("PD 重试：取消优先，不再发起同步重试",
+                t6.calls.size() == 1, "calls=" + t6.calls.size());
+
         deleteTree(out);
         deleteTree(badOut);
         deleteTree(flakyOut);
+        deleteTree(partialOut);
+        deleteTree(cancelOut);
     }
 
     // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------
