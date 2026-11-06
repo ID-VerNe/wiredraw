@@ -657,10 +657,20 @@ public final class SelfTest {
         check("计划带 relPath 供落盘用",
                 p.items().get(0).relPath.endsWith(".ARW"), "实际 " + p.items().get(0).relPath);
 
-        ImportPlan empty = ImportPlan.of(c, new Selection(c));
-        check("空勾选的计划为空且总量为 0",
-                empty.isEmpty() && empty.totalBytes() == 0,
-                "isEmpty=" + empty.isEmpty() + " total=" + empty.totalBytes());
+        // issue #80：空勾选必须等价于全选（UI-SPEC `T-01`「已选 0 → 应用内点一次即开始」/ `P-10`），
+        // 而且只收 ARW —— 主 CTA 的分母是照片数（`C-08` / `U-53`），不能把同名 JPG / 顶层 JPG
+        // 一起吞进计划（真机 511 ARW + 512 JPEG，收 JPG 会变成 1023 个文件）。
+        // 旧断言「空勾选的计划为空且总量为 0」正是本缺陷的墓碑，改坏 `ImportPlan.of` 的兜底这里必须红。
+        ImportPlan all = ImportPlan.of(c, new Selection(c));
+        check("空勾选 = 全部 ARW（#80）",
+                all.count() == c.rawCount() && all.totalBytes() == c.rawBytes(),
+                "count=" + all.count() + " total=" + all.totalBytes()
+                        + "，期望 count=" + c.rawCount() + " total=" + c.rawBytes());
+        List<String> allPaths = new ArrayList<>();
+        for (ImportPlan.Item item : all.items()) allPaths.add(item.relPath);
+        check("空勾选只收 ARW，不含 JPG（#80）",
+                allPaths.equals(List.of("DCIM/100MSDCF/DSC02183.ARW", "DCIM/DSC02999.ARW")),
+                "实际 " + allPaths);
     }
 
     // ---------------- SpaceCheck（PD / P-09） ----------------

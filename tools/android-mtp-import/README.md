@@ -33,7 +33,7 @@
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
 | 日期组一键全选（#62） | ✅ 实现（组头整行长按 ≥500 ms：组内未全选→全选、已全选→全不选；折叠组自动展开；复用 `V-11` 与 `Import N`，无新增常驻控件；自检 8 项） |
 | 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
-| 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
+| 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现（空勾选等价于全选：只收照片墙的 ARW，同名 JPG / 顶层非 ARW 不进计划，issue #80） |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
@@ -150,7 +150,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；320 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；321 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -264,9 +264,13 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
       不是只有黑底 + `ARW · <size>` 胶囊；加载中与失败时才保持胶囊，**不得**出现占位块/假图；
       返回再进同一张不重复读相机（8 MiB 预览缓存）；拔线/会话挂起时退回胶囊且不崩
       —— **未验**（同上，相机被占用）
-- [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
+- [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点 = 全部 ARW，见下一条），长按格子进 `photo` 页
       （有像素时全幅 `Fit`，否则单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、
       不改计数胶囊与 `Import all N` 分母
+- [ ] 空勾选点主 CTA（#80）：照片墙刚出现、一格都不勾时点 `Import all 511`，必须进入 `IMPORTING`，
+      日志出现 `计划：511 个文件 / 12766800000 字节`（不得再出现「没有勾选任何文件」）；计划只含 ARW、
+      不含同目录 JPG（511 个而不是 1023 个）；剩余空间不足时按 `P-09` 禁用 CTA + 一行 `Low space`
+      —— **未验**（本轮按任务约束未装包、未碰真机；空勾选路径此前没有单独上过真机，验收留到 #80 回签）
 - [ ] 日期组一键全选（#62）：组头整行长按 500 ms → 本组全部 ARW 进入 `V-11` 已选态，CTA 变为
       `Import <组内张数>`；再长按 → 全不选、CTA 回 `Import all 511`；部分选中时长按**补齐**（不反选）；
       折叠组长按后自动展开；`uiautomator dump` 里组头高度 ≥48 dp 且带 `long-clickable`，
