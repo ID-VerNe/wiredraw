@@ -826,6 +826,10 @@ public final class Main extends ComponentActivity {
     }
 
     private void doStart() {
+        // issue #127：跳过数属于「本轮」，在入口就清空。清零必须早于下面所有早退分支：
+        // 探活失败 / 无会话 / 建目录失败 / 空间不足等落 ERROR 时，Details 抽屉只判
+        // `skippedLine.isNotEmpty()`，不能把上一轮的 `Skipped N existing` 留在 ERROR 态里。
+        model.showSkipped(0);
         // 假数据模式必须排在 `catalog == null` 之前（issue #46）：demo 下 `Main.catalog`
         // 从未赋值（树只装在 AppModel 里），旧顺序会让 Import all 永远停在这一句「先扫描」。
         if (demoActive()) {
@@ -946,8 +950,6 @@ public final class Main extends ComponentActivity {
         lastProgress = null;
         // PD：失败明细属于「本轮」；新一轮开始时清空，避免上一轮的失败混进本次 Details。
         model.clearFailedLines();
-        // issue #53：跳过数同样属于「本轮」，新一轮开始时清空，避免上一轮的 `Skipped N existing` 留在抽屉里。
-        model.showSkipped(0);
         model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
         round.start(plan, new ImportListener() {
             @Override
@@ -990,7 +992,8 @@ public final class Main extends ComponentActivity {
             @Override
             public void onFinished(boolean cancelled, int ok, int skipped, int failed, String summary) {
                 if (service != round) return;   // 被放弃的卡死轮次收尾时不得动界面
-                log.line("Skipped " + skipped + " existing");
+                // issue #127：文案只在 UiText.skippedLine 维护；0 跳过时不打日志（与抽屉口径一致，不出现「跳过 0」）。
+                if (skipped > 0) log.line(UiText.skippedLine(skipped));
                 runOnUiThread(() -> {
                     // issue #53 / P-07 / U-21：跳过数必须进 Details 抽屉（主视觉不出现）。
                     // 先于 FinishOutcome 写入，DONE / ERROR / 取消 / 保持当前视图四种去向都能在抽屉里看到。
