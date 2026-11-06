@@ -3,7 +3,7 @@
 > 本文只列**结论与边界**，不展开实测过程。每条限制的环境、原始输出与复现命令见
 > [主报告](research/a7c-usb-raw-2026-11.md) 与各工具 README。
 >
-> 适用环境：ILCE-7C 固件 2.00、魅族 20 Infinity / Android 15 (API 35)、USB MTP（另有标注除外）。
+> 适用环境：ILCE-7C 固件 2.00；USB MTP 侧为 E1（魅族 20 Infinity）/ E2（MI 9），均 Android 15 (API 35)（另有标注除外）。
 > 换机型、换固件后结论可能不再成立；跨环境验证状态见[验证环境矩阵](verification-matrix.md)，
 > 矩阵里没列出的组合一律按「未验证」处理，不要外推。
 

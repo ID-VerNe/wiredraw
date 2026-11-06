@@ -227,7 +227,7 @@ python scripts/review_prompt.py --self-test        # 自检
 
 贴到 issue 评论里，字段缺一不可：
 
-- **环境**：`main` @ `<sha>`，ILCE-7C fw2.00 / 魅族 20 Android 15 / USB MTP，`<时间>`
+- **环境**：`main` @ `<sha>`，ILCE-7C fw2.00 / E1 魅族 20 Infinity 或 E2 MI 9 / Android 15 / USB MTP，`<时间>`
 - **复现命令**：优先原样复用 issue「现象」段里的那条
 - **期望输出**：修复后应看到什么
 - **实际输出**：粘贴原始输出，不要只写「正常」
