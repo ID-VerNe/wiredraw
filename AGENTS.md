@@ -228,6 +228,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `tools/android-mtp-import/README.md` | 导片工具骨架：类职责、实现状态表、为什么不做真续传、真机待验清单 |
 | `tools/android-mtp-import/UI-SPEC.md` | 导片工具界面规范（约束式）：两条主任务与任务流验收、状态机、布局安全区、视觉/文案基线、U-01–U-30 + T-01～T-06 |
 | `tools/sony-ptpip/README.md` | PTP/IP 抓包与探针的操作手册 |
+| `docs/research/README.md` | 探索记录索引与结论时效：逐篇标注记录日期、环境与当时的 HEAD |
 | `docs/research/a7c-ptpip-session.md` | 抓包会话逐条分析 + 直连探针实测 |
 | `docs/research/lja-ptp-ip-static-analysis.md` | `Lja_PTP_IP.dll` 静态分析结论 |
 | `docs/archive/2026-11-audit/` | 早期可行性核查与 15 个仓库审计的产出（存档，不再更新） |
