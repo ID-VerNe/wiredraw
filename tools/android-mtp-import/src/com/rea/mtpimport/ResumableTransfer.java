@@ -10,8 +10,9 @@ package com.rea.mtpimport;
  * 1. **offset 是绝对偏移**：`offset=0` 连读两次拿到相同字节；1 MiB 分块拼满 24.4 MB ARW
  *    的字节数、MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）。
  * 2. **边界**：`length` 超过剩余字节会截断到 EOF；`offset == size` 返回 0；
- *    **`offset == size + 1` 抛 IOException 并污染整个 MTP 会话**——实现必须保证
- *    `0 <= offset <= size` 且 `length <= size - offset`，永不越界。
+ *    `offset == size + 1` 抛 `IOException: Failed to read data.`（#67 首轮观察；越界后会话
+ *    是否进入错误态本轮未复测、也未做会话探活）——实现必须保证 `0 <= offset <= size`
+ *    且 `length <= size - offset`，永不越界。
  * 3. **支持面**：4 张 ARW + 1 张 JPEG 的首块都成功（普通对象都支持；`0xFFFFC001` 未测）。
  *
  * 实现契约：
