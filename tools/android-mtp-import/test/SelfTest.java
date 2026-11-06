@@ -51,6 +51,7 @@ public final class SelfTest {
         cancelTokenCases();
         importServiceCases();
         pauseCancelCases();
+        partialResumeCases();
         uiStateCases();
         backNavCases();
         uiTextCases();
@@ -599,10 +600,25 @@ public final class SelfTest {
                 j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632) == 7340032
                         && j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 1) == 0,
                 "实际 " + j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632));
-        check("partPath 以句柄命名、不抢最终文件名",
-                j.partPath("/sdcard/out", 12345).replace('\\', '/')
-                        .equals("/sdcard/out/12345.part"),
-                "实际 " + j.partPath("/sdcard/out", 12345));
+        check("partPath 按 relPath 稳定命名、跨会话不变（PC / #50）",
+                j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW").replace('\\', '/')
+                        .equals("/sdcard/out/DCIM_100MSDCF_DSC02183.ARW.part"),
+                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW"));
+        check("partPath 同名文件两次生成同一个半成品名",
+                j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW")
+                        .equals(j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW")),
+                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW"));
+
+        check("resumeFrom：没有半成品 → 0", Journal.resumeFrom(0, 300) == 0,
+                "实际 " + Journal.resumeFrom(0, 300));
+        check("resumeFrom：部分落盘原样返回", Journal.resumeFrom(40, 300) == 40,
+                "实际 " + Journal.resumeFrom(40, 300));
+        check("resumeFrom：已满返回 size（可直接落盘）", Journal.resumeFrom(300, 300) == 300,
+                "实际 " + Journal.resumeFrom(300, 300));
+        check("resumeFrom：超过 size 视为损坏，回 0 重传", Journal.resumeFrom(301, 300) == 0,
+                "实际 " + Journal.resumeFrom(301, 300));
+        check("resumeFrom：size 未知 → 0", Journal.resumeFrom(10, 0) == 0,
+                "实际 " + Journal.resumeFrom(10, 0));
 
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try {
@@ -683,14 +699,16 @@ public final class SelfTest {
      */
     static final class RecordingTransfer implements ResumableTransfer {
         final List<String> calls = new ArrayList<>();
-        /** PB：记录每次调用收到的 resumeFrom，用来钉住「不做假续传」。 */
+        /** PB / PC：记录每次调用收到的 resumeFrom 与半成品路径。 */
         final List<Long> resumeFroms = new ArrayList<>();
+        final List<String> parts = new ArrayList<>();
         boolean failAll;
 
         @Override
         public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
             calls.add(item.relPath);
             resumeFroms.add(resumeFrom);
+            parts.add(partPath);
             if (failAll) return new Result(Kind.FAILED, "fake failure");
             try {
                 File part = new File(partPath);
@@ -754,9 +772,11 @@ public final class SelfTest {
                         && r1.lastProgress.filesDone() == 3,
                 r1.lastProgress == null ? "无进度"
                         : r1.lastProgress.bytesDone() + " / " + r1.lastProgress.filesDone());
-        check("ImportService：写出的 .part 落在 outDir",
-                new File(out, "3.part").isFile() && new File(out, "4.part").isFile()
-                        && new File(out, "6.part").isFile(),
+        Journal j = new Journal();
+        check("ImportService：写出的 .part 落在 outDir 且按 relPath 命名（PC / #50）",
+                new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW")).isFile()
+                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG")).isFile()
+                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/DSC02999.ARW")).isFile(),
                 "实际 " + Arrays.toString(out.list()));
         check("ImportService：日志文件写出 import-journal.txt",
                 new File(out, "import-journal.txt").isFile(),
@@ -1027,6 +1047,82 @@ public final class SelfTest {
                 !new File(out3, "import-journal.txt").exists(), "日志仍被写出");
         check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
         deleteTree(out3);
+    }
+
+    // ---------------- 断点续传起点（PC / issue #50） ----------------
+
+    /**
+     * 钉住编排层把「磁盘上的 `.part` 实际长度」作为 resumeFrom 传给传输层。
+     *
+     * 之前 `ImportService` 取 `journal.doneBytes(relPath,size)`：Journal 只在成功时写
+     * `done = size`，失败轮次从不写部分进度，所以 resumeFrom 恒为 0，真续传不可能发生。
+     */
+    static void partialResumeCases() throws Exception {
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(3, true);      // DCIM/100MSDCF/DSC02183.ARW（300 字节）
+        ImportPlan plan = ImportPlan.of(c, s);
+        check("PC 续传：用例清单恰为 1 个文件", plan.count() == 1, "实际 " + plan.count());
+
+        // 1) 上一轮失败留下 40 字节半成品 → 本轮应从 40 续传，且半成品名按 relPath 稳定生成
+        File out = Files.createTempDirectory("wiredraw-pc-resume").toFile();
+        Journal j = new Journal();
+        String expectedPart = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW");
+        try (FileOutputStream o = new FileOutputStream(expectedPart)) {
+            o.write(new byte[40]);
+        }
+        RecordingTransfer t1 = new RecordingTransfer();
+        FinishRecorder r1 = new FinishRecorder();
+        new ImportService(Log.NOOP, t1, out).start(plan, r1);
+        check("PC 续传：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PC 续传：resumeFrom 取半成品实际长度 40（不再恒为 0）",
+                t1.resumeFroms.size() == 1 && t1.resumeFroms.get(0) == 40L,
+                "实际 " + t1.resumeFroms);
+        check("PC 续传：传给传输层的是按 relPath 命名的半成品",
+                t1.parts.size() == 1
+                        && t1.parts.get(0).replace('\\', '/').equals(expectedPart.replace('\\', '/')),
+                "实际 " + t1.parts);
+        check("PC 续传：传完后按完成记账（第二轮应跳过）",
+                r1.ok == 1 && r1.skipped == 0 && r1.failed == 0,
+                "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
+        // 第二轮：完成记录已落盘，按 relPath + size 跳过，不再调 transfer
+        RecordingTransfer t2 = new RecordingTransfer();
+        FinishRecorder r2 = new FinishRecorder();
+        new ImportService(Log.NOOP, t2, out).start(plan, r2);
+        check("PC 续传：完成后的第二轮全部 SKIPPED",
+                r2.done.await(5, TimeUnit.SECONDS) && r2.skipped == 1 && t2.calls.isEmpty(),
+                "skipped=" + r2.skipped + " calls=" + t2.calls.size());
+        deleteTree(out);
+
+        // 2) 半成品已满（== size）→ resumeFrom = size，由传输层直接落盘
+        File fullOut = Files.createTempDirectory("wiredraw-pc-full").toFile();
+        String fullPart = j.partPath(fullOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW");
+        try (FileOutputStream o = new FileOutputStream(fullPart)) {
+            o.write(new byte[300]);
+        }
+        RecordingTransfer t3 = new RecordingTransfer();
+        FinishRecorder r3 = new FinishRecorder();
+        new ImportService(Log.NOOP, t3, fullOut).start(plan, r3);
+        check("PC 续传：半成品已满时 resumeFrom == size（交给传输层落盘）",
+                r3.done.await(5, TimeUnit.SECONDS)
+                        && t3.resumeFroms.size() == 1 && t3.resumeFroms.get(0) == 300L,
+                "实际 " + t3.resumeFroms);
+        deleteTree(fullOut);
+
+        // 3) 半成品比目标大（换了文件 / 写坏）→ 视为损坏，从 0 重传
+        File badOut = Files.createTempDirectory("wiredraw-pc-bad").toFile();
+        String badPart = j.partPath(badOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW");
+        try (FileOutputStream o = new FileOutputStream(badPart)) {
+            o.write(new byte[301]);
+        }
+        RecordingTransfer t4 = new RecordingTransfer();
+        FinishRecorder r4 = new FinishRecorder();
+        new ImportService(Log.NOOP, t4, badOut).start(plan, r4);
+        check("PC 续传：半成品超过目标大小 → resumeFrom 回 0（不拿坏文件续传）",
+                r4.done.await(5, TimeUnit.SECONDS)
+                        && t4.resumeFroms.size() == 1 && t4.resumeFroms.get(0) == 0L,
+                "实际 " + t4.resumeFroms);
+        deleteTree(badOut);
     }
 
     static void deleteTree(File f) {

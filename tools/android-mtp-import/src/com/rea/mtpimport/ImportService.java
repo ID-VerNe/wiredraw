@@ -21,8 +21,11 @@ import java.util.List;
  *   约 0.6 s 返回；**能否打断原生调用没有跨机型的保证**，打不断时由 {@link #isCancelStuck()}
  *   给界面出路。返回 {@link ResumableTransfer.Kind#CANCELLED} 的文件不记完成、不计失败，
  *   本次半成品由传输层删掉（失败残留仍归 #52）。
- * - **恢复只恢复本轮**：`resume()` 只清暂停标志，让活着的 worker 从下一个文件继续；
- *   `resumeFrom > 0` 仍被传输层拒绝，不做假续传。
+ * - **恢复只恢复本轮**：`resume()` 只清暂停标志，让活着的 worker 从下一个文件继续。
+ * - **真续传（PC / issue #50）**：上一轮失败/断线残留的 `.part` 会按它的实际长度
+ *   （{@link Journal#resumeFrom}）作为 `resumeFrom` 传给传输层，由传输层用
+ *   `getPartialObject` 从该偏移续读；成功后才 rename 并记完成，失败继续保留 `.part`。
+ *   取消仍删本次 `.part`（用户取消 = 不续传），与 PB 口径一致。
  */
 public final class ImportService {
 
@@ -191,9 +194,17 @@ public final class ImportService {
                     continue;
                 }
 
-                String part = journal.partPath(outDir.getAbsolutePath(), item.handle);
-                ResumableTransfer.Result r = transfer.transfer(
-                        item, part, journal.doneBytes(item.relPath, item.size), token);
+                // PC（issue #50）：续传起点以磁盘上的 `.part` 实际长度为准。Journal 只在成功时
+                // 写 `done = size`，失败轮次从不记部分进度；拿 journal 的 doneBytes 会让
+                // resumeFrom 恒为 0，真续传永远不生效。
+                String part = journal.partPath(outDir.getAbsolutePath(), item.relPath);
+                File partFile = new File(part);
+                long resumeFrom = Journal.resumeFrom(
+                        partFile.isFile() ? partFile.length() : 0L, item.size);
+                if (resumeFrom > 0) {
+                    log.line("发现半成品：" + item.relPath + " 已有 " + resumeFrom + " 字节，从断点续传");
+                }
+                ResumableTransfer.Result r = transfer.transfer(item, part, resumeFrom, token);
 
                 switch (r.kind) {
                     case OK:
