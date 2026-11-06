@@ -24,8 +24,8 @@
 
 | 能力 | E1 | E2 | 其他机型 / 固件 |
 |---|---|---|---|
-| 枚举（`open` → `getStorageIds` → 全量 `getObjectHandles` → 逐个 `getObjectInfo`） | 通过 2026-11-04（[主报告 §12.1](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06（[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)） | 未验证 |
-| 下载与完整性（字节数 + MD5 + TIFF 文件头） | 通过 2026-11-04（[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06（[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)、`MtpTransfer.java:40`） | 未验证 |
+| 枚举（`open` → `getStorageIds` → 全量 `getObjectHandles` → 逐个 `getObjectInfo`） | 通过 2026-11-04（[主报告 §12.2](research/a7c-usb-raw-2026-11.md)：1526 个对象全覆盖） | 未验证（PC 探针只记录了抽样对象的 `getPartialObject` 语义，没有全量枚举的原始输出） | 未验证 |
+| 下载与完整性（字节数 + MD5 + TIFF 文件头） | 通过 2026-11-04（[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06（[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)、`MtpTransfer.java:20-24`） | 未验证 |
 | 插线自动拉起（`ACTION_USB_DEVICE_ATTACHED` → 自动授权 → 扫描） | 通过 2026-11-05 18:48（[导片工具 README「真机待验清单」第 1 项](../tools/android-mtp-import/README.md)） | 未验证 | 未验证 |
 | 冷启动检测（`autoScanOnLaunch`）+ 同一次插拔去重 | 通过 2026-11-05 18:48（同上第 2 项：广播路径「→ 开始扫描」，attach 路径「→ 扫描已在进行中」，单次会话 1526 对象） | 未验证 | 未验证 |
 | 首次系统授权（勾一次「一律打开」，之后静默） | 通过 2026-11-05 18:48（同上第 1 项：`permissions_manager` 只有既有 `uids`，日志无「尚无 USB 权限，发起申请」） | 未验证 | 未验证 |
@@ -39,7 +39,7 @@
 | `OpenSession`（事件通道先建） | 通过 2026-11-04（同上） | 未验证 |
 | 存储枚举（`GetStorageIDs` / `GetNumObjects` / `GetObjectHandles` / `GetStorageInfo`） | 失败 `AccessDenied`（2026-11-04，[会话分析 §5.2 枚举失败矩阵](research/a7c-ptpip-session.md)） | 未验证 |
 | 取最新一张（`GetObjectInfo(0xFFFFC001)` + `GetPartialObject`） | 通过 2026-11-04（[会话分析 §2.5、§5.3.1](research/a7c-ptpip-session.md)） | 未验证 |
-| 取历史对象（任意旧句柄） | 失败（枚举被拒，拿不到历史句柄） | 未验证 |
+| 取历史对象（任意旧句柄） | 失败 `AccessDenied`（同上：枚举被拒，拿不到历史句柄） | 未验证 |
 | 吞吐 | 通过 2026-11-04：0.95 MB/s（143 MB / 150 s，含实时取景；[会话分析 §1](research/a7c-ptpip-session.md)） | 未验证 |
 
 > 这张表里的「失败」不是代码缺陷，而是**会话类型本身的限制**：PC Remote 会话下相机只放行

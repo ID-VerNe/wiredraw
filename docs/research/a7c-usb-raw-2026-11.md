@@ -490,7 +490,7 @@ IED 从来没用过 `GetObjectHandles`，它只需要 `0xFFFFC001` 就够了—�
   （`UsbManager` → `ACTION_USB_DEVICE_ATTACHED` → `openDevice()` → `getObjectList()`）直接读，
   不需要 root、不需要反协议、不需要任何索尼私有序列。市面上任何支持 MTP 的文件管理器
   （Total Commander + MTP 插件、USB Media Explorer 等）装上就能直接拷。
-- **要"边拍边传" → 用 PTP/IP**（第 10、11.2 节已验：可握手并取 `0xFFFFC001`；
+- **要"边拍边传" → 用 PTP/IP**（第 10 节、11.2–11.3 节已验：可握手并取 `0xFFFFC001`；
   同一会话下存储枚举 `AccessDenied`），但只能拿最新一张。
 - **两者互斥**：`USB连接` 同一时刻只能一个模式。所以一个完整的替代 App 应该做成
   双模：MTP 模式负责翻卡导旧片，PC Remote 模式负责拍摄+即时回传。
