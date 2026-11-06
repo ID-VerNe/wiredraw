@@ -959,7 +959,7 @@ public final class SelfTest {
                 "skipped=" + r2.skipped + " calls=" + t2.calls.size());
         deleteTree(out);
 
-        // 2) 取消真正中断当前 importFile，且不把该文件记成完成
+        // 2) 取消后模拟传输在当前文件上返回，且不把该文件记成完成
         File out2 = Files.createTempDirectory("wiredraw-pb-cancel").toFile();
         CancellingTransfer ct = new CancellingTransfer();
         FinishRecorder r3 = new FinishRecorder();
@@ -990,7 +990,7 @@ public final class SelfTest {
                 "实际 " + t4.resumeFroms);
         deleteTree(out2);
 
-        // 3) 「取消卡住」纯判定（二审 B-1）：pfd.close 能否打断原生调用未验，
+        // 3) 「取消卡住」纯判定（二审 B-1）：本机型实测约 0.6 s 返回，打断的跨机型保证未验，
         //    打不断时 worker 永活，界面必须能判出卡住并给 ERROR 出路，不能静默变死键。
         long grace = ImportService.CANCEL_STUCK_GRACE_NANOS;
         check("PB 卡死判定：未请求取消 → 不判定卡死",

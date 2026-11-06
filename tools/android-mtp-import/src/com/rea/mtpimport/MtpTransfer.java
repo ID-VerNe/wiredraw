@@ -14,11 +14,12 @@ import java.io.IOException;
  * offset 语义一次都没在 ILCE-7C 上验证过。PA 若按推断做续传，可能写出一堆截断 ARW；
  * 所以这里明确拒绝 `resumeFrom > 0`，真正续传留给 PC 分节。
  *
- * PB 的取消：`importFile` 本身没有取消参数，唯一能真正打断阻塞中传输的办法是让原生写失败。
+ * PB 的取消：`importFile` 本身没有取消参数，唯一的手段是关掉 pfd、尝试让原生写失败。
  * 这里改用 `importFile(int, ParcelFileDescriptor)`（android-31 起的公共 API），把 pfd 的
  * `close()` 注册到 {@link CancelToken}；用户点 Cancel 时 pfd 当场关闭，**试图**让 `importFile`
- * 尽快返回。本次未传满的 `.part` 由本类删除；**失败**残留的 `.part` 仍保留，生命周期归 #52
- * （不在这里预判）。
+ * 尽快返回。本次机型实测约 0.6 s 返回；能否打断没有跨机型保证，打不断时由
+ * `ImportService.isCancelStuck()` 给界面出路。本次未传满的 `.part` 由本类删除；**失败**残留的
+ * `.part` 仍保留，生命周期归 #52（不在这里预判）。
  *
  * 真机已验（2026-11-06，ILCE-7C 固件 2.00 / Android 15 / USB MTP / 小米 9）：
  * 取消时 pfd 关闭后原生写约 0.6 s 返回，本次未传满的半成品被删除且未记账；

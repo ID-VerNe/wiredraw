@@ -6,8 +6,9 @@
 > **PA（issue #50）起，整文件传输是真的；PB 补齐暂停 / 取消 / 恢复语义。**
 > `Import all N` / `Import N` 会用 `MtpDevice.importFile()` 把对象读到
 > `getFilesDir()/imported/<relPath>`，逐文件校验字节数并推进进度。
-> `Pause` 落在文件边界（在传的那个文件会传完），`Cancel` 会关闭正在写的 fd、真正打断
-> 当前 `importFile`；`getPartialObject` 断点续传仍未做，`resumeFrom > 0` 依然拒绝，
+> `Pause` 落在文件边界（在传的那个文件会传完），`Cancel` 会关闭正在写的 fd，尝试中断
+> 当前 `importFile`：本次机型实测约 0.6 s 返回；能否打断没有跨机型保证，打不断时由
+> `isCancelStuck()` 给界面出路；`getPartialObject` 断点续传仍未做，`resumeFrom > 0` 依然拒绝，
 > 见「为什么不做真续传」与 issue #50 的 PC/PD 分节。
 
 ## 它现在能做什么
@@ -25,7 +26,7 @@
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
-| **暂停（文件边界）/ 取消（真正中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 中断并重传） |
+| **暂停（文件边界）/ 取消（关 fd 尝试中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 约 0.6 s 返回并重传；打断没有跨机型保证） |
 | **取消后 / 暂停恢复前复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1 / 三审 B-1：取消后与 `Pause & exit` 恢复前都探活；卡死轮次放弃后拦住扫描/新导入且不覆写 journal。探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节；`resumeFrom > 0` 拒绝） |
@@ -45,7 +46,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ CancelToken       取消令牌：置位 + 立即执行传输层的中断动作（PB）       [纯 JDK]
 ├─ ResumableTransfer 传输契约（整文件 / 取消 / 续传待 PC）                 [纯 JDK]
 ├─ MtpTransfer       真实传输：importFile → 校验字节 → rename 到 relPath  [android]
-│                    取消时关 pfd 打断 importFile，删本次半成品（PB）
+│                    取消时关 pfd 尝试打断 importFile，删本次半成品（PB）
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -80,7 +81,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 张 24 MP RAW，
 73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）。它没有 offset 语义，所以 `MtpTransfer`
 明确拒绝 `resumeFrom > 0`。PB 的取消没有改用 `getPartialObject`：它只是把 pfd 关掉，
-让原生写失败、`importFile` 提前返回；读的仍是同一条已验证的整对象路径。
+尝试让原生写失败、`importFile` 返回；本次机型实测约 0.6 s 返回，能否打断没有跨机型保证，
+打不断时由 `isCancelStuck()` 给界面出路。读的仍是同一条已验证的整对象路径。
 
 `MtpDevice.getPartialObject(handle, offset, size, buffer)` 对 a7C 的 `0xB101` 对象
 是否支持 offset 续读、超界时是报 `InvalidParameter` 还是静默少传，**本机一次都没验证过**。
@@ -214,7 +216,7 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       —— 2026-11-06 三审 B-1 复核：`Pause & exit` 后停 **90 秒**再点 `Import`，恢复前只读探活通过
       （日志无「恢复前探活失败」），`继续已暂停的一轮`，剩余 2 张继续落盘，`完成 3 / 跳过 0 / 失败 0`
       （ILCE-7C 2.00 / MI 9 / Android 15 API 35 / USB MTP）
-- [x] 导入中点 `Cancel`：正在传的那个 `importFile` 被真正打断（不是等整张传完），
+- [x] 导入中点 `Cancel`：当前 `importFile` 在本次机型约 0.6 s 返回（不是等整张传完；
       回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）
       —— 2026-11-06 实测：`DSC02707.ARW` 取消后 `已取消（未传满，半成品已删除）`、
       `[CANCELLED]`、无 `[OK]`；随后同一会话的下一轮把它正常传完并记账，`.part` 无残留
@@ -225,7 +227,7 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`）；旧 worker 未退出前
       `Connect camera` / 新导入都必须保持 `ERROR`（不得 `session.close()` 撞上原生调用），
       且旧轮迟到 `finally` 不得覆写 `import-journal.txt`
-      —— **未验**（2026-11-06 实测 pfd 关闭约 0.6 s 就打断，没造出卡死条件；放弃逻辑由 SelfTest 覆盖）
+      —— **未验**（2026-11-06 实测 pfd 关闭约 0.6 s 就返回，没造出卡死条件；放弃逻辑由 SelfTest 覆盖）
 - [ ] 暂停恰好落在最后一个文件、且用户已 `Pause & exit`：worker 在文件边界正常结束，
       `onFinished(cancelled=false)` 不得把停在照片墙的界面拽回 `DONE` —— **未验**（时窗太短，三次尝试都没卡进这个边界；逻辑由 `model.getTransferViewClosed()` 分支覆盖）
 - [ ] 3 秒宽限是按「与扫描重试 3 秒口径一致」取的，不是实测推导：**慢取消**（原生调用超过 3 秒才返回）
@@ -235,7 +237,7 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
 - [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
       （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
-- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`onDestroy`（`Main.java:361`）仍在 UI 线程
+- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`Main.onDestroy` 仍在 UI 线程
       `session.close()` 且不 `cancel` `scanRun`，可能与扫描线程正在跑的 `getStorageIds` /
       `getObjectInfo` 相撞（`main` 既有行为，本轮不改）——**未验**
 - [ ] `Main.awaitPermission` 的「判取消」与 `Main.requestPermission` 非原子，
@@ -247,9 +249,17 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [ ] `P-09` 导入前空间预检：**未验**（本轮只登记，实现在 PD 分节，该分支当前不可达）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
 
+> **放弃卡死轮次的代价（三审 B-2）**：`ImportService.run()` 只在开始时 `loadJournal()` 一次，
+> `markDone` 只改内存，`saveJournal()` 在 `finally` 整文件覆写。被放弃的轮次跳过保存，意味着
+> **本轮所有已完成文件的记录都会丢**，下次会全部重传（不会产生假完成，但代价比「记录已在
+> 旧日志里」大）。
+>
+> **异常处置（三审建议）**：`orphanService` 的 worker 不退出时，界面唯一出路是 `Connect camera`
+> 重扫（会保持 `ERROR`，不会死键）；物理拔插数据线是唯一恢复手段。若拔插后仍不退出，只能杀进程重启。
+
 > 已删除的旧条目（「目录树层级 + 已勾选计数」「`MAX_ROWS = 800` 未显示提示」「点『开始导入』」）
 > 属于本轮前的目录树界面，已被照片墙取代，不再适用。
 
 ## 待建清单（本轮不做，后续 issue 排期）
 
-- `DONE` 的 `Open` 只记日志（`Main.onOpen`，`Main.java:158-164`），不跳系统相册；需另接 `ACTION_VIEW` / 相册 intent。
+- `DONE` 的 `Open` 只记日志（`Main.onOpen`），不跳系统相册；需另接 `ACTION_VIEW` / 相册 intent。

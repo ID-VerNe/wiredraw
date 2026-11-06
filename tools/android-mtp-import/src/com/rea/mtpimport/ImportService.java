@@ -16,10 +16,10 @@ import java.util.List;
  *
  * - **暂停落在文件边界**：正在传的那个文件会传完并落盘，然后停在下一个文件之前；
  *   已传完的文件立刻进 {@link Journal}，下次按 `relPath + size` 跳过。暂停本身不产生 `.part`。
- * - **取消是真的中断**：`cancel()` 把 {@link CancelToken} 置位，传输层随即关闭正在写的 fd。
- *   本次机型实测（2026-11-06，ILCE-7C 2.00 / Android 15 / USB MTP）原生写约 0.6 s 返回；
- *   **能否打断原生调用没有跨机型的保证**，打不断时由 {@link #isCancelStuck()} 给界面出路。
- *   返回 {@link ResumableTransfer.Kind#CANCELLED} 的文件不记完成、不计失败，
+ * - **取消会尝试中断当前 importFile**：`cancel()` 把 {@link CancelToken} 置位，传输层在
+ *   调用者线程关闭正在写的 fd。本次机型实测（2026-11-06，ILCE-7C 2.00 / Android 15 / USB MTP）
+ *   约 0.6 s 返回；**能否打断原生调用没有跨机型的保证**，打不断时由 {@link #isCancelStuck()}
+ *   给界面出路。返回 {@link ResumableTransfer.Kind#CANCELLED} 的文件不记完成、不计失败，
  *   本次半成品由传输层删掉（失败残留仍归 #52）。
  * - **恢复只恢复本轮**：`resume()` 只清暂停标志，让活着的 worker 从下一个文件继续；
  *   `resumeFrom > 0` 仍被传输层拒绝，不做假续传。
@@ -79,8 +79,9 @@ public final class ImportService {
     /**
      * 本轮已请求取消，但 worker 在宽限期内仍未退出 —— 视为「取消卡住」。
      *
-     * `MtpTransfer` 拿关闭 fd 当取消手段，能否打断阻塞在原生 `importFile` 里的调用**还没实测**
-     * （见 `MtpTransfer` 类注释）。打不断时 worker 会一直活着、`isRunning()` 恒真；任何只看
+     * `MtpTransfer` 用关闭 fd 当作取消手段：本次机型实测约 0.6 s 返回；能否打断阻塞在原生
+     * `importFile` 里的调用**没有跨机型保证**（见 `MtpTransfer` 类注释）。打不断时 worker 会
+     * 一直活着、`isRunning()` 恒真；任何只看
      * `isRunning()` 的闸门都会把界面锁死在「点 `Import` 没反应，只能杀进程」——`CATALOG_READY`
      * 按 `UI-SPEC.md` §1.3 没有 Cancel 入口。这个口径给调用方一个给 UI 出路的依据。
      */
@@ -126,8 +127,10 @@ public final class ImportService {
     /**
      * 标记本轮已被调用方放弃：worker 之后退出时不再覆写续传日志（三审 B-3）。
      *
-     * 只由调用方在「已放弃该轮」时调用；放弃前已完成文件的记录已在旧日志里，
-     * 这里不保存只会让下次重传，不会产生假完成。
+     * 只由调用方在「已放弃该轮」时调用。**代价**：{@link Journal} 只在 `run()` 开始时加载一次，
+     * `markDone` 只改内存，`saveJournal()` 只在 `finally` 整文件覆写；放弃后跳过保存意味着
+     * **本轮所有已完成文件的记录都会丢**，下次全部重传（不会产生假完成，但比「记录已在旧日志里」
+     * 的代价大）。
      */
     public void abandon() {
         abandoned = true;
