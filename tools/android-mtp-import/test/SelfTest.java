@@ -183,6 +183,10 @@ public final class SelfTest {
         c.add(new Catalog.Entry(6, 3, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
         c.add(new Catalog.Entry(7, 2, Catalog.FMT_ARW, 300, "dsc02190.arw"));
         c.add(new Catalog.Entry(8, 2, Catalog.FMT_JPEG, 100, "DSC02190.jpg"));
+        // 同 stem 的 JPG 只存在于另一个目录：findSiblingJpeg 若遍历全库就会误命中，
+        // 该用例是目录作用域的变异哨兵。
+        c.add(new Catalog.Entry(9, 2, Catalog.FMT_ARW, 300, "DSC02199.ARW"));
+        c.add(new Catalog.Entry(10, 3, Catalog.FMT_JPEG, 100, "DSC02199.JPG"));
         c.build();
 
         check("同名 JPG：同目录同 stem 命中",
@@ -192,8 +196,9 @@ public final class SelfTest {
                 c.findSiblingJpeg(c.get(7)) != null && c.findSiblingJpeg(c.get(7)).handle == 8,
                 "实际 " + (c.findSiblingJpeg(c.get(7)) == null ? "null" : c.findSiblingJpeg(c.get(7)).handle));
         check("同名 JPG：不跨目录串号",
-                c.findSiblingJpeg(new Catalog.Entry(99, 2, Catalog.FMT_ARW, 300, "DSC02199.ARW")) == null,
-                "不该命中 101MSDCF 下的同名文件");
+                c.findSiblingJpeg(c.get(9)) == null,
+                "不该命中 101MSDCF 下的同名文件，实际 "
+                        + (c.findSiblingJpeg(c.get(9)) == null ? "null" : c.findSiblingJpeg(c.get(9)).handle));
         check("同名 JPG：文件夹条目直接返回 null",
                 c.findSiblingJpeg(c.get(2)) == null,
                 "文件夹不应有同名 JPG 回退");

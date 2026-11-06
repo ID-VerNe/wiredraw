@@ -23,7 +23,7 @@
 | 建 MTP 会话、带唤醒重试拿存储 | ✅ 实现（8 次 / 3 秒，同探针） |
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
 | 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
-| 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache，离屏/被淘汰即释放；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
+| 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache 兜底，格子移出组合即 `evict`（离屏位图不常驻）；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
@@ -221,9 +221,10 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
       `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
       `IMPORTING`（日志不得出现「先扫描」）—— **未验**（同上，相机被占用）
-- [ ] 缩略图（#59）：照片墙格子必须显示真实缩略图，不是灰块 + 文件名；滚动到位后再回去
-      不应重复发 `getThumbnail`（命中缓存）；内存里最多 24 MiB 位图，滚远后旧图被淘汰。
-      ARW 句柄 `getThumbnail` 若不支持，日志出现 `缩略图读取失败` 但**同名 JPG** 回退成功；
+- [ ] 缩略图（#59）：照片墙格子必须显示真实缩略图，不是灰块 + 文件名；格子滚出可视区后
+      位图必须被移出缓存（滚回会重新发 `getThumbnail`，属预期，不是重复请求缺陷）；
+      内存里最多 24 MiB 位图（LRU 兜底）。
+      ARW 句柄 `getThumbnail` 若不支持，日志出现 `ARW 缩略图失败` 但**同名 JPG** 回退成功；
       两者都没有时才退回 V-19 灰块，且**不得**崩溃 —— **未验**（2026-11-06 相机被另一会话
       探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页

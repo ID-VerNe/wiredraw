@@ -193,6 +193,9 @@ public final class Main extends ComponentActivity {
             } else {
                 // 扫描取消只回照片墙：**不动** transferViewClosed，否则下一次真实导入的进度
                 // 会被误判成「视图已关闭」，永远进不了 IMPORTING。
+                // 重扫窗口里 session 可能已经换成了新会话，而旧墙用的是旧句柄：
+                // 先摘会话，免得格子用旧 handle 去新会话取图（评审阻断项 B2）。
+                thumbnails.detachSession();
                 model.backToCatalog();
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -227,6 +228,11 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
         if (thumb == null && store != null && !model.backgroundScanning) {
             thumb = withContext(Dispatchers.IO) { model.loadThumbnail(entry) }
         }
+    }
+    // 格子滚出可视区（LazyVerticalGrid 移出组合）即把位图移出缓存：
+    // 不显示的位图不常驻内存；滚回时重新取图。
+    DisposableEffect(entry.handle, store) {
+        onDispose { store?.evict(entry.handle) }
     }
 
     Box(

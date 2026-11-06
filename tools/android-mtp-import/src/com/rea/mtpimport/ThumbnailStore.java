@@ -88,8 +88,12 @@ public final class ThumbnailStore {
         return cache.get(handle);
     }
 
-    public int cachedCount() {
-        return cache.size();
+    /**
+     * 格子离屏（移出组合）时调用：把该句柄的位图立即移出缓存，
+     * 满足「不显示的就从内存删掉」；重新滚回时允许重新取图。
+     */
+    public void evict(int handle) {
+        cache.remove(handle);
     }
 
     /**
@@ -149,14 +153,18 @@ public final class ThumbnailStore {
     }
 
     private Bitmap thumbnail(MtpSession s, int handle) {
+        // 锁内只做相机调用；解码放到锁外，不阻塞导入的 importFile。
+        byte[] bytes = fetch(s, handle);
+        return bytes == null ? null : decode(bytes);
+    }
+
+    private byte[] fetch(MtpSession s, int handle) {
         s.ioLock().lock();
         try {
             // 扫描取消时扫描线程会在收尾里关会话：摘掉会话之后到达的请求直接放弃，
             // 不让 getThumbnail 撞上 mtp.close()。
             if (session != s) return null;
-            byte[] bytes = s.device().getThumbnail(handle);
-            if (bytes == null || bytes.length == 0) return null;
-            return decode(bytes);
+            return s.device().getThumbnail(handle);
         } finally {
             s.ioLock().unlock();
         }
