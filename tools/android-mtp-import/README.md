@@ -97,7 +97,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-纯 JDK 类合计**三十个**——主源集 28 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
+纯 JDK 类合计**三十一个**——主源集 29 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
 `DemoTransfer` 标 `[debug 变体]`。这些文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（debug 的两个用单独的清单核对）；数量以 `checkPureJdkList` 的输出为准。
 
