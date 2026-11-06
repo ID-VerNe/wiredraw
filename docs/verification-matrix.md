@@ -38,7 +38,7 @@
 | 发现与配对握手（SSDP + HTTP 64321 → `Init`） | 通过 2026-11-04（顺序见[会话分析 §2.1–§2.3](research/a7c-ptpip-session.md)；**前提**是用当初配对成功的 GUID，随机 UUID 会 `Init_Fail reason=1`，见[会话分析 §5.1 第 1 条](research/a7c-ptpip-session.md)） | 未验证 |
 | `OpenSession`（事件通道先建） | 通过 2026-11-04（[会话分析 §5.1 第 2 条](research/a7c-ptpip-session.md)：少这步一个字节都不回；顺序实测见[主报告 §11.2](research/a7c-usb-raw-2026-11.md)） | 未验证 |
 | 存储枚举（`GetStorageIDs` / `GetNumObjects` / `GetObjectHandles` / `GetStorageInfo`） | 失败 `AccessDenied`（2026-11-04，[会话分析 §5.2 枚举失败矩阵](research/a7c-ptpip-session.md)） | 未验证 |
-| 取最新一张（`GetObjectInfo(0xFFFFC001)` + `GetPartialObject`） | 通过 2026-11-04（[会话分析 §2.5、§5.3.1](research/a7c-ptpip-session.md)） | 未验证 |
+| 取最新一张（`GetObjectInfo(0xFFFFC001)` + `GetPartialObject`） | 通过 2026-11-04（[会话分析 §2.5](research/a7c-ptpip-session.md) 的取文件流程；空闲时返回 OK 但 0 字节这一注意事项见 §5.3.1，不是通过证据） | 未验证 |
 | 取历史对象（任意旧句柄） | 失败 `AccessDenied`（同上：枚举被拒，拿不到历史句柄） | 未验证 |
 | 吞吐 | 通过 2026-11-04：0.95 MB/s（143 MB / 150 s，含实时取景；[会话分析 §1](research/a7c-ptpip-session.md)） | 未验证 |
 
