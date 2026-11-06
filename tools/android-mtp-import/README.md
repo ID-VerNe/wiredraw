@@ -248,7 +248,7 @@ Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOM
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 457 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 478 项）：
 
 ```bash
 # Linux / macOS / Git Bash

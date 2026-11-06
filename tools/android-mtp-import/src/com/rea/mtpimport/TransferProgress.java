@@ -5,7 +5,8 @@ import java.util.Locale;
 /**
  * 进度数学，纯 JDK 类型，时钟由外部注入（测试可控，不依赖 System.nanoTime）。
  *
- * 单调性约定：已完字节只增不减、且被钳在 [0, total]。MTP 侧回报的字节数与
+ * 单调性约定：`doneBytes`（已完成文件的字节）只增不减；对外 `bytesDone()` 在失败/取消
+ * 回退（#70 的 `rollbackFile`）时允许下降，任何时候都钳在 [0, total]。MTP 侧回报的字节数与
  * expectedSize 不一定完全一致（探针实测有「大小一致 / 不一致」两种），所以不能直接相除。
  */
 public final class TransferProgress {
