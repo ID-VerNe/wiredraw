@@ -1009,11 +1009,15 @@ public final class Main extends ComponentActivity {
     }
 
     /**
-     * 取消后 worker 迟迟不退出时放弃该轮（二审 B-1 的死路出口）。
+     * 取消后 worker 迟迟不退出、**或**未取消但长时间无传输进展时，放弃该轮（二审 B-1 / #63）。
      *
-     * 只在「已请求取消 + 仍 isRunning + 超过宽限期」时成立；正常取消窗口（毫秒级）不会触发，
-     * 避免把还在收尾的轮次误判成失步。
+     * 两种成因共用同一出路，但判定不同：
+     * - 取消卡住：`isCancelStuck()`，已请求取消 + 超过 3 s 宽限；
+     * - 无进展挂起（#63）：`isStalled()`，没取消、没暂停、但一次 `importFile` 已持续超过
+     *   60 s（相机休眠 / USB 掉线）。旧实现只认第一种，于是「没点取消就挂起」的轮次让
+     *   `CATALOG_READY` 下的 `Import` 变成死键（该态按 UI-SPEC §1.3 没有 Cancel 入口）。
      *
+     * 正常取消窗口（毫秒级）与正常传输（单文件约 1.1 s）都不会触发，避免误判。
      * 放弃只摘掉 `service` 引用到 {@link #orphanService}，**不在这里 close 会话**：没能被打断
      * 的原生调用可能还占着 `MtpDevice`，UI 线程 close 是未验证的原生竞态（与扫描取消同一条口径）。
      * 旧 worker 退出前 {@link #orphanWorkerStillRunning()} 会拦住扫描与新导入；退出后由扫描线程
@@ -1021,8 +1025,13 @@ public final class Main extends ComponentActivity {
      * 不会冲掉新一轮的 `import-journal.txt`（三审 B-3）。
      */
     private boolean abandonStuckService() {
-        if (service == null || !service.isRunning() || !service.isCancelStuck()) return false;
-        log.line("本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）");
+        if (service == null || !service.isRunning()) return false;
+        boolean cancelStuck = service.isCancelStuck();
+        boolean stalled = !cancelStuck && service.isStalled();
+        if (!cancelStuck && !stalled) return false;
+        log.line(cancelStuck
+                ? "本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）"
+                : "本轮传输长时间无进展：放弃该轮（会话可能已失步，需拔插数据线）");
         final ImportService dead = service;
         // 旧轮 finally 的整文件覆写不得冲掉新一轮的记录（三审 B-3）。
         dead.abandon();

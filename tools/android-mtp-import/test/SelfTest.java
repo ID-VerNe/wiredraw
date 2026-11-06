@@ -59,6 +59,8 @@ public final class SelfTest {
         partialResumeCases();
         uiStateCases();
         finishOutcomeCases();
+        stalledDetectionCases();
+        stalledServiceCases();
         importGateCases();
         topBarSpecCases();
         colorTokensCases();
@@ -1446,26 +1448,35 @@ public final class SelfTest {
     // ---------------- 生产路径的暂停时钟接线（issue #58 一审 B-1） ----------------
 
     /**
-     * 可手动拨动的时钟。读第 1 次是 `progress.start`，第 2 次是暂停记账，第 3 次是恢复记账；
-     * 第 2 次读时放行 {@link #pauseRead}，让用例确认「worker 已停在文件边界并开始记账」。
+     * 可手动拨动的时钟。用例先 {@link #set(long)} 到暂停时刻，worker 读到该值即放行
+     * {@link #pauseRead}，让用例确认「worker 已停在文件边界并开始记账」。
      */
     static final class ManualClock implements ImportService.Clock {
         private volatile long now;
+        private final long initial;
         private final AtomicInteger reads = new AtomicInteger();
         final CountDownLatch pauseRead = new CountDownLatch(1);
 
         ManualClock(long initial) {
             this.now = initial;
+            this.initial = initial;
         }
 
         void set(long value) {
             now = value;
         }
 
+        /**
+         * 读到「非初始值」即视为 worker 已走到暂停记账点（issue #63）。
+         *
+         * 旧实现用「第 2 次读」当哨兵，本单在 `transfer.transfer(...)` 前新增了一次读钟
+         * （刷新最后活动时刻），次数就错位了。按值判定与读次数无关，新增读钟点不会再让它失效。
+         */
         @Override
         public long nanoTime() {
             long value = now;
-            if (reads.incrementAndGet() == 2) pauseRead.countDown();
+            reads.incrementAndGet();
+            if (value != initial) pauseRead.countDown();
             return value;
         }
     }
@@ -1674,6 +1685,88 @@ public final class SelfTest {
                         && t5.resumeFroms.size() == 1 && t5.resumeFroms.get(0) == 0L,
                 "实际 " + t5.resumeFroms);
         deleteTree(staleOut);
+    }
+
+    // ---------------- 无进展挂起判定（issue #63） ----------------
+
+    static void stalledDetectionCases() {
+        long g = ImportService.NO_ACTIVITY_GRACE_NANOS;
+        long t0 = 10_000_000_000L;
+
+        check("挂起判定：未取消 + 未暂停 + 距最后活动满 60 s → 成立",
+                ImportService.stalled(true, false, false, t0, t0 + g, g), "不成立");
+        check("挂起判定：距最后活动 59.5 s 不成立",
+                !ImportService.stalled(true, false, false, t0, t0 + g - 500_000_000L, g), "误报");
+        check("挂起判定：恰好 60 s 成立（边界含等号）",
+                ImportService.stalled(true, false, false, t0, t0 + g, g), "边界不成立");
+        check("挂起判定：已取消不成立（交给 isCancelStuck 的 3 s 口径）",
+                !ImportService.stalled(true, true, false, t0, t0 + 10 * g, g), "取消态误报");
+        check("挂起判定：暂停中不成立（Pause & exit 可停任意久）",
+                !ImportService.stalled(true, false, true, t0, t0 + 10 * g, g), "暂停态误报");
+        check("挂起判定：worker 已退出不成立",
+                !ImportService.stalled(false, false, false, t0, t0 + 10 * g, g), "未运行误报");
+        check("挂起判定：还没进过文件（lastActivity=0）不成立",
+                !ImportService.stalled(true, false, false, 0L, t0 + 10 * g, g), "0 值误报");
+    }
+
+    /** 卡在一次 importFile 里不返回，直到用例放行 —— 模拟相机休眠/USB 掉线时的原生调用。 */
+    static final class HangingTransfer implements ResumableTransfer {
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token) {
+            entered.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return writeFakePart(item, partPath);
+        }
+    }
+
+    /**
+     * 端到端：钉住「服务真的会在没取消时刷新/判出挂起」。
+     *
+     * 只测纯判定不够——删掉 run() 里刷新 lastActivityNanos 那一行，纯判定照样全绿，
+     * 而线上仍然死键。这里让 worker 真卡在 importFile 里，用例拨动注入时钟。
+     */
+    static void stalledServiceCases() throws Exception {
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(3, true);
+        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(), PhotoWall.Export.JPG_FIRST);
+        check("挂起用例清单恰为 1 个文件", plan.count() == 1, "实际 " + plan.count());
+
+        File out = Files.createTempDirectory("wiredraw-63-stall").toFile();
+        long t0 = 10_000_000_000L;
+        ManualClock clock = new ManualClock(t0);
+        HangingTransfer h = new HangingTransfer();
+        FinishRecorder r = new FinishRecorder();
+        ImportService svc = new ImportService(Log.NOOP, h, out, clock);
+        svc.start(plan, r);
+        check("挂起：worker 已进入 importFile", h.entered.await(5, TimeUnit.SECONDS), "等待超时");
+
+        check("挂起：一次传输进行 59.5 s 仍不判挂起",
+                !svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS - 500_000_000L),
+                "实际 true");
+        check("挂起：一次传输满 60 s 判挂起（未点取消也有出路）",
+                svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 false");
+
+        svc.pause();
+        check("挂起：暂停中不判挂起",
+                !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
+        svc.resume();
+
+        svc.cancel();
+        check("挂起：取消后交给 isCancelStuck，不判挂起",
+                !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
+
+        h.release.countDown();
+        check("挂起：放行后本轮 5 s 内收尾", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+        deleteTree(out);
     }
 
     static void deleteTree(File f) {
