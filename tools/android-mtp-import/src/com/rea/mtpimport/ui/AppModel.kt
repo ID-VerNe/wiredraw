@@ -193,11 +193,22 @@ class AppModel {
         if (!transferViewClosed && state != UiState.State.PAUSED) state = UiState.State.IMPORTING
     }
 
-    /** transfer 顶部返回：只关视图（回 `CATALOG_READY`），不取消任务（§1.3）。 */
-    fun closeTransferView() {
+    /**
+     * 离开传输视图：`Pause & exit` / `Cancel` 与顶部返回共用。
+     *
+     * 先置 `transferViewClosed` 再回照片墙（issue #48 遗留竞态）：worker 可能正把当前文件传完，
+     * 它迟到的 `onProgress` 会走 [updateProgress]；只有视图标记为「已关闭」时，
+     * 进度才允许更新数值、而不是把界面切回 `IMPORTING`。
+     */
+    fun leaveTransferView() {
         transferViewClosed = true
         exitConfirmOpen = false
         backToCatalog()
+    }
+
+    /** transfer 顶部返回：只关视图（回 `CATALOG_READY`），不取消任务（§1.3）。 */
+    fun closeTransferView() {
+        leaveTransferView()
     }
 
     // 名字不能叫 `setExitConfirmOpen`：`exitConfirmOpen` 这个 property 的 setter 已经占用

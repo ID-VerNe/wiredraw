@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity;
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 导片工具（界面层）。
@@ -67,7 +68,13 @@ public final class Main extends ComponentActivity {
     private Catalog catalog;
     private Selection selection;
     private ImportService service;
-    private TransferProgress lastProgress;
+    private volatile TransferProgress lastProgress;
+
+    /**
+     * 进度回调合并闸（PB）：worker 每个文件投一次更新，主线程忙时不希望几百个 Runnable
+     * 在队列里排队。只在没有待执行更新时投递，执行时直接取 {@link #lastProgress} 的最新值。
+     */
+    private final AtomicBoolean progressUiPending = new AtomicBoolean(false);
 
     /** debug 假数据入口；release 构建里没有这个类，恒为 null（U-54）。 */
     private DemoBridge demoBridge;
@@ -143,7 +150,8 @@ public final class Main extends ComponentActivity {
                 model.backToCatalog();
                 return;
             }
-            if (service != null && service.isRunning()) service.cancel();
+            boolean hadImportRun = service != null && service.isRunning();
+            if (hadImportRun) service.cancel();
             // 扫描态取消（U-06 / P-02）。这里只置位令牌 + 唤醒两边等待：
             // - 扫描线程的重试/枚举循环都判令牌，会尽快自己退出；
             // - interrupt 让 `Thread.sleep` / `permGate.await` 立刻返回，不必等满 3 秒 / 120 秒。
@@ -158,7 +166,15 @@ public final class Main extends ComponentActivity {
                 if (worker != null) worker.interrupt();
                 log.line("点 Cancel → 已请求取消扫描（会话由扫描线程收尾时关闭）");
             }
-            model.backToCatalog();
+            if (hadImportRun) {
+                // 取消传输后立刻关掉传输视图：worker 被打断时/收尾前的迟到进度不得把界面
+                // 拽回 IMPORTING（#48）。
+                model.leaveTransferView();
+            } else {
+                // 扫描取消只回照片墙：**不动** transferViewClosed，否则下一次真实导入的进度
+                // 会被误判成「视图已关闭」，永远进不了 IMPORTING。
+                model.backToCatalog();
+            }
         }
 
         @Override
@@ -182,12 +198,7 @@ public final class Main extends ComponentActivity {
             if (service == null || !service.isRunning()) return;
             if (model.getState() == UiState.State.PAUSED) {
                 service.resume();
-                model.showImport(
-                        lastProgress == null ? 0 : lastProgress.filesDone(),
-                        lastProgress == null ? 0 : lastProgress.totalFiles(),
-                        lastProgress == null ? 0 : lastProgress.bytesDone(),
-                        lastProgress == null ? 0 : lastProgress.totalBytes(),
-                        0);
+                showImportFromProgress();
             } else {
                 service.pause();
                 model.showPaused();
@@ -270,7 +281,9 @@ public final class Main extends ComponentActivity {
             } else if (service != null && service.isRunning()) {
                 service.pause();
             }
-            model.backToCatalog();
+            // 关键（#48）：置 transferViewClosed 再回照片墙。worker 可能正把当前文件传完，
+            // 它迟到的 onProgress 若在 import 视图仍「打开」时落地，会把状态拽回 IMPORTING。
+            model.leaveTransferView();
         }
 
         /** 确认框选 `Resume`：收起确认框；已暂停时顺带继续。 */
@@ -649,7 +662,15 @@ public final class Main extends ComponentActivity {
             return;
         }
         if (service != null && service.isRunning()) {
-            log.line("已有一轮在跑，先等它结束或取消");
+            if (service.isPaused()) {
+                // Pause & exit 之后从照片墙回来：恢复同一轮，Journal 已记账的文件不会重传。
+                // 换选择要先把这一轮 Cancel 掉，避免把旧清单接着跑。
+                log.line("继续已暂停的一轮（要改选择请先 Cancel）");
+                service.resume();
+                showImportFromProgress();
+            } else {
+                log.line("已有一轮在跑，先等它结束或取消");
+            }
             return;
         }
         MtpSession s = session;
@@ -682,11 +703,19 @@ public final class Main extends ComponentActivity {
             @Override
             public void onProgress(TransferProgress progress, ImportPlan.Item current) {
                 lastProgress = progress;
-                long now = System.nanoTime();
-                runOnUiThread(() -> model.updateProgress(
-                        progress.filesDone(), progress.totalFiles(),
-                        progress.bytesDone(), progress.totalBytes(),
-                        (long) progress.bytesPerSec(now)));
+                // 合并闸（PB）：已有一个待执行更新时直接丢弃本次投递，
+                // 待执行那个 Runnable 会读 lastProgress 的最新值，主线程不会被进度回调打爆。
+                if (!progressUiPending.compareAndSet(false, true)) return;
+                runOnUiThread(() -> {
+                    progressUiPending.set(false);
+                    TransferProgress p = lastProgress;
+                    if (p == null) return;
+                    long now = System.nanoTime();
+                    model.updateProgress(
+                            p.filesDone(), p.totalFiles(),
+                            p.bytesDone(), p.totalBytes(),
+                            (long) p.bytesPerSec(now));
+                });
             }
 
             @Override
@@ -700,7 +729,9 @@ public final class Main extends ComponentActivity {
                 log.line("Skipped " + skipped + " existing");
                 runOnUiThread(() -> {
                     if (cancelled) {
-                        model.backToCatalog();
+                        // 取消：视图已在 onCancel 里关掉；这里再关一次，防迟到的进度回调
+                        // 在 onFinished 之前落地把界面拽回 IMPORTING（#48）。
+                        model.leaveTransferView();
                         return;
                     }
                     if (ok == 0 && skipped == 0 && failed > 0) {
@@ -723,6 +754,17 @@ public final class Main extends ComponentActivity {
                 runOnUiThread(() -> model.showError("导入中断，请拔插数据线"));
             }
         });
+    }
+
+    /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */
+    private void showImportFromProgress() {
+        TransferProgress p = lastProgress;
+        model.showImport(
+                p == null ? 0 : p.filesDone(),
+                p == null ? 0 : p.totalFiles(),
+                p == null ? 0 : p.bytesDone(),
+                p == null ? 0 : p.totalBytes(),
+                0);
     }
 
     // ---------------- 日志 ----------------

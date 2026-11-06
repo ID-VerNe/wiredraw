@@ -8,10 +8,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import com.rea.mtpimport.ResumableTransfer.Kind;
 
 /**
  * JVM 纯逻辑自检（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
@@ -44,7 +48,9 @@ public final class SelfTest {
         planCases();
         progressCases();
         journalCases();
+        cancelTokenCases();
         importServiceCases();
+        pauseCancelCases();
         uiStateCases();
         backNavCases();
         uiTextCases();
@@ -677,11 +683,14 @@ public final class SelfTest {
      */
     static final class RecordingTransfer implements ResumableTransfer {
         final List<String> calls = new ArrayList<>();
+        /** PB：记录每次调用收到的 resumeFrom，用来钉住「不做假续传」。 */
+        final List<Long> resumeFroms = new ArrayList<>();
         boolean failAll;
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
             calls.add(item.relPath);
+            resumeFroms.add(resumeFrom);
             if (failAll) return new Result(Kind.FAILED, "fake failure");
             try {
                 File part = new File(partPath);
@@ -775,6 +784,191 @@ public final class SelfTest {
 
         deleteTree(out);
         deleteTree(badOut);
+    }
+
+    // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------
+
+    static void cancelTokenCases() {
+        CancelToken token = new CancelToken();
+        check("CancelToken：初始未取消", !token.isCancelled(), "实际 true");
+        token.cancel();
+        check("CancelToken：cancel() 后置位", token.isCancelled(), "实际 false");
+
+        CancelToken late = new CancelToken();
+        late.cancel();
+        AtomicInteger lateRuns = new AtomicInteger();
+        late.setOnCancel(lateRuns::incrementAndGet);
+        check("CancelToken：取消后注册的动作立即执行",
+                lateRuns.get() == 1, "实际 " + lateRuns.get());
+
+        CancelToken once = new CancelToken();
+        AtomicInteger runs = new AtomicInteger();
+        once.setOnCancel(runs::incrementAndGet);
+        once.cancel();
+        once.cancel();
+        check("CancelToken：取消动作只执行一次",
+                runs.get() == 1, "实际 " + runs.get());
+
+        CancelToken cleared = new CancelToken();
+        AtomicInteger clearedRuns = new AtomicInteger();
+        cleared.setOnCancel(clearedRuns::incrementAndGet);
+        cleared.clearOnCancel();
+        cleared.cancel();
+        check("CancelToken：clearOnCancel 后不再执行旧动作",
+                clearedRuns.get() == 0, "实际 " + clearedRuns.get());
+    }
+
+    /**
+     * 进入 transfer 后卡住，直到测试放行；用来钉住「暂停只落在文件边界」：
+     * 暂停请求不能打断正在传的那个文件，但第二个文件必须等到 resume 才启动。
+     */
+    static final class GatedTransfer implements ResumableTransfer {
+        final List<String> calls = Collections.synchronizedList(new ArrayList<>());
+        final List<Long> resumeFroms = Collections.synchronizedList(new ArrayList<>());
+        final CountDownLatch firstEntered = new CountDownLatch(1);
+        final CountDownLatch releaseFirst = new CountDownLatch(1);
+        final CountDownLatch secondEntered = new CountDownLatch(1);
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            resumeFroms.add(resumeFrom);
+            int n = calls.size();
+            if (n == 1) {
+                firstEntered.countDown();
+                try {
+                    if (!releaseFirst.await(5, TimeUnit.SECONDS)) {
+                        return new Result(Kind.FAILED, "测试未放行第一个文件");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new Result(Kind.FAILED, "测试线程被中断");
+                }
+            } else if (n == 2) {
+                secondEntered.countDown();
+            }
+            return writeFakePart(item, partPath);
+        }
+    }
+
+    /**
+     * 模拟「取消真的打断了当前 importFile」：传输实现等到取消令牌的动作触发（真实路径里
+     * 那是关闭 ParcelFileDescriptor），然后返回 CANCELLED。
+     */
+    static final class CancellingTransfer implements ResumableTransfer {
+        final List<String> calls = Collections.synchronizedList(new ArrayList<>());
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch tokenCancelled = new CountDownLatch(1);
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            token.setOnCancel(tokenCancelled::countDown);
+            entered.countDown();
+            try {
+                if (!tokenCancelled.await(5, TimeUnit.SECONDS)) {
+                    token.clearOnCancel();
+                    return new Result(Kind.FAILED, "取消动作未触发，传输无法被中断");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                token.clearOnCancel();
+                return new Result(Kind.FAILED, "测试线程被中断");
+            }
+            token.clearOnCancel();
+            return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+        }
+    }
+
+    /** 和 RecordingTransfer 一样落一个假 .part，供 GatedTransfer 复用。 */
+    static ResumableTransfer.Result writeFakePart(ImportPlan.Item item, String partPath) {
+        try {
+            File part = new File(partPath);
+            File parent = part.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                return new ResumableTransfer.Result(Kind.FAILED, "mkdir failed");
+            }
+            try (FileOutputStream out = new FileOutputStream(part)) {
+                out.write(new byte[(int) Math.min(item.size, 16)]);
+            }
+            return ResumableTransfer.Result.of(Kind.OK);
+        } catch (IOException e) {
+            return new ResumableTransfer.Result(Kind.FAILED, e.toString());
+        }
+    }
+
+    static void pauseCancelCases() throws Exception {
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(3, true);      // DCIM/100MSDCF/DSC02183.ARW（先）
+        s.setChecked(4, true);      // DCIM/100MSDCF/DSC02183.JPG（后）
+        ImportPlan plan = ImportPlan.of(c, s);
+        check("PB 用例清单恰为 2 个文件", plan.count() == 2, "实际 " + plan.count());
+
+        // 1) 暂停落在文件边界：在传的完成，下一个等 resume
+        File out = Files.createTempDirectory("wiredraw-pb-pause").toFile();
+        GatedTransfer g = new GatedTransfer();
+        FinishRecorder r1 = new FinishRecorder();
+        ImportService svc = new ImportService(Log.NOOP, g, out);
+        svc.start(plan, r1);
+        check("PB 暂停：第一个文件已进入传输",
+                g.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+        svc.pause();
+        check("PB 暂停：service.isPaused() 为真", svc.isPaused(), "实际 false");
+        g.releaseFirst.countDown();
+        check("PB 暂停：当前文件传完后停在边界，第二个文件不启动",
+                !g.secondEntered.await(400, TimeUnit.MILLISECONDS),
+                "第二个文件在暂停期间启动了");
+        svc.resume();
+        check("PB 恢复：resume 后第二个文件开始",
+                g.secondEntered.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PB 恢复：本轮 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PB 恢复：两个文件都完成，无跳过/失败",
+                r1.ok == 2 && r1.skipped == 0 && r1.failed == 0,
+                "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
+        check("PB 恢复：两次调用的 resumeFrom 都是 0（不做假续传）",
+                g.resumeFroms.size() == 2 && g.resumeFroms.get(0) == 0 && g.resumeFroms.get(1) == 0,
+                "实际 " + g.resumeFroms);
+
+        // 暂停期间完成的那个文件已记账：同目录重跑应全部跳过
+        RecordingTransfer t2 = new RecordingTransfer();
+        FinishRecorder r2 = new FinishRecorder();
+        new ImportService(Log.NOOP, t2, out).start(plan, r2);
+        check("PB 暂停：完成的文件下次按 Skipped 跳过",
+                r2.done.await(5, TimeUnit.SECONDS) && r2.skipped == 2 && t2.calls.isEmpty(),
+                "skipped=" + r2.skipped + " calls=" + t2.calls.size());
+        deleteTree(out);
+
+        // 2) 取消真正中断当前 importFile，且不把该文件记成完成
+        File out2 = Files.createTempDirectory("wiredraw-pb-cancel").toFile();
+        CancellingTransfer ct = new CancellingTransfer();
+        FinishRecorder r3 = new FinishRecorder();
+        ImportService svc2 = new ImportService(Log.NOOP, ct, out2);
+        svc2.start(plan, r3);
+        check("PB 取消：第一个文件已进入传输",
+                ct.entered.await(5, TimeUnit.SECONDS), "等待超时");
+        svc2.cancel();
+        check("PB 取消：取消动作在传输中被触发（不是只停界面）",
+                ct.tokenCancelled.await(5, TimeUnit.SECONDS), "取消动作未触发");
+        check("PB 取消：本轮 5 秒内结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PB 取消：cancelled=true 且取消的文件不计失败",
+                r3.cancelled && r3.ok == 0 && r3.skipped == 0 && r3.failed == 0,
+                "cancelled=" + r3.cancelled + " ok=" + r3.ok + " failed=" + r3.failed);
+        check("PB 取消：只尝试了当前文件，后续文件未启动",
+                ct.calls.size() == 1, "实际调用 " + ct.calls.size() + " 个文件");
+        check("PB 取消：摘要标明已取消",
+                r3.summary != null && r3.summary.contains("已取消"), "实际 " + r3.summary);
+
+        RecordingTransfer t4 = new RecordingTransfer();
+        FinishRecorder r4 = new FinishRecorder();
+        new ImportService(Log.NOOP, t4, out2).start(plan, r4);
+        check("PB 取消：被取消的文件下次重传（不能留下假完成记录）",
+                r4.done.await(5, TimeUnit.SECONDS) && r4.ok == 2 && t4.calls.size() == 2,
+                "ok=" + r4.ok + " calls=" + t4.calls.size());
+        check("PB 取消：重跑时 resumeFrom 仍为 0（不假装续传）",
+                t4.resumeFroms.size() == 2 && t4.resumeFroms.get(0) == 0 && t4.resumeFroms.get(1) == 0,
+                "实际 " + t4.resumeFroms);
+        deleteTree(out2);
     }
 
     static void deleteTree(File f) {

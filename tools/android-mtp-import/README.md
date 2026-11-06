@@ -3,10 +3,12 @@
 把 `tools/android-mtp-probe/`（一次性验证工具）里已经跑通的 MTP 结论，
 沉淀成一个**能日常用**的导片工具的骨架。
 
-> **PA（issue #50）起，整文件传输是真的。** `Import all N` / `Import N` 会用
-> `MtpDevice.importFile()` 把对象读到 `getFilesDir()/imported/<relPath>`，
-> 逐文件校验字节数并推进进度；单文件内暂停/取消与 `getPartialObject` 断点续传仍未做，
-> 见「为什么不做真续传」与 issue #50 的 PB/PC/PD 分节。
+> **PA（issue #50）起，整文件传输是真的；PB 补齐暂停 / 取消 / 恢复语义。**
+> `Import all N` / `Import N` 会用 `MtpDevice.importFile()` 把对象读到
+> `getFilesDir()/imported/<relPath>`，逐文件校验字节数并推进进度。
+> `Pause` 落在文件边界（在传的那个文件会传完），`Cancel` 会关闭正在写的 fd、真正打断
+> 当前 `importFile`；`getPartialObject` 断点续传仍未做，`resumeFrom > 0` 依然拒绝，
+> 见「为什么不做真续传」与 issue #50 的 PC/PD 分节。
 
 ## 它现在能做什么
 
@@ -22,9 +24,10 @@
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
-| 线程 / 暂停 / 取消 / 逐文件回调 | ✅ 实现（暂停/取消停在文件边界） |
+| 线程 / 逐文件回调 | ✅ 实现 |
+| **暂停（文件边界）/ 取消（真正中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；真机行为**未验**） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
-| **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节） |
+| **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节；`resumeFrom > 0` 拒绝） |
 
 ## 类职责
 
@@ -37,9 +40,11 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ImportPlan        勾选 → 去重清单 + totalBytes()                     [纯 JDK]
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / 存取   [纯 JDK]
-├─ ImportService     编排：线程、暂停、取消、逐文件调 transfer            [纯 JDK]
-├─ ResumableTransfer 传输契约（整文件 / 续传待 PC）                       [纯 JDK]
+├─ ImportService     编排：线程、暂停（文件边界）、取消、逐文件调 transfer  [纯 JDK]
+├─ CancelToken       取消令牌：置位 + 立即执行传输层的中断动作（PB）       [纯 JDK]
+├─ ResumableTransfer 传输契约（整文件 / 取消 / 续传待 PC）                 [纯 JDK]
 ├─ MtpTransfer       真实传输：importFile → 校验字节 → rename 到 relPath  [android]
+│                    取消时关 pfd 打断 importFile，删本次半成品（PB）
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -61,7 +66,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**二十一个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**二十三个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（其中 `DemoTree.java` / `DemoTransfer.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
@@ -72,8 +77,9 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ## 为什么不做真续传
 
 PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 张 24 MP RAW，
-73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）。它没有 offset 语义，所以 PA 的
-`MtpTransfer` 明确拒绝 `resumeFrom > 0`，暂停/取消只停在文件边界。
+73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）。它没有 offset 语义，所以 `MtpTransfer`
+明确拒绝 `resumeFrom > 0`。PB 的取消没有改用 `getPartialObject`：它只是把 pfd 关掉，
+让原生写失败、`importFile` 提前返回；读的仍是同一条已验证的整对象路径。
 
 `MtpDevice.getPartialObject(handle, offset, size, buffer)` 对 a7C 的 `0xB101` 对象
 是否支持 offset 续读、超界时是报 `InvalidParameter` 还是静默少传，**本机一次都没验证过**。
@@ -98,7 +104,7 @@ PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 �
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；202 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；224 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -195,6 +201,13 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [ ] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
       与相机侧 `ImportPlan.Item.size` 一致（PA / issue #50）
 - [ ] 同一批照片再点一次 `Import all N`：日志必须出现 `Skipped N existing`，不重复搬字节（PA / issue #50）
+- [ ] 导入中（第 1 张还没传完）点 `Pause`：当前这张必须传完并落盘，进度停在文件边界，后续文件不启动；
+      点 `Resume` 从下一个文件继续（PB / issue #50）——**未验**（相机未接入）
+- [ ] `Pause & exit` 回照片墙后，已完成的文件不再重传，再点 `Import all N` 会继续被暂停的那轮；
+      期间不得被迟到的进度回调拽回 `IMPORTING`（#48 / PB）——**未验**
+- [ ] 导入中点 `Cancel`：正在传的那个 `importFile` 被真正打断（不是等整张传完），
+      回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）——**未验**
+- [ ] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）——**未验**
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
