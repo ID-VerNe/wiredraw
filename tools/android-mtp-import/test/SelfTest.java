@@ -55,6 +55,7 @@ public final class SelfTest {
         cancelTokenCases();
         importServiceCases();
         pauseCancelCases();
+        importServicePauseClockCases();
         partialResumeCases();
         uiStateCases();
         importGateCases();
@@ -746,6 +747,63 @@ public final class SelfTest {
 
         check("humanBytes 用 1024 进制",
                 "1.0 MB".equals(p.humanBytes(1048576)), "实际 " + p.humanBytes(1048576));
+
+        // ---------------- #58：暂停时长不得计入速率/ETA ----------------
+        // 场景：10 MB 已传、实际传输 1 s、随后暂停 100 s。
+        // 修复前分母是 101 s（≈0.099 MB/s）；修复后应按实际传输的 1 s 算（10 MB/s）。
+        long pauseT0 = 1_000_000_000L;
+        long pauseEnd = pauseT0 + 101_000_000_000L;
+
+        TransferProgress paused = new TransferProgress(20_000_000, 1);
+        paused.start(pauseT0);
+        paused.onBytes(10_000_000);
+        paused.pause(pauseT0 + 1_000_000_000L);
+        paused.resume(pauseEnd);
+        check("暂停 100 s 后速率仍按实际传输 1 s 计（10 MB/s）",
+                Math.abs(paused.bytesPerSec(pauseEnd) - 10_000_000) < 1.0,
+                "实际 " + paused.bytesPerSec(pauseEnd));
+        check("暂停 100 s 后 ETA 与不暂停一致（剩余 10 MB / 10 MB/s = 1 s）",
+                paused.etaSeconds(pauseEnd) == 1,
+                "实际 " + paused.etaSeconds(pauseEnd));
+
+        TransferProgress duringPause = new TransferProgress(20_000_000, 1);
+        duringPause.start(pauseT0);
+        duringPause.onBytes(10_000_000);
+        duringPause.pause(pauseT0 + 1_000_000_000L);
+        check("暂停中读取速率不随暂停时长下降",
+                Math.abs(duringPause.bytesPerSec(pauseT0 + 51_000_000_000L) - 10_000_000) < 1.0,
+                "实际 " + duringPause.bytesPerSec(pauseT0 + 51_000_000_000L));
+
+        TransferProgress doublePause = new TransferProgress(20_000_000, 1);
+        doublePause.start(pauseT0);
+        doublePause.onBytes(10_000_000);
+        doublePause.pause(pauseT0 + 1_000_000_000L);
+        doublePause.pause(pauseT0 + 6_000_000_000L);
+        doublePause.resume(pauseEnd);
+        check("重复 pause 只认第一次，不把暂停拆成两段重复扣",
+                Math.abs(doublePause.bytesPerSec(pauseEnd) - 10_000_000) < 1.0,
+                "实际 " + doublePause.bytesPerSec(pauseEnd));
+
+        TransferProgress noPair = new TransferProgress(20_000_000, 1);
+        noPair.start(pauseT0);
+        noPair.onBytes(5_000_000);
+        noPair.resume(pauseT0 + 2_000_000_000L);
+        check("没有 pause 的 resume 是 no-op（5 MB / 2 s）",
+                Math.abs(noPair.bytesPerSec(pauseT0 + 2_000_000_000L) - 2_500_000) < 1.0,
+                "实际 " + noPair.bytesPerSec(pauseT0 + 2_000_000_000L));
+
+        // 第二轮 start 必须清掉上一轮的暂停累计，否则新一轮会被上一轮的 100 s 拖成负时长。
+        TransferProgress restarted = new TransferProgress(20_000_000, 1);
+        restarted.start(pauseT0);
+        restarted.onBytes(10_000_000);
+        restarted.pause(pauseT0 + 1_000_000_000L);
+        restarted.resume(pauseEnd);
+        long secondStart = pauseT0 + 200_000_000_000L;
+        restarted.start(secondStart);
+        restarted.onBytes(10_000_000);
+        check("start() 重置暂停累计（第二轮按自己的 1 s 计时）",
+                Math.abs(restarted.bytesPerSec(secondStart + 1_000_000_000L) - 10_000_000) < 1.0,
+                "实际 " + restarted.bytesPerSec(secondStart + 1_000_000_000L));
     }
 
     // ---------------- Journal ----------------
@@ -1342,6 +1400,139 @@ public final class SelfTest {
         check("PD onDestroy：worker 退出后 awaitWorker 返回 true",
                 svc3.awaitWorker(5000), "实际返回 false");
         deleteTree(out3);
+    }
+
+    // ---------------- 生产路径的暂停时钟接线（issue #58 一审 B-1） ----------------
+
+    /**
+     * 可手动拨动的时钟。读第 1 次是 `progress.start`，第 2 次是暂停记账，第 3 次是恢复记账；
+     * 第 2 次读时放行 {@link #pauseRead}，让用例确认「worker 已停在文件边界并开始记账」。
+     */
+    static final class ManualClock implements ImportService.Clock {
+        private volatile long now;
+        private final AtomicInteger reads = new AtomicInteger();
+        final CountDownLatch pauseRead = new CountDownLatch(1);
+
+        ManualClock(long initial) {
+            this.now = initial;
+        }
+
+        void set(long value) {
+            now = value;
+        }
+
+        @Override
+        public long nanoTime() {
+            long value = now;
+            if (reads.incrementAndGet() == 2) pauseRead.countDown();
+            return value;
+        }
+    }
+
+    /**
+     * 两个文件各一道闸门：第一个放行后 worker 才能推进进度，第二个必须等用例断言完才放行。
+     * 不能直接用 {@link GatedTransfer} —— 它的第二个文件不阻塞，进度会在断言时继续涨。
+     */
+    static final class TwoGateTransfer implements ResumableTransfer {
+        final List<String> calls = Collections.synchronizedList(new ArrayList<>());
+        final CountDownLatch firstEntered = new CountDownLatch(1);
+        final CountDownLatch releaseFirst = new CountDownLatch(1);
+        final CountDownLatch secondEntered = new CountDownLatch(1);
+        final CountDownLatch releaseSecond = new CountDownLatch(1);
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            int n = calls.size();
+            CountDownLatch entered = n == 1 ? firstEntered : secondEntered;
+            CountDownLatch release = n == 1 ? releaseFirst : releaseSecond;
+            entered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    return new Result(Kind.FAILED, "测试未放行第 " + n + " 个文件");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new Result(Kind.FAILED, "测试线程被中断");
+            }
+            return writeFakePart(item, partPath);
+        }
+    }
+
+    /**
+     * issue #58 一审 B-1：暂停必须真的从生产路径（{@link ImportService}）接到
+     * {@link TransferProgress}，而不是只在自检里对 TransferProgress 直接注入时钟。
+     *
+     * 时间线（注入时钟，全程不真等）：
+     *   t0     —— start；
+     *   +1 s   —— 第一个文件传完（300 B），worker 停在边界并调用 pause；
+     *   +101 s —— resume（也就是暂停了 100 s）；
+     *   +102 s —— 第二个文件开始，此处断言速率与 ETA；
+     *   +103 s —— 第二个文件传完（再 1 s 的实际传输）。
+     *
+     * 健康实现：+102 s 时 300 B / 实际 1 s = 300 B/s、ETA 1 s；+103 s 时 400 B / 实际 2 s = 200 B/s。
+     * 删掉 pause(...)：{@code pauseRead} 等不到，且速率按 101 s 墙钟掉到约 2.97 B/s；
+     * 删掉 resume(...)：暂停永不结束，+103 s 仍把后 1 s 扣掉，速率算出 400 B/s（期望 200 B/s）。
+     */
+    static void importServicePauseClockCases() throws Exception {
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(3, true);      // DCIM/100MSDCF/DSC02183.ARW（300 B，先）
+        s.setChecked(4, true);      // DCIM/100MSDCF/DSC02183.JPG（100 B，后）
+        ImportPlan plan = ImportPlan.of(c, s);
+        check("B-1 暂停时钟：用例清单恰为 2 个文件", plan.count() == 2, "实际 " + plan.count());
+
+        long t0 = 1_000_000_000L;
+        long pausedAt = t0 + 1_000_000_000L;          // 第一个文件实际传了 1 s
+        long resumedAt = pausedAt + 100_000_000_000L; // 暂停 100 s
+        long finalAt = resumedAt + 1_000_000_000L;    // 第二个文件又传了 1 s
+
+        File out = Files.createTempDirectory("wiredraw-58-clock").toFile();
+        ManualClock clock = new ManualClock(t0);
+        TwoGateTransfer g = new TwoGateTransfer();
+        FinishRecorder r = new FinishRecorder();
+        ImportService svc = new ImportService(Log.NOOP, g, out, clock);
+
+        svc.start(plan, r);
+        check("B-1 暂停时钟：第一个文件已进入传输",
+                g.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+        clock.set(pausedAt);
+        svc.pause();
+        g.releaseFirst.countDown();
+        boolean pauseRecorded = clock.pauseRead.await(5, TimeUnit.SECONDS);
+        check("B-1 暂停时钟：worker 停在文件边界后调用了 progress.pause(...)",
+                pauseRecorded, "5 秒内没看到暂停记账（删掉 pause(...) 会在这里红）");
+
+        clock.set(resumedAt);
+        svc.resume();
+        check("B-1 暂停时钟：resume 后第二个文件开始",
+                g.secondEntered.await(5, TimeUnit.SECONDS), "等待超时");
+
+        TransferProgress p = r.lastProgress;
+        boolean firstDone = p != null && p.bytesDone() == 300 && p.filesDone() == 1;
+        check("B-1 暂停时钟：暂停前完成的 300 B 已计入进度", firstDone,
+                p == null ? "无进度" : p.bytesDone() + " B / " + p.filesDone() + " 个");
+        check("B-1 暂停时钟：速率分母扣掉了暂停的 100 s（300 B / 实际 1 s = 300 B/s）",
+                firstDone && Math.abs(p.bytesPerSec(resumedAt) - 300) < 0.001,
+                p == null ? "无进度" : "实际 " + p.bytesPerSec(resumedAt));
+        check("B-1 暂停时钟：ETA 用扣掉暂停后的速率（剩余 100 B / 300 B/s = 1 s）",
+                firstDone && p.etaSeconds(resumedAt) == 1,
+                p == null ? "无进度" : "实际 " + p.etaSeconds(resumedAt));
+
+        clock.set(finalAt);
+        g.releaseSecond.countDown();
+        check("B-1 暂停时钟：本轮 5 秒内结束", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("B-1 暂停时钟：两个文件都完成",
+                r.ok == 2 && r.failed == 0, "ok=" + r.ok + " failed=" + r.failed);
+        TransferProgress end = r.lastProgress;
+        boolean allDone = end != null && end.bytesDone() == 400;
+        check("B-1 暂停时钟：resume 后恢复计时（400 B / 实际 2 s = 200 B/s）",
+                allDone && Math.abs(end.bytesPerSec(finalAt) - 200) < 0.001,
+                end == null ? "无进度" : "实际 " + end.bytesPerSec(finalAt));
+        check("B-1 暂停时钟：全部传完 ETA 为 0",
+                allDone && end.etaSeconds(finalAt) == 0,
+                end == null ? "无进度" : "实际 " + end.etaSeconds(finalAt));
+        deleteTree(out);
     }
 
     // ---------------- 断点续传起点（PC / issue #50） ----------------
