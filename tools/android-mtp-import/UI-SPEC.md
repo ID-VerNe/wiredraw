@@ -267,7 +267,7 @@
 
 **术语定义（本节提供唯一定义，术语表 §0.10 只登记用词）：**
 
-- **顶栏**：应用顶部承载相机图标、设备短名、连接短词 `Disconnected` / 动作标签 `Reconnect`，以及各视图既有图标动作（`Filter` / `Back` / `Location`）的横向容器；**不得**出现填充底色块；数字只允许 `CATALOG_READY` 的 12 sp 计数胶囊（`V-27`）。合法实现三选一：
+- **顶栏**：应用顶部承载相机图标、设备短名、连接短词 `Disconnected` / 动作标签 `Reconnect`，以及各视图既有图标动作（`Filter` / `Back` / `Location`）的横向容器；**容器自身不得出现填充底色块**（唯一例外是按 `V-27` 用 `surface-container` 底的计数胶囊）；数字只允许 `CATALOG_READY` 的 12 sp 计数胶囊（`V-27`）。合法实现三选一：
   (a) 自绘顶栏，容器语义标签固定为 `topBar`，高度 56 dp（不含状态栏）；
   (b) 沿用平台 ActionBar（`android:id/action_bar`），此时它就是「顶栏」；
   (c) Compose `TopAppBar`（高度固定 56 dp）+ `WindowInsets.statusBars`，容器语义标签固定为 `topBar`。
@@ -349,7 +349,7 @@
 ### 2.2 顶栏内容（逐态分化，2026-11-06 拍板）
 
 > 顶栏在全部状态槽常驻（`#44` 决策 2）：11 个状态槽 = 10 个状态 + `photo`（按页面计是 9 个状态页 + `photo` = 10 页；`transfer` 是 `IMPORTING` / `PAUSED` 的共同载体）。容器口径见 §2 术语定义；
-> 高度 56 dp（不含状态栏），全宽，语义标签固定 `topBar`，**无填充底色块**；数字**只**允许 `CATALOG_READY` 的 12 sp 计数胶囊（`V-27`）。
+> 高度 56 dp（不含状态栏），全宽，语义标签固定 `topBar`，**容器自身无填充底色块**（计数胶囊按 `V-27` 用 `surface-container` `#eeeeee` 底）；数字**只**允许 `CATALOG_READY` 的 12 sp 计数胶囊（`V-27`）。
 > 内容**只**允许「图标 + 短英文」：**不得**出现解释句、状态句（断开态短词 `Disconnected` 与动作词 `Reconnect` 除外），**不得**成为第二个焦点。
 
 | 视图 / 状态 | 左侧 | 右侧 | 说明 |
@@ -377,7 +377,7 @@
   宽度预算（`360 dp` 最窄屏，按 §3.1 最小可用档 12 sp，字符均宽按 0.55 em 计）：
   可用宽 `360 − 16 × 2 = 328 dp`；图标 `20` + 间距 `8` + `Disconnected` `12 × 0.55 × 12 = 79.2` + 间距 `8` + `Reconnect` `12 × 0.55 × 9 = 59.4`（触区取 `max(48, 59.4)`），合计 `174.6 dp`，余量 `153.4 dp`；
   即使两段文案都放大到 14 sp（`14 × 0.55 × 21 = 161.7`），合计仍只有 `197.7 dp`，余量 `130.3 dp`；56 dp 高度内 `48 dp` 触区上下各留 `4 dp`。
-  **结论**：`360 dp` 档不换行；实现必须钉住 `maxLines = 1` 且不启用自动缩放，验收见 `U-44` / `U-48`。
+  **结论**：`360 dp` 档不换行；实现必须钉住 `maxLines = 1` 且不启用自动缩放，验收见 `U-48`。
 - `Filter` / `Back` / `Location` 均为既有图标动作，热区 ≥48 dp（`A-01`）。
 - `UNAVAILABLE` 的进入条件是扫描成功后点主 CTA（§0.11 第 6 行），此时相机在线，故与 `PERMISSION_PENDING` 同按「在线」画法，**不**按断开处理。
 
@@ -478,15 +478,17 @@
 |---|---|---|
 | 画布底色 | `surface` / `background` 是 `#f9f9f9`，正文说「Pure White」 | `library` / `transfer` 两页页面底用 `surface-container-lowest` `#ffffff`；`photo` 页按画布黑 `canvas` `#1d1d1f`（见本条与 `V-30`）；`#f9f9f9` 只用于需要与画布区分的面板 |
 | 底色 token 值 | `library` 把 `background` 覆盖为 `#ffffff`，`transfer` / `photo` 仍是 `#f9f9f9` | `library` / `transfer` 两页统一按画布 `#ffffff`；`photo` 页按 `canvas` `#1d1d1f`；`#f9f9f9` 降为次级面板底（结论同上一行，本条只记值差） |
-| 主墨 / 画布黑 | `primary` 定稿值为纯黑，正文说 `#111111` | **两个显式 token，角色互斥、不得互换**：<br>1) **画布黑** `canvas` `#1d1d1f`：**只**用于 `photo` 页全幅画布底、遮罩、胶囊实底、系统栏浅色图标底；<br>2) **文字近黑** `ink` `#111111`：**只**用于主 CTA 实心底（白字 18.9:1），**不得**用于正文/图标。<br>正文/图标按 `V-07` 用 `on-surface` / `on-surface-variant` / `outline`；画布黑上的文字与图标一律 `#ffffff`（16.8:1）。`primary` / `tertiary` 的纯黑值一律落为 `#1d1d1f` |
+| 主墨 / 画布黑 | `primary` 定稿值为纯黑，正文说 `#111111` | **两个显式 token，角色互斥、不得互换**：<br>1) **画布黑** `canvas` `#1d1d1f`：**只**用于 `photo` 页全幅画布底、遮罩、`photo` 页胶囊实底、系统栏浅色图标底；<br>2) **文字近黑** `ink` `#111111`：**只**用于主 CTA 实心底（白字 18.9:1），**不得**用于正文/图标。<br>正文/图标按 `V-07` 用 `on-surface` / `on-surface-variant` / `outline`；画布黑上的文字与图标一律 `#ffffff`（16.8:1）。`primary` / `tertiary` 的纯黑值一律落为 `#1d1d1f` |
 | 次级墨 | 页面遮罩/胶囊用纯黑 alpha（实测约 60% / 40%；本文件不以 `black/*` 记法落字），正文写 `#707070` | 次级文字用 `on-surface-variant` `#444748`（9.4:1）；`#666666` 仅作下限示例；装饰性 alpha 一律基于 `canvas`（合成值与阈值见 `V-07` 末段），不得承载正文 |
 | 缩略图圆角 | DESIGN.md 写 `rounded-lg = 1rem`，页面 tailwind 覆盖为 `0.5rem`（8 px） | 以页面 8 dp 为准（`V-21`）；DESIGN 正文的 12–16 px **不采纳** |
 
-**禁用纯黑（#44 决策 1）**：本版**不得**在任何界面使用纯黑（RGB `0,0,0`；含画布、遮罩、胶囊底、系统栏底）；
-需要**纯黑替身**的画布 / 遮罩 / 胶囊 / 系统栏底时**只**用画布黑 `canvas` `#1d1d1f`，且仅限角色定义里的四类用途（`photo` 全幅底 / 遮罩 / 胶囊实底 / 系统栏浅色图标底），
+**禁用纯黑（#44 决策 1）**：本版**不得**在任何界面使用纯黑（RGB `0,0,0`；含画布、遮罩、`photo` 页胶囊底、系统栏底）；
+需要**纯黑替身**的画布 / 遮罩 / `photo` 页胶囊 / 系统栏底时**只**用画布黑 `canvas` `#1d1d1f`，且仅限角色定义里的四类用途（`photo` 全幅底 / 遮罩 / `photo` 页胶囊实底 / 系统栏浅色图标底），
 **不得**用它当大面积正文区或替代 `on-surface`；主 CTA 实心底按 §3.4 用 `ink` `#111111`，**不属此列**。
 `ink` `#111111` **只**做主 CTA 实心底；正文与图标**不得**用 `ink`，按 `V-07` 用 `on-surface` / `on-surface-variant` / `outline`。
 `#111111` 压 `#1d1d1f` 仅约 1.12:1，**不得**作为深色面上的文字/图标；画布黑上的文字与图标**只能**用 `#ffffff`（16.8:1）。
+
+> **实施约束（PR-2 必做，`V-07` 对比度自检兜底）**：代码侧 `ui/Theme.kt` 现有 `val canvas = Color(0xFFFFFFFF)` 是**白色**，与本节的画布黑 `canvas` `#1d1d1f` **同名反向**。PR-2 **必须**先把该白色 token 改名为语义明确的白（如 `surfaceWhite`），让 `canvas` 在代码里**专指** `#1d1d1f`；改名后按 `V-07` 跑一次对比度自检（至少覆盖 `#ffffff` on `ink` 18.9:1 与 `#ffffff` on `canvas` 16.8:1 两条），防止把近黑字压到深底上（`#111111` on `#1d1d1f` 仅 1.12:1）。
 
 - **V-07** 正文与背景对比度**必须** ≥4.5:1；大字（≥18 sp 或 ≥14 sp Bold）≥3:1；图标/描边等图形 ≥3:1。
   实算值（WCAG 2.1 相对亮度，2026-11-05）：
@@ -520,7 +522,7 @@
   - 白字压 `canvas/60`：合成 `#777778`，**4.47:1**，文字下限 4.5:1 **不通过**（`black/60` 机械替换成 `canvas/60` 的连带塌陷）；
   - 白字压 `canvas/65`：合成 `#6c6c6d`，**5.25:1**，通过。
 
-  日期 chevron 改 `on-surface-variant`；照片遮罩 ≥ `canvas/50`；**胶囊底一律 `canvas` 实底**（`#ffffff` 压 `#1d1d1f` = **16.8:1**），不再提供 `canvas/60` 档。
+  日期 chevron 改 `on-surface-variant`；照片遮罩 ≥ `canvas/50`；**`photo` 页胶囊底一律 `canvas` 实底**（`#ffffff` 压 `#1d1d1f` = **16.8:1**）；顶栏计数胶囊按 `V-27` 用 `surface-container` 底；不再提供 `canvas/60` 档。
 - **V-30（P2-4）** `photo` 页是画布黑全幅底：系统栏（status bar + gesture bar）图标**必须**用浅色
   （关闭 `APPEARANCE_LIGHT_STATUS_BARS` / `APPEARANCE_LIGHT_NAVIGATION_BARS`），**不得**用深色图标压 `#1d1d1f`（1.12:1）；
   离开 `photo` 页**必须**恢复浅色系统栏与深色图标。
@@ -707,7 +709,7 @@ Next:    <一个可执行动作>
   | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` 顶部；`transfer` 顶部仅 `IMPORTING` / `PAUSED` |
   | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
   | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
-  | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 全页（默认不可见，L-05） |
+  | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` / `photo` 顶栏**无设备名**，**无长按入口**（默认不可见，L-05） |
 
 - **过滤抽屉与 `Location details` 标记的用法（字面量登记在 §4.5 词表，本条只讲用在哪）**：过滤项写
   `All` / `RAW` / 日期（组头原样）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张
@@ -809,7 +811,7 @@ Next:    <一个可执行动作>
 | U-41 | `COLD` | `No camera`；`contentDescription` 或文本为 `Connect camera` 且 `clickable=true` 的节点恰好 1 个；顶栏存在 `Disconnected` 短词 | `Waiting`、`Loading`、`等待开始`、`No device`；任何照片网格单元 |
 | U-42 | `PERMISSION_PENDING` | `Allow` 且 `clickable=true`；点 `Allow` 后 3 秒内出现系统权限弹窗或进入 `SCANNING`（录屏） | `Waiting…`、`等待授权中`；照片网格单元；静默无变化 |
 | U-43 | `SCANNING` | 文本匹配 `\d+/\d+`（如 `320/1526`）；存在 `Cancel` 且 `clickable=true` | `MB/s`、`min`、`estimating`、`扫描中`；主 CTA `Import` 可点；**顶栏不出现计数胶囊**（胶囊只在 `CATALOG_READY`，`V-27`；`1526` 只作进度分母，不与照片数同屏）；照片单元 `enabled=true`（若渲染上一轮必须全 `enabled=false` 且含 `Last import`） |
-| U-44 | `CATALOG_READY` | 顶栏有 **1 个** 12 sp 计数胶囊，数值 = 照片总数且与 CTA 同分母（`V-27` 的同分母例外；设备短名 `a7C` 里的 `7` 是名称，不算计数）；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个**不同口径**的总量分母；顶栏出现**第二个**数字节点 |
+| U-44 | `CATALOG_READY` | 顶栏有 **1 个** 12 sp 计数胶囊，数值 = 照片总数且与 CTA 同分母（`V-27` 的同分母例外；设备短名 `a7C` 里的 `7` 是名称，不算计数）；CTA 为 `Import all N`（0 选）或 `Import N`（≥1 选）；组头匹配 `[A-Z][a-z]{2} \d+ · \d+ · \d+\.\d{2} GB` 或 `[A-Z][a-z]{2} \d+ · \d+ · \d+(\.\d)? MB`（小数位按 `C-05`，与 `U-47` 同一写法） | 已渲染/总数句式；`Selected \d+ files`；网格单元含文件名、大小、`ARW` / `RAW` / `JPG` 徽标，或**出现勾选圈形态的节点**（形态判定，不是文本匹配；文件名仅 `V-19` 降级块例外，勾选圈仅 `V-11` 降级复选框例外）；同屏出现两个**不同口径**的总量分母；顶栏出现**第二个**数字节点（设备短名内的数字不算，如 `a7C` 的 `7`） |
 | U-45 | `IMPORTING` | 文本匹配 `\d+%` 恰好 1 处、`\d+/\d+` 恰好 1 处；`Pause` 与 `Cancel` 各 1 个且 `clickable=true`；`round(已完成/总数×100)` 与百分比差 ≤1 | `MB/s`、`~\d+ min`、`MTP`、`USB`、第二个百分比；已选可修改；`Done` |
 | U-46 | `PAUSED` | 环内数值与暂停瞬间相同；`Resume` 与 `Cancel` 存在且可点 | 完成标记、`Done`；环数值继续变化；`Import` 可点 |
 | U-47 | `DONE` | `Done`；文本匹配 `\d+ · \d+(\.\d)? MB` 或 `\d+ · \d+\.\d{2} GB`（按 C-05）；`contentDescription` 含 `Location` 且 `clickable=true`；`Open` 存在 | `Imported\s*\d+`、`Skipped\s*\d+`、`Failed\s*\d+`、`total`、`TASK`、哈希、`§`；统计卡 |
@@ -823,7 +825,7 @@ Next:    <一个可执行动作>
 |---|---|---|---|
 | U-51 | `photo` 页 | 全幅照片；像素由 `V-25` 异步取（`getThumbnail`），不可得时按 §0.7 第 2 行只显示单行 `ARW · 24.6 MB` 胶囊，**不显示占位块/假图**；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：有图时存在图片节点且无胶囊以外的说明文字；无图时 `contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
 | U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / 日期三项；抽屉打开不推挤主 CTA（L-03） | dump：三个过滤项各 1 个；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
-| U-53 | 总量口径 | `Import all N` 的 N = catalog 中 ARW 张数；`CATALOG_READY` 顶栏计数胶囊的数字 = 同一个 N（同分母，`V-27`）；同屏不出现第二个**不同口径**的总量分母 | 读 catalog 总数与 ARW 数；dump CTA 文本、顶栏胶囊与顶栏全部数字节点；比对 N |
+| U-53 | 总量口径 | `Import all N` 的 N = catalog 中 ARW 张数；`CATALOG_READY` 顶栏计数胶囊的数字 = 同一个 N（同分母，`V-27`）；同屏不出现第二个**不同口径**的总量分母 | 读 catalog 总数与 ARW 数；dump CTA 文本、顶栏胶囊与顶栏全部数字节点（设备短名 `a7C` 里的数字不算）；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 511 ARW / 12.75 GB | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列四个数一致（`demo_state` 入口在 `src/debug` 源集实现，release 无实现） |
 
 ### 8.4 `U-xx` 变更对照（改写 / 废止 / 挂起 / 新增）
