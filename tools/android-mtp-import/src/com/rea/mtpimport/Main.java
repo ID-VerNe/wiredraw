@@ -1070,9 +1070,10 @@ public final class Main extends ComponentActivity {
      *
      * 两种成因共用同一出路，但判定不同：
      * - 取消卡住：`isCancelStuck()`，已请求取消 + 超过 3 s 宽限；
-     * - 无进展挂起（#63）：`isStalled()`，没取消、没暂停、但一次 `importFile` 已持续超过
-     *   60 s（相机休眠 / USB 掉线）。旧实现只认第一种，于是「没点取消就挂起」的轮次让
-     *   `CATALOG_READY` 下的 `Import` 变成死键（该态按 UI-SPEC §1.3 没有 Cancel 入口）。
+     * - 无进展挂起（#63）：`isStalled()`，没取消、没暂停、但一次整文件 `importFile`、或续传的
+     *   一段 `getPartialObject` 分块循环已持续超过 60 s（相机休眠 / USB 掉线）。旧实现只认
+     *   第一种，于是「没点取消就挂起」的轮次让 `CATALOG_READY` 下的 `Import` 变成死键
+     *   （该态按 UI-SPEC §1.3 没有 Cancel 入口）。
      *
      * 正常取消窗口（毫秒级）与正常传输（单文件约 1.1 s）都不会触发，避免误判。
      * 放弃只摘掉 `service` 引用到 {@link #orphanService}，**不在这里 close 会话**：没能被打断
