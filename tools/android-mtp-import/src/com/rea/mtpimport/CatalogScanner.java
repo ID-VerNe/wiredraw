@@ -75,7 +75,8 @@ public final class CatalogScanner {
                         oi.getParent(),
                         oi.getFormat(),
                         oi.getCompressedSizeLong(),
-                        oi.getName());
+                        oi.getName(),
+                        storageIds[i]);   // #54：只用于判别同名冲突，不进 relPath
                 catalog.add(entry);
                 if (!existed && entry.isRaw()) rawSeen++;
                 // 没发现 ARW 之前不发布：照片墙为空只会把界面从 SCANNING 拽回去。

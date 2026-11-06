@@ -84,7 +84,7 @@ public final class MtpTransfer implements ResumableTransfer {
 
         final File dest;
         try {
-            dest = resolveDest(outDir, item.relPath);
+            dest = DestPolicy.resolve(outDir, item.relPath);
         } catch (IOException e) {
             return new Result(Kind.FAILED, "路径解析失败：" + e);
         }
@@ -261,7 +261,12 @@ public final class MtpTransfer implements ResumableTransfer {
         }
     }
 
-    /** 对账 + 覆盖 + rename；只有字节数等于相机侧大小时才落最终文件。 */
+    /**
+     * 对账 + 落盘冲突检查 + rename；只有字节数等于相机侧大小时才落最终文件。
+     *
+     * **边界（#54）**：这里不解决「两个存储同名文件争同一路径」的布局问题，只保证不静默丢数据——
+     * 目标已存在且尺寸不同就拒绝覆盖；尺寸相同按 `relPath + size` 口径视为同一文件（#20 的已知边界）。
+     */
     private Result finish(ImportPlan.Item item, File part, File dest) {
         long got = part.length();
         if (got != item.size) {
@@ -273,8 +278,18 @@ public final class MtpTransfer implements ResumableTransfer {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             return new Result(Kind.FAILED, "建子目录失败：" + parent);
         }
-        if (dest.exists() && !dest.delete()) {
-            return new Result(Kind.FAILED, "无法覆盖已有文件：" + dest);
+        DestPolicy.Existing existing = DestPolicy.existing(dest, item.size);
+        if (existing == DestPolicy.Existing.DIFFERENT_SIZE) {
+            // 不删旧文件：宁可这一项失败，也不能把已经导入的照片覆盖掉。
+            return new Result(Kind.FAILED,
+                    "目标已存在同名文件但大小不同（现有 " + dest.length() + " / 期望 "
+                            + item.size + "），拒绝覆盖：" + dest);
+        }
+        if (existing == DestPolicy.Existing.SAME_SIZE) {
+            // 与 Journal / 已导入索引同口径：同路径同尺寸视为同一文件。不覆盖、不重传。
+            if (part.exists() && !part.delete()) log.line("半成品删除失败（不影响结果）：" + part);
+            log.line("目标已存在同尺寸文件，按同一文件处理（未覆盖）：" + dest);
+            return Result.of(Kind.OK);
         }
         if (!part.renameTo(dest)) {
             return new Result(Kind.FAILED, "改名失败：" + part + " → " + dest);
@@ -309,18 +324,5 @@ public final class MtpTransfer implements ResumableTransfer {
         } catch (Throwable ignored) {
             // 取消路径下流可能已被关闭；重复 close 不影响结果。
         }
-    }
-
-    /**
-     * 把相机给的 relPath 拼到 outDir 下，并挡掉 `..` / 绝对路径逃逸。
-     * 相机文件名理论上受机身控制，但这是系统边界，不能默认可信。
-     */
-    private static File resolveDest(File outDir, String relPath) throws IOException {
-        File dest = new File(outDir, relPath);
-        String root = outDir.getCanonicalPath();
-        String target = dest.getCanonicalPath();
-        if (target.equals(root)) return null;
-        if (!target.startsWith(root + File.separator)) return null;
-        return dest;
     }
 }

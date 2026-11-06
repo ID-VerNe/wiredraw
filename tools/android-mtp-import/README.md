@@ -46,6 +46,7 @@
 | **`P-09` 导入前空间预检** | ✅ 实现（PD；计划 + 5% 缓冲不足时禁用主 CTA + 一行 `Low space`，差额进 Details；真机未验） |
 | **`onDestroy` 先 join worker 再关会话** | ✅ 实现（PD；1 s 有界等待，worker 未退出则跳过 `close()`；真机未验） |
 | **已导入索引（`imported-index.txt`）** | ✅ 实现（#20；`outDir` 磁盘镜像派生，每轮导入结束原子重写；主键 `relPath + size`；**本期无消费方**，供后续 UI 单读「新片」；真机未验） |
+| **多存储同名路径冲突（#54）** | ✅ 实现（`storageId` 只做判别、**不进 relPath**；同 relPath 跨存储的项显式失败、不调 transfer、不写 Journal；落盘拒绝异尺寸覆盖；**两个同名文件仍争同一路径，本期不支持同时导入**；多存储卷实际行为真机未验） |
 
 ## 类职责
 
@@ -59,6 +60,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
 ├─ ImportedIndex     已导入索引：outDir 磁盘镜像派生（relPath + size），每轮重建    [纯 JDK]
+├─ DestPolicy        落盘冲突策略：relPath 解析 + 同名异尺寸拒绝覆盖（#54）    [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
 ├─ ImportGate        主 CTA 准入判定：后台扫描 + 空间不足两条件（N-1）         [纯 JDK]
 ├─ ImportService     编排：线程、暂停（文件边界）、取消、重试、逐文件调 transfer  [纯 JDK]
@@ -93,7 +95,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-纯 JDK 类合计**二十九个**——主源集 27 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
+纯 JDK 类合计**三十个**——主源集 28 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
 `DemoTransfer` 标 `[debug 变体]`。这些文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（debug 的两个用单独的清单核对）；数量以 `checkPureJdkList` 的输出为准。
 
@@ -142,6 +144,27 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 - **消费方**：本期（#20）**没有**。后续 UI 单（首屏「新片」计数、网格已导入标记、过滤抽屉）
   在扫描完成后读它，按 `relPath` 与相机侧条目求交。真机**未验**。
 
+## 多存储同名路径（issue #54）
+
+`CatalogScanner` 会把所有 storage 的条目合进一个 `Catalog`，而 `relPath` 只沿 parent 链算，
+没有 storage 维度。于是同时插两张卡、或卡内目录重名时，两个不同文件会有**同一个 `relPath`**。
+
+本期策略（B 方案：`storageId` 只做判别，**不进 relPath**）：
+
+- `Catalog.Entry` 记下 `storageId`；`Catalog.storageConflicts()` 把「同 relPath、不同 storage」的文件暴露出来。
+- `ImportPlan` 把这些项标成 `conflict`；`ImportService` 在 Journal 判定**之前**直接计入失败并写日志，
+  **不调 transfer、不写 Journal**——否则同尺寸的第二项会被当成「已完成」静默跳过，用户看到的是「一切顺利」。
+- `DestPolicy` 在落盘前判目标：不存在 → 正常写；同名同尺寸 → 按同一文件处理（不覆盖、不重传，与 #20 同口径）；
+  **同名异尺寸 → 失败并保留旧文件**，不删除。
+
+**边界**：本方案**不修「两个同名文件仍争同一落盘路径」**——本期不支持把两份同名文件同时导入；
+它保证的是**不覆盖已存在的文件、不把冲突项记成完成**。同路径同尺寸但内容不同，仍然分辨不出来
+（与 #20 的已知边界同源），这一点没有解决。真要同时导入，得把 storage 维度写进 relPath，
+那需要先有真机证据证明 storageId 跨会话稳定，并配套历史 Journal / 索引 / 磁盘迁移，留后续单。
+
+**真机未验**：ILCE-7C 单存储时不会触发；多存储卷的实际 `storageId` 行为（同卡拔插是否同值、
+两张卡各自的值、handle 是否设备级唯一）仍是假设，合并后按 `needs-live-verify` 验。
+
 ## 错误与重试 / 空间预检 / onDestroy（PD / issue #50）
 
 - **单文件失败重试**：`ImportService.MAX_FILE_ATTEMPTS = 2`，即首次 + 1 次同步重试；
@@ -187,7 +210,7 @@ bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assem
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 420 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 434 项）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
