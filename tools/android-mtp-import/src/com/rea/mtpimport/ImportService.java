@@ -50,9 +50,21 @@ public final class ImportService {
      */
     static final int MAX_FILE_ATTEMPTS = 2;
 
+    /**
+     * 时钟注入缝（package-private，仅自检用）。
+     *
+     * 暂停/恢复的时刻必须能被用例精确构造，否则只能真等上百秒；生产路径默认
+     * {@link System#nanoTime}，行为不变。与 {@link TransferProgress} 的「时钟由外部注入」
+     * 同一思路（issue #58 一审 B-1）。
+     */
+    interface Clock {
+        long nanoTime();
+    }
+
     private final Log log;
     private final ResumableTransfer transfer;
     private final File outDir;
+    private final Clock clock;
 
     private volatile boolean paused;
     private volatile boolean cancelled;
@@ -77,9 +89,15 @@ public final class ImportService {
     private volatile CancelToken cancelToken = new CancelToken();
 
     public ImportService(Log log, ResumableTransfer transfer, File outDir) {
+        this(log, transfer, outDir, System::nanoTime);
+    }
+
+    /** 自检用构造器：注入时钟，避免为「暂停 100 秒」真等 100 秒。 */
+    ImportService(Log log, ResumableTransfer transfer, File outDir, Clock clock) {
         this.log = log;
         this.transfer = transfer;
         this.outDir = outDir;
+        this.clock = clock;
     }
 
     public boolean isRunning() {
@@ -194,7 +212,7 @@ public final class ImportService {
         final CancelToken token = cancelToken;
         Journal journal = loadJournal();
         TransferProgress progress = new TransferProgress(plan.totalBytes(), plan.count());
-        progress.start(System.nanoTime());
+        progress.start(clock.nanoTime());
         l.onPlanReady(plan);
 
         int ok = 0;
@@ -209,8 +227,18 @@ public final class ImportService {
                     stop = "已取消";
                     break;
                 }
+                // 暂停时钟以 worker 真正停在文件边界为准：请求暂停后当前文件仍会传完，
+                // 那段有真实字节增量，不能当成暂停扣掉（issue #58）。
+                boolean pauseClockStarted = false;
                 while (paused && !cancelled) {
+                    if (!pauseClockStarted) {
+                        progress.pause(clock.nanoTime());
+                        pauseClockStarted = true;
+                    }
                     Thread.sleep(200);
+                }
+                if (pauseClockStarted) {
+                    progress.resume(clock.nanoTime());
                 }
                 if (cancelled) {
                     stop = "已取消";
