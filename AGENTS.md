@@ -209,6 +209,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 |---|---|
 | `README.md` | 对外门面：结论速览、实测数据、三个坑、仓库结构 |
 | `docs/known-limitations.md` | 已知限制：会话挂起、format 过滤、PTP 会话边界、首次授权、未验证项 |
+| `docs/verification-matrix.md` | 验证环境矩阵：每条能力 × 环境编号的通过 / 失败 / 未验证，防止单机结论外推 |
 | `docs/safety-and-privacy.md` | 安全与隐私边界：只读 opcode、设备身份占位、调试密钥 |
 | `docs/building.md` | 构建：SDK / JDK 要求、`manual` 档前置环境变量、两种 APK 的产物与安装 |
 | `docs/testing.md` | 测试：三档门禁、钩子与绕过审计、无单测框架下的回归口径 |

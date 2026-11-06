@@ -59,7 +59,8 @@ git config core.hooksPath .githooks   # 换机器后重设一次
 任何涉及相机的结论都要标注环境：**机型 / 固件版本 / 手机型号 / Android API / 连接方式（USB 还是 Wi-Fi）**。
 缺了就无法复现。推断要写成推断，不要写成事实。
 
-跨环境验证状态原计划收在 `docs/verification-matrix.md`，由 #106 落地；落地后在此处回填链接。
+跨环境验证状态收在[验证环境矩阵](verification-matrix.md)：每个「通过」都带日期与环境，
+没跑过的组合一律写「未验证」。
 
 ## 五、门禁类改动的额外要求
 

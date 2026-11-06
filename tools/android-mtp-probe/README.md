@@ -43,7 +43,8 @@ adb logcat -s MTPPROBE:*
 相机侧设置：`MENU → 设置 → USB连接 → MTP`（不是 PC遥控）。
 
 **插上线系统会自动拉起本 App 并自动授予 USB 权限**——因为 manifest 里挂了匹配 Sony VID 的
-`USB_DEVICE_ATTACHED` intent-filter（`res/xml/device_filter.xml`），不需要权限弹窗。
+`USB_DEVICE_ATTACHED` intent-filter（`res/xml/device_filter.xml`），之后插线不再弹权限框。
+但**首次插线仍要在系统弹窗里勾一次「一律打开」**（系统层约束，应用无法绕过）。
 
 ## 取回结果
 
@@ -124,4 +125,6 @@ for (int h : handles) {
 }
 ```
 
-免 root、免权限弹窗。就这样 —— 不需要反协议、不需要 PTP、不需要索尼私有序列。
+免 root。USB 权限靠 manifest 的 `USB_DEVICE_ATTACHED` intent-filter + `res/xml/device_filter.xml`
+自动授予（探针就是这么做的），但**首次插线仍要在系统弹窗里勾一次「一律打开」**，之后静默。
+就这样 —— 不需要反协议、不需要 PTP、不需要索尼私有序列。
