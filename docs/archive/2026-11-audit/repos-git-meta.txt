@@ -1,4 +1,5 @@
-.workbuddy | no commits | 
+# 15 个第三方参考仓库的本地 HEAD 快照（只读审计，未入库）
+
 alpha-fairy | no commits | 
 alpharemote | 2026-11-02 | Do not expect a new exposure when closing a bulb exposure | 8dffccf
 Camera-Remote-API | 2014-08-22 | Update README.md | f9d068c

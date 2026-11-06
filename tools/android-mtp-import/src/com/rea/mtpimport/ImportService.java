@@ -110,6 +110,12 @@ public final class ImportService {
      */
     private volatile CancelToken cancelToken = new CancelToken();
 
+    /**
+     * 本轮固化下来的清单（issue #57）：`start()` 时记录，供调用方在恢复前比较
+     * 「当前勾选算出的计划」与暂停轮次是否仍是同一批文件。
+     */
+    private volatile ImportPlan plan;
+
     public ImportService(Log log, ResumableTransfer transfer, File outDir) {
         this(log, transfer, outDir, System::nanoTime);
     }
@@ -149,6 +155,22 @@ public final class ImportService {
     /** 本轮是否停在文件边界等 `Resume`（`Pause & exit` 后从照片墙再点 Import 会用）。 */
     public boolean isPaused() {
         return paused && isRunning();
+    }
+
+    /** 本轮固化的清单；尚未 `start()` 时为 null（issue #57）。 */
+    public ImportPlan plan() {
+        return plan;
+    }
+
+    /**
+     * 暂停轮次能否用 `next` 继续（issue #57）。
+     *
+     * 只认同一批文件（`relPath + size`）：勾选 / 档位 / filter 让计划变了，调用方必须按新计划
+     * 重开一轮，不得静默沿用旧清单——否则界面上的新勾选永远不生效，且日志只说「继续已暂停的一轮」。
+     */
+    public boolean canResumeWith(ImportPlan next) {
+        ImportPlan current = plan;
+        return isPaused() && current != null && ImportPlan.sameFileSet(current, next);
     }
 
     /**
@@ -255,6 +277,7 @@ public final class ImportService {
         cancelled = false;
         abandoned = false;
         cancelRequestedAtNanos = 0L;
+        this.plan = plan;
         // 新一轮从「还没进过文件」开始：不在这里读钟，避免与暂停记账的时钟调用次序耦合。
         lastActivityNanos = 0L;
         cancelToken = new CancelToken();

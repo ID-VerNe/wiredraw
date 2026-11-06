@@ -59,6 +59,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 - `pre-push` 的 `SKIP_GATES=1` **仅用于钩子自身故障**（例如钩子在当前 shell 下跑不起来），
   它会打印醒目横幅但跳过 static 门禁。使用后必须在 PR 正文说明原因，并附上手动执行
   `python scripts/run_gates.py ci` 的原始输出；它不是「门禁红了赶时间」的通行证。
+  绕过会写入 `$(git rev-parse --git-common-dir)/skip-gates.log`（所有 worktree 共用一份），用于事后审计。
 - Android 构建门禁在 `manual` 档，CI 跑不了（需要 Android SDK + JDK）。
 
 <!-- gates:ci:begin -->
@@ -68,7 +69,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | # | 分片 | 门禁 | 防什么 |
 |---|---|---|---|
 | 1 | `static` | `check_gates_manifest.py` | 元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红 |
-| 2 | `static` | `check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（142 MB 抓包就是这样挡在外面的） |
+| 2 | `static` | `check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
 | 3 | `static` | `check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
 | 4 | `static` | `py_compile` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 | 5 | `static` | `check_sensitive.py` | 敏感信息门禁：相机 GUID 及其 hex/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。首版用 --warn 只报基线（转 block 由 #110 在 #100 清洗完成后单独做）；--fix 才改写，行内豁免必须带理由 |
@@ -108,7 +109,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 2. **探针只读**。`tools/` 下连相机的代码**不得下发任何写操作**——不删除、不格式化、
    不改相机设置、不触发快门。只允许 OpenSession / 枚举 / 取值这类只读 opcode。
    要加写操作，先开会话讨论并落进 issue，不在 PR 里顺手加。
-3. **大文件不进版本控制**。RAW 样本（24 MB/张）、原始抓包（142 MB）、构建产物一律 gitignore。
+3. **大文件不进版本控制**。RAW 样本（24 MB/张）、原始抓包（实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)）、构建产物一律 gitignore。
    由 `check_no_vendored.py` 兜底（>5 MB 的被跟踪文件即红）。
 4. **15 个第三方参考仓库不入库**。它们在本地磁盘上随你参考，但 `git ls-files` 里出现即红。
 5. **逐个 `git add <file>`**，禁止 `git add .` / `-A` / 目录批量。
@@ -200,6 +201,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `docs/contributing/ISSUE_GUIDE.md` | 怎么发 issue：正文四要素、复现命令与 `needs-repro`、关闭方式、模板 |
 | `docs/contributing/PR_GUIDE.md` | 怎么开 PR：拆分命名、正文分段、基线验证、门禁改动、合并条件、对账与回签 |
 | `docs/contributing/REVIEW_DISPATCH.md` | 合并评审契约：派发方式、评审者必做清单、结论格式、常见误判 |
+| `docs/contributing/LOCAL_WORKSPACE.md` | 本地专属目录与内部工具：哪些目录只留本地、15 个参考仓库的来历、证据存放与占位约定 |
 | `scripts/review_prompt.py` | 生成合并评审的派发文案（默认不含 PR 正文，`--self-test` 自检） |
 | `scripts/check_pr_sections.py` | PR 正文分段结构校验（`support` 档，CI 在 `pull_request` 上跑） |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
