@@ -9,7 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.rea.mtpimport.Catalog
 import com.rea.mtpimport.DemoPayload
-import com.rea.mtpimport.PhotoPreview
 import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.Selection
 import com.rea.mtpimport.ThumbnailStore
@@ -112,12 +111,6 @@ class AppModel {
 
     var openedPhoto by mutableStateOf<Catalog.Entry?>(null)
         private set
-
-    /**
-     * 照片详情页的预览来源（issue #46）。真实 MTP 路径没有实现（相机里的 ARW 未取回），
-     * 恒为 null，页面按 U-51 只显示胶囊；debug 的 demo 模式注入 `DemoImages`。
-     */
-    var previewSource: PhotoPreview? = null
 
     /** 照片墙缩略图（issue #59）：由 Main 注入；demo 与真实 MTP 走同一个 store。 */
     var thumbnails by mutableStateOf<ThumbnailStore?>(null)
@@ -322,15 +315,18 @@ class AppModel {
         openedPhoto = entry
     }
 
-    /** 该照片的预览图；没有来源或没有素材时返回 null。 */
-    fun previewFor(entry: Catalog.Entry): Bitmap? = previewSource?.previewFor(entry)
-
     fun bindThumbnails(store: ThumbnailStore) {
         thumbnails = store
     }
 
     /** 读网格缩略图（**必须**在 IO 线程调用）；null 表示该条目没有可用预览。 */
     fun loadThumbnail(entry: Catalog.Entry): Bitmap? = thumbnails?.load(entry)
+
+    /** 看图页首帧只读缓存（预览缓存优先，其次网格缓存），不触发相机调用。 */
+    fun cachedPreview(handle: Int): Bitmap? = thumbnails?.cachedPreview(handle)
+
+    /** 读看图页预览（**必须**在 IO 线程调用）；null 时保持 U-51 胶囊形态。 */
+    fun loadPreview(entry: Catalog.Entry): Bitmap? = thumbnails?.loadPreview(entry)
 
     fun closePhoto() {
         openedPhoto = null

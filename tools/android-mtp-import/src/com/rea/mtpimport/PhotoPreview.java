@@ -3,11 +3,11 @@ package com.rea.mtpimport;
 import android.graphics.Bitmap;
 
 /**
- * 照片详情页的全幅预览来源（issue #46）。
+ * demo 素材契约（issue #46 / #59 / #61）。
  *
- * 真实 MTP 路径没有实现：相机里的 ARW 还没取回本地，按 UI-SPEC U-51 只显示
- * `ARW · <size> MB` 胶囊。debug 的 `DemoImages` 实现本接口，返回 APK 里 demo 占位图的位图，
- * 让没有相机时也能验证照片页的信息层级。
+ * debug 的 `DemoImages` 实现本接口，返回 APK 里 demo 占位图的位图；由 `ThumbnailStore`
+ * 同时供照片墙（降采样到 512 px）与看图页（整图）使用。真实 MTP 路径不注入实现，
+ * 一律走相机只读的 `getThumbnail`。
  */
 public interface PhotoPreview {
 

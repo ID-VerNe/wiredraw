@@ -114,7 +114,7 @@
 | 能力 | 验证状态 | 若可得 | 若不可得（降级） |
 |---|---|---|---|
 | 缩略图（PTP `GetThumb` 或 ObjectInfo 附带预览） | **未验证，待真机确认**（#59 已按 `getThumbnail` 实现，ARW 句柄是否支持仍未知） | 网格缩略图（≥88 dp，点击进 `photo` 页） | **同尺寸灰块 + 文件名 12 sp**，可正常点选（这是网格内**唯一**允许出现文件名的场景，见 V-19）；不显示已导入标记（依赖 §0.11 第 1 行） |
-| ARW 内嵌 JPEG 预览 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只写了「`MediaMetadataRetriever` 取预览」的架构设想，不是实测结论） | 1:1 预览图（`photo` 页） | `photo` 页只显示 `ARW · 24.6 MB` 胶囊，不显示假图 |
+| ARW 内嵌 JPEG 预览 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只写了「`MediaMetadataRetriever` 取预览」的架构设想，不是实测结论） | `photo` 页按 `V-25` 异步取 `getThumbnail`（ARW → 同名 JPG）；与网格共用 512 px 长边解码上限（`MAX_EDGE`），故 ≤512 px（源分辨率**真机未验**） | 拿不到像素时 `photo` 页只显示 `ARW · 24.6 MB` 胶囊，不显示假图 |
 | EXIF 拍摄时间 | **未验证** | 按拍摄日期分组 | 按文件修改日期分组（见下一行），组头标「按文件时间」 |
 | 文件修改时间（ObjectInfo 的 `DateModified`） | **未验证**（`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name，无日期字段） | 按修改日期分组 | 按 MTP 目录分组（目录名即日期），组头标「按目录名」 |
 
@@ -176,7 +176,7 @@
 |---|---|---|---|---|---|
 | 1 | **已导入照片索引**（任务 A「新片」判定依据，也是「已导入标记」的唯一来源） | §0.2 的「新片」定义、§0.2.1「首屏『新片』数量」行、`T-CATALOG` 的降级写法、`T-01`；§0.7 降级块的已导入标记、V-16 的未导入过滤 | 无此索引：`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name/relPath，无「已导入」标记；`Journal.java` 类注释里「size + relPath」那句与 `public void markDone` 是按 handle 的续传日志，跨会话主键是 `size+relPath`，不是「哪些照片导入过」的记录 | 首屏不承诺「新片」数量；徽标仍按照片数；主 CTA 退化为 `Import all N`（`T-CATALOG` 唯一允许的降级写法，首次使用即如此）；**网格不显示已导入标记**（如需表达，只允许在 `Location details` 里写 `Import state unknown`）；过滤抽屉不出现未导入项 | 任务 A 首屏的「新片」语义、`T-01`；V-16 的未导入过滤 |
 | 2 | **缩略图**（PTP `GetThumb` 或 ObjectInfo 附带预览） | §0.3 任务 B 的网格、§0.5 挑图型首屏、§0.6 的缩略图载体、V-18/V-19、U-29、`T-04`、`T-CATALOG` 正文的选片提示 | **未真机验证**（§0.7 第 1 行） | 同尺寸灰块 + 文件名 12 sp（§0.7，可正常点选）；`T-CATALOG` 不再写「点缩略图选片」 | 任务 B 的缩略图载体、U-29 的缩略图/降级块形态、`T-04`、`T-CATALOG` 的选片提示 |
-| 3 | **ARW 内嵌 JPEG 预览** | §0.7 第 2 行 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只是 `MediaMetadataRetriever` 架构设想） | `photo` 页只显示 `ARW · 24.6 MB`，不显示假图 | `T-04` |
+| 3 | **ARW 内嵌 JPEG 预览** | §0.7 第 2 行 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只是 `MediaMetadataRetriever` 架构设想）；#61 已用 `getThumbnail` 异步取图，与网格共用 512 px 长边上限（源分辨率仍真机未验） | `photo` 页有像素时全幅 `Fit`；拿不到时只显示 `ARW · 24.6 MB`，不显示假图 | `T-04` / `V-25` |
 | 4 | **EXIF 拍摄时间** | §0.2 的可选辅助字段、§0.6 日期分组一级依据、V-18、U-29 | **未验证**（ObjectInfo 是否含该字段未真机确认，§0.7 第 3 行） | 按文件修改日期分组（未验证，见第 5 行）；再降级按 MTP 目录分组，组头标「按目录名」 | 任务 B 的「按拍摄日期」分组、U-29 的日期分组、`T-03` |
 | 5 | **文件修改时间**（ObjectInfo `DateModified`） | §0.6 分组依据（EXIF 缺失时的回退）、§0.7 第 3 行降级 | **未验证**（`Catalog.java` 的 `public static final class Entry` 无日期字段，§0.7 第 4 行） | 按 MTP 目录分组（目录名即日期） | 任务 B 的日期分组、U-29 的日期分组、`T-03`（同第 4 行） |
 | 6 | **传输实现** | `IMPORTING`/`PAUSED`/`DONE` 状态、`T-02`、U-45～U-47 | `ImportService.java` 类注释里「只有真正搬字节那一步委托给 `ResumableTransfer`」那段，当前是 `ResumableTransfer.NotImplemented`；`Journal.java` 注释里「跨会话续传要先按 relPath」那句：跨会话续传的真实现未做 | 界面按状态机照常渲染；点主 CTA（`T-CATALOG`）会进入 `UNAVAILABLE`（见 `T-UNAVAILABLE`），不得伪装成传输中 | `T-02` 及一切真实传输验收 |
@@ -482,6 +482,10 @@
   且格子移出组合时**必须**立即移出该句柄的位图（用户要求「不显示的就从内存删掉」），
   **不得**整墙常驻；重新滚回允许重新取图。扫描线程仍在同一 MTP 会话上工作时，**不得**与
   扫描/导入并发下发相机命令。
+- **V-25（`photo` 页预览异步，issue #61）** 看图页像素也**必须**在 IO 线程异步取与解码，
+  `composition` / 主线程**不得**同步取图或解码；加载期间与失败时**保持** `U-51` 的单行
+  `ARW · <size>` 胶囊，**不得**出现占位块、假图或加载文字。预览缓存**必须**有上限并与
+  网格缓存分离（允许「连续打开同一张不重复读相机」），会话关闭时一并清空。
 
 ---
 
@@ -722,7 +726,7 @@ Next:    <一个可执行动作>
 
 | 编号 | 对象 | 断言 | 验证方法 |
 |---|---|---|---|
-| U-51 | `photo` 页 | 全幅照片；ARW 内嵌预览不可得时按 §0.7 第 2 行只显示单行 `ARW · 24.6 MB` 胶囊，**不显示占位块/假图**；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：`contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
+| U-51 | `photo` 页 | 全幅照片；像素由 `V-25` 异步取（`getThumbnail`），不可得时按 §0.7 第 2 行只显示单行 `ARW · 24.6 MB` 胶囊，**不显示占位块/假图**；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：有图时存在图片节点且无胶囊以外的说明文字；无图时 `contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
 | U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / 日期三项；抽屉打开不推挤主 CTA（L-03） | dump：三个过滤项各 1 个；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
 | U-53 | 徽标口径 | 顶栏徽标 = catalog 中 ARW 张数；与 `Import all N` 的 N 相等；同屏不出现第二个总量分母 | 读 catalog 总数与 ARW 数；dump 徽标文本；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 511 ARW / 12.75 GB | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列四个数一致（`demo_state` 入口**尚不存在**，PR-2 待建） |
