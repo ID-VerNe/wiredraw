@@ -74,6 +74,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
+├─ ScanResult        一次扫描的结果：目录 + 完整性标志 + 丢弃计数（#52）     [纯 JDK]
 ├─ ScanRun           一轮扫描的取消令牌：取消后迟到回调不得改界面           [纯 JDK]
 ├─ StorageRetry      getStorageIds 带唤醒重试：每轮判取消，最多多睡 1 个 3 秒 [纯 JDK]
 ├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
@@ -97,7 +98,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-纯 JDK 类合计**三十一个**——主源集 29 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
+纯 JDK 类合计**三十二个**——主源集 30 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
 `DemoTransfer` 标 `[debug 变体]`。这些文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（debug 的两个用单独的清单核对）；数量以 `checkPureJdkList` 的输出为准。
 
@@ -132,6 +133,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
   （换卡 / 编号复用 / 文件替换留下的旧尺寸残留）一律删除；`relPath + size` 都对得上的保留
   （含异尺寸拒绝留下的合法半成品，它的 size 就是当前对象 size）。开关是「本次枚举是否完整成功」
   而不是「清单是否为空」：相机上没有可导入文件时照清，枚举失败 / 取消时一律不清。
+  完整性由 `ScanResult` 一次算出：`getObjectInfo` 返回 null 的丢弃计数、`getObjectHandles`
+  返回 null 的存储数、是否取消，任一非零即不完整；跳过时留一行含计数的中文原因。
   清理前双闸已确认没有活动轮次；删除失败只记日志、不阻断本轮。
 
 ## 已导入索引（issue #20）
@@ -219,7 +222,7 @@ bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assem
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 450 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 457 项）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest

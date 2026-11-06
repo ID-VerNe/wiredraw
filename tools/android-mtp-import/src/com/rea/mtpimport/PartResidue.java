@@ -23,7 +23,9 @@ import java.util.Set;
  *
  * **调用前提（由调用方保证）**：本类不做并发保护。调用方必须在「没有活动写者」时调用，
  * 且只在该相机枚举**完整成功**时调用——用不完整的目录当保留集，会把仍可续传的 `.part` 误删。
- * 当前实现由 `Main.cleanupPartResidue()` 负责这两个前提。
+ * 完整性判定不要由调用方自己拼：{@link #cleanIfComplete} 直接吃 {@link ScanResult}，
+ * `complete == false` 或结果缺失时一个都不删，并留一行给用户看的原因。
+ * 当前实现由 `Main.cleanupPartResidue()` 负责「没有活动写者」这个前提。
  */
 public final class PartResidue {
 
@@ -73,6 +75,26 @@ public final class PartResidue {
             dead.add(kid);
         }
         return dead;
+    }
+
+    /**
+     * 只有「本次枚举完整成功」才清理；否则一个都不删，并记一行原因。
+     *
+     * `scan == null` 表示还没有完成过一次扫描，同样不清。开关只看 {@link ScanResult#complete}，
+     * 不看目录是否非空：相机上没有可导入文件时（完整枚举、目录为空）照清。
+     *
+     * @return 删除成功的个数；跳过时为 0
+     */
+    public static int cleanIfComplete(File outDir, Set<String> keepNames, ScanResult scan, Log log) {
+        if (scan == null) {
+            if (log != null) log.line("尚未完成一次完整枚举，跳过无主半成品清理");
+            return 0;
+        }
+        if (!scan.complete) {
+            if (log != null) log.line(scan.skipReason());
+            return 0;
+        }
+        return clean(outDir, keepNames, log);
     }
 
     /**
