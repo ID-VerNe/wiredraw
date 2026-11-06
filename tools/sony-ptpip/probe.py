@@ -14,6 +14,7 @@
 用法：
     python probe.py 192.168.3.17
     python probe.py 192.168.3.17 --limit 80
+    python probe.py 192.168.3.17 --replay <IED 握手 payload 文件>   # 见 README §6
 """
 import socket
 import struct
@@ -270,7 +271,14 @@ def main():
 
     replay = None
     if "--replay" in argv:
-        p = argv[argv.index("--replay") + 1] if len(argv) > argv.index("--replay") + 1 else "captures/init_ied.txt"
+        i = argv.index("--replay")
+        if len(argv) <= i + 1:
+            print("用法：python probe.py <相机IP> [--limit N] [--replay <IED 握手 payload 文件>]")
+            print("--replay 必须显式给路径，仓库里没有默认文件。")
+            print("文件内容 = Init_Command_Request 的 data 段，去掉空白后的连续十六进制字符串")
+            print("（无 0x 前缀）。它含配对凭据，不随仓库分发；生成方法见 README §6。")
+            return 2
+        p = argv[i + 1]
         replay = open(p).read().strip()
         print(f"[0] 用 IED 原始握手 payload 重放（{len(bytes.fromhex(replay))} 字节）")
 

@@ -101,3 +101,20 @@ USB 上跑的是裸 PTP（无 PTP/IP 头），对比两边的 opcode 序列即�
 - `Lja_PTP_IP.dll` 里的 `enum sony_lajiao::IDeviceConnection` 是适配器接口，
   导出的 `EnumCameraObjects` / `Connect` / `GetCameraObjectInfofromDetector`
   可以用来确认 IED 走的是哪条 transport（想看的话用 API Monitor 挂这三个符号）。
+
+## 6. `--replay` 的握手 payload 从哪来
+
+`probe.py --replay <文件>` 重放 IED 首次配对时的 `Init_Command_Request` 数据段。
+这段数据里含配对凭据，**不随仓库分发**，仓库里也没有默认文件——不传路径时探针会打印
+用法并以退出码 2 结束，不会去读一个不存在的文件。
+
+生成自己的本地副本：
+
+1. 用本机抓到的 pcap 定位 `Init_Command_Request`（C→H）。`parse_ptpip.py` 的流水里能看到
+   这条记录；`--hex` 会附上数据段前 16 字节。
+2. 把该记录的完整 data 段按字节写成连续十六进制字符串（无空格、无 `0x` 前缀），
+   保存为本地文件，例如 `captures/init_ied.txt`——`captures/` 已在 `.gitignore` 里，不会入库。
+3. 运行 `python probe.py <相机IP> --replay captures/init_ied.txt`。
+
+不传 `--replay` 时探针用内置的配对凭据按新报文构造握手；若相机已被 IED 的
+Remote / Viewer 进程占着，会被 `Init_Fail` 拒绝。
