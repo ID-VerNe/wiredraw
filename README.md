@@ -105,6 +105,7 @@ python scripts/run_gates.py manual
 AGENTS.md               协作规则的唯一事实源（五步流程、红线、已证实结论、环境坑）
 CONTRIBUTING.md         外部贡献者入口（只给摘要，正文以 AGENTS.md 为准）
 SECURITY.md             安全报告渠道与范围（漏洞走私密报告，勿附设备身份）
+CODE_OF_CONDUCT.md      行为准则（Contributor Covenant 2.1 原文）
 LICENSE                 Apache-2.0
 CHANGELOG.md
 docs/

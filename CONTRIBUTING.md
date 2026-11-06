@@ -36,7 +36,7 @@ python scripts/run_gates.py ci --fail-fast  # 见到红就停
 python scripts/run_gates.py manual          # Android 构建档（需要 SDK + JDK）
 ```
 
-装一次 git 钩子（`commit-msg` 校验提交信息格式，`pre-push` 跑 static 分片）：
+装一次 git 钩子（`commit-msg` 校验提交信息格式，`pre-push` 自动跑静态检查）：
 
 ```bash
 git config core.hooksPath .githooks
@@ -64,7 +64,7 @@ git config core.hooksPath .githooks
 5. **PR 正文分段齐全**：`## 问题` / `## 改动` / `## 测试`（贴门禁原始输出）/
    `## 影响面`，必要时补 `## 基线验证` / `## 门禁改动` / `## 验收对照`。
 6. **关闭方式**：纯文档 / 纯重构用 `Closes #NN`；行为类用 `Refs #NN`，
-   合并后在真机回签，症状消失才关单。
+   合并后需在真机上复验，症状消失才关单。
 7. **逐个 `git add <file>`**，禁止 `git add .` / `-A`。
 
 ## 代码与文档风格
@@ -73,7 +73,7 @@ git config core.hooksPath .githooks
   触发快门都不行）。需要写操作先开 issue 讨论，不在 PR 里顺手加。
 - Python 工具只用标准库；脚本必须能通过 `py_compile`。
 - 注释与 README、CONTRIBUTING 用中文；命令、协议名、代码标识保留英文原文。
-- 文档里的相对链接必须可达（`check_doc_links.py` 会校验），断了按门禁红处理。
+- 文档里的相对链接必须可达（`check_doc_links.py` 会校验），断了视为检查不通过。
 - 大文件不入库：RAW 样本、原始抓包、构建产物一律 gitignore；
   15 个第三方参考仓库也不入库。哪些目录只留本地、缺了会怎样，见
   [本地专属目录与内部工具](docs/contributing/LOCAL_WORKSPACE.md)。
@@ -86,9 +86,14 @@ git config core.hooksPath .githooks
 - [AGENTS.md](AGENTS.md) 是协作规则的唯一事实源；本文件只是入口摘要。
 - **提交者不能给自己评审**：PR 合并前由全新上下文的 subagent 做合并评审，
   契约见 [docs/contributing/REVIEW_DISPATCH.md](docs/contributing/REVIEW_DISPATCH.md)；
-  合并后的真机回签同样由发现者或全新上下文的会话执行。
+  合并后的真机复验同样由发现者或全新上下文的会话执行。
 - **完成声明以磁盘为准**：任何「已完成」都要能用 `git status`、文件存在性与
   门禁原始输出复核，不采信转述。
+
+## 行为准则
+
+参与本项目（issue、PR、评论、讨论）请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，
+采用 Contributor Covenant 2.1。
 
 ## 许可证
 
