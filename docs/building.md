@@ -32,8 +32,21 @@ $env:JAVA_HOME = "<本机 JDK 路径>"
 不需要 Gradle，手搓构建：
 
 ```bash
+# Linux / macOS / Git Bash
 bash tools/android-mtp-probe/build.sh
 # 产物：build/mtp-probe.apk
+```
+
+Windows PowerShell 下 `bash` 命中 `C:\Windows\System32\bash.exe`（WSL），Windows 的 SDK
+路径在 WSL 内不可见，`build.sh` 会以「找不到 Android SDK」退出。等价写法二选一
+（均已实测通过）：
+
+```powershell
+# 显式用 Git for Windows 的 bash
+& "C:\Program Files\Git\bin\bash.exe" tools/android-mtp-probe/build.sh
+
+# 或走门禁执行器（内部避开 System32 的 WSL bash，并顺带验导片工具）
+python scripts/run_gates.py manual
 ```
 
 流程是 `aapt2 compile → aapt2 link → javac → d8 → 手动塞 classes.dex → zipalign → apksigner`。
@@ -45,8 +58,16 @@ bash tools/android-mtp-probe/build.sh
 用 Gradle wrapper，一条命令验完 JVM 自检 + APK 构建：
 
 ```bash
+# Linux / macOS / Git Bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 # 产物：tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
+```
+
+Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOME` 与 SDK，
+`gradlew` 会报 `JAVA_HOME is not set`）：
+
+```powershell
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest assembleDebug
 ```
 
 - 纯逻辑自检不需要真机；只需定位 Android SDK（配置阶段即校验）。项数随用例增加，

@@ -199,9 +199,11 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 
 ### 发布
 
-本仓库暂不发版。探针 APK 就地构建
-（`bash tools/android-mtp-probe/build.sh` → `build/mtp-probe.apk`），通过
-`adb install -g build/mtp-probe.apk` 装到测试机。
+本仓库暂不发版。探针 APK 就地构建（Linux / macOS / Git Bash 用
+`bash tools/android-mtp-probe/build.sh`；Windows PowerShell 用
+`& "C:\Program Files\Git\bin\bash.exe" tools/android-mtp-probe/build.sh`
+或 `python scripts/run_gates.py manual`——PowerShell 的 `bash` 会落到 WSL，跑不通），
+产物 `build/mtp-probe.apk`，通过 `adb install -g build/mtp-probe.apk` 装到测试机。
 
 ## 6. 文档索引
 

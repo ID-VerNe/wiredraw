@@ -25,8 +25,20 @@ JDK 按 `JAVA_HOME` → `PATH` 里的 `javac`。找不到时打印可直接复�
 版本号写死是为了构建可复现；你装的版本不同，改脚本顶部的 `BT_VER` / `PLATFORM` 两行即可。
 
 ```bash
+# Linux / macOS / Git Bash
 bash build.sh
 # 产物 build/mtp-probe.apk
+```
+
+Windows PowerShell 下 `bash` 会落到 WSL（WSL 内看不到 Windows 的 SDK 路径，直接以
+「找不到 Android SDK」退出）。用 Git for Windows 的 bash，或在仓库根目录走门禁执行器：
+
+```powershell
+# 在探针目录（当前目录）执行，与上面的 bash build.sh 相同
+& "C:\Program Files\Git\bin\bash.exe" build.sh
+
+# 或在仓库根目录走门禁执行器
+python scripts/run_gates.py manual
 ```
 
 流程就是 `aapt2 compile → aapt2 link → javac → d8 → 手动塞 classes.dex → zipalign → apksigner`。
