@@ -16,7 +16,8 @@
 /sony-remote/
 
 # ---- 开发期证据（抓包流水、手机侧报告与截图、RAW 样本）：只留本地，结论写进 docs/archive/ ----
-# 原始 pcapng（142 MB，超出 GitHub 单文件 100 MB 限制）与校验用 ARW（各 24 MB）都包含在内；
+# 原始 pcapng（体积实测见 docs/archive/INDEX.md，超出 GitHub 单文件 100 MB 限制）
+# 与校验用 ARW（各 24 MB）都包含在内；
 # 需要时用 tools/sony-ptpip/README.md 重新抓
 /captures/
 /out/

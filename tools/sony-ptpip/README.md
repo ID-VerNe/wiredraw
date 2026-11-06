@@ -110,10 +110,17 @@ USB 上跑的是裸 PTP（无 PTP/IP 头），对比两边的 opcode 序列即�
 
 生成自己的本地副本：
 
-1. 用本机抓到的 pcap 定位 `Init_Command_Request`（C→H）。`parse_ptpip.py` 的流水里能看到
-   这条记录；`--hex` 会附上数据段前 16 字节。
-2. 把该记录的完整 data 段按字节写成连续十六进制字符串（无空格、无 `0x` 前缀），
-   保存为本地文件，例如 `captures/init_ied.txt`——`captures/` 已在 `.gitignore` 里，不会入库。
+1. 用本机抓到的 pcap 取出 `Init_Command_Request`（C→H）的**完整 body**：
+
+   ```powershell
+   python tools/sony-ptpip/parse_ptpip.py captures/wlan.pcapng --stream <N> --dump-init
+   ```
+
+   输出形如 `Init_Command_Request  body=<N> B  hex=<连续十六进制>`，`hex=` 后面那一整串
+   就是重放要的完整 body（典型 44 字节 = 16 字节 GUID 文本 + UTF-16LE 名称 + u32 版本）。
+   `--stream <N>` 先用不带该参数的调用列出流编号。
+2. 把 `hex=` 后面的字符串原样（无空格、无 `0x` 前缀）另存为本地文件，
+   例如 `captures/init_ied.txt`——`captures/` 已在 `.gitignore` 里，不会入库。
 3. 运行 `python probe.py <相机IP> --replay captures/init_ied.txt`。
 
 不传 `--replay` 时探针用内置的配对凭据按新报文构造握手；若相机已被 IED 的

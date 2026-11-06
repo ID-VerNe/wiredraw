@@ -279,7 +279,11 @@ def main():
             print("（无 0x 前缀）。它含配对凭据，不随仓库分发；生成方法见 README §6。")
             return 2
         p = argv[i + 1]
-        replay = open(p).read().strip()
+        try:
+            replay = open(p).read().strip()
+        except OSError as e:
+            print(f"找不到 replay 文件：{p}（{e}），生成方法见 README §6")
+            return 2
         print(f"[0] 用 IED 原始握手 payload 重放（{len(bytes.fromhex(replay))} 字节）")
 
     # 相机偶尔会因为上一轮的残留会话直接拒握手，退避重试几次。
