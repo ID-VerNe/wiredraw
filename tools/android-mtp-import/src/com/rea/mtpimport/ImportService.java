@@ -24,6 +24,14 @@ import java.util.List;
  */
 public final class ImportService {
 
+    /**
+     * 「取消卡住」的判定宽限期（3 秒）。
+     *
+     * 正常取消时 worker 在毫秒级退出；超过这个宽限还在跑，就按「取消没能打断原生调用」处理。
+     * 取值与仓库里扫描重试的 3 秒口径一致，避免另造一个魔法数字。
+     */
+    static final long CANCEL_STUCK_GRACE_NANOS = 3_000_000_000L;
+
     private final Log log;
     private final ResumableTransfer transfer;
     private final File outDir;
@@ -31,6 +39,9 @@ public final class ImportService {
     private volatile boolean paused;
     private volatile boolean cancelled;
     private volatile Thread worker;
+
+    /** {@link #cancel()} 被调用的时刻；0 表示本轮还没请求过取消。 */
+    private volatile long cancelRequestedAtNanos;
 
     /**
      * 本轮取消令牌。每次 {@link #start} 重建，取消时立即执行传输层注册的中断动作
@@ -54,6 +65,31 @@ public final class ImportService {
         return paused && isRunning();
     }
 
+    /**
+     * 本轮已请求取消，但 worker 在宽限期内仍未退出 —— 视为「取消卡住」。
+     *
+     * `MtpTransfer` 拿关闭 fd 当取消手段，能否打断阻塞在原生 `importFile` 里的调用**还没实测**
+     * （见 `MtpTransfer` 类注释）。打不断时 worker 会一直活着、`isRunning()` 恒真；任何只看
+     * `isRunning()` 的闸门都会把界面锁死在「点 `Import` 没反应，只能杀进程」——`CATALOG_READY`
+     * 按 `UI-SPEC.md` §1.3 没有 Cancel 入口。这个口径给调用方一个给 UI 出路的依据。
+     */
+    public boolean isCancelStuck() {
+        return isCancelStuckAt(System.nanoTime());
+    }
+
+    /** 用指定时刻判定，便于 JVM 自检（不依赖真实等待）。 */
+    boolean isCancelStuckAt(long nowNanos) {
+        return cancelStuck(cancelled, isRunning(), cancelRequestedAtNanos, nowNanos,
+                CANCEL_STUCK_GRACE_NANOS);
+    }
+
+    /** 纯判定：已请求取消 + worker 还活着 + 距取消已超过宽限期。 */
+    static boolean cancelStuck(boolean cancelled, boolean running, long cancelAtNanos,
+                               long nowNanos, long graceNanos) {
+        if (!cancelled || !running || cancelAtNanos == 0L) return false;
+        return nowNanos - cancelAtNanos >= graceNanos;
+    }
+
     public void pause() {
         paused = true;
         log.line("已请求暂停（当前文件传完后停在下一个文件之前）");
@@ -67,6 +103,8 @@ public final class ImportService {
     public void cancel() {
         cancelled = true;
         paused = false;
+        // 记录取消时刻：worker 迟迟不退出时，Main 用它判定「取消卡住」并给 UI 出路。
+        cancelRequestedAtNanos = System.nanoTime();
         // 先置位再触发令牌：传输层的中断动作（关 pfd）在调用者线程上同步执行，
         // 阻塞在 importFile 里的 worker 随后返回，不会等整个文件传完。
         cancelToken.cancel();
@@ -84,6 +122,7 @@ public final class ImportService {
         }
         paused = false;
         cancelled = false;
+        cancelRequestedAtNanos = 0L;
         cancelToken = new CancelToken();
         worker = new Thread(() -> run(plan, listener), "import-worker");
         worker.start();

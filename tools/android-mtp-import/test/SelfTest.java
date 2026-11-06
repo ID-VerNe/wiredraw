@@ -880,6 +880,26 @@ public final class SelfTest {
         }
     }
 
+    /**
+     * 模拟「取消动作打不断传输」：完全忽略取消令牌，直到测试放行才返回。
+     * 用来钉住二审 B-1 的死路判定：worker 不退出时界面必须能判出「卡住」并给 ERROR 出路。
+     */
+    static final class StuckTransfer implements ResumableTransfer {
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            entered.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return new Result(Kind.FAILED, "测试放行");
+        }
+    }
+
     /** 和 RecordingTransfer 一样落一个假 .part，供 GatedTransfer 复用。 */
     static ResumableTransfer.Result writeFakePart(ImportPlan.Item item, String partPath) {
         try {
@@ -969,6 +989,40 @@ public final class SelfTest {
                 t4.resumeFroms.size() == 2 && t4.resumeFroms.get(0) == 0 && t4.resumeFroms.get(1) == 0,
                 "实际 " + t4.resumeFroms);
         deleteTree(out2);
+
+        // 3) 「取消卡住」纯判定（二审 B-1）：pfd.close 能否打断原生调用未验，
+        //    打不断时 worker 永活，界面必须能判出卡住并给 ERROR 出路，不能静默变死键。
+        long grace = ImportService.CANCEL_STUCK_GRACE_NANOS;
+        check("PB 卡死判定：未请求取消 → 不判定卡死",
+                !ImportService.cancelStuck(false, true, 100L, 100L + grace, grace), "实际 true");
+        check("PB 卡死判定：已请求取消但 worker 已退出 → 不判定卡死",
+                !ImportService.cancelStuck(true, false, 100L, 100L + grace, grace), "实际 true");
+        check("PB 卡死判定：宽限期内 → 不判定卡死（正常取消窗口不得误报）",
+                !ImportService.cancelStuck(true, true, 100L, 100L + grace - 1, grace), "实际 true");
+        check("PB 卡死判定：恰好到宽限期 → 判定卡死",
+                ImportService.cancelStuck(true, true, 100L, 100L + grace, grace), "实际 false");
+        check("PB 卡死判定：没有记录取消时刻 → 不判定卡死",
+                !ImportService.cancelStuck(true, true, 0L, 100L + grace, grace), "实际 true");
+
+        // 4) 真实线程：取消动作打不断传输时 worker 不退出，必须能判定卡住
+        File out3 = Files.createTempDirectory("wiredraw-pb-stuck").toFile();
+        StuckTransfer st = new StuckTransfer();
+        FinishRecorder r5 = new FinishRecorder();
+        ImportService svc3 = new ImportService(Log.NOOP, st, out3);
+        svc3.start(plan, r5);
+        check("PB 卡死：worker 已进入传输", st.entered.await(5, TimeUnit.SECONDS), "等待超时");
+        svc3.cancel();
+        long afterCancel = System.nanoTime();
+        check("PB 卡死：取消后 worker 仍未退出（模拟 pfd.close 打不断原生调用）",
+                svc3.isRunning(), "worker 已退出");
+        check("PB 卡死：宽限期内不判定卡死",
+                !svc3.isCancelStuckAt(afterCancel), "实际 true");
+        check("PB 卡死：超过宽限期判定为卡死（界面必须能给 ERROR 出路）",
+                svc3.isCancelStuckAt(afterCancel + grace), "实际 false");
+        st.release.countDown();
+        check("PB 卡死：放行后本轮 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
+        deleteTree(out3);
     }
 
     static void deleteTree(File f) {

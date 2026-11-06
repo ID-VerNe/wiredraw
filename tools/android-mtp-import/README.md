@@ -26,6 +26,7 @@
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
 | **暂停（文件边界）/ 取消（真正中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；真机行为**未验**） |
+| **取消后复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1；真机行为**未验**） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节；`resumeFrom > 0` 拒绝） |
 
@@ -104,7 +105,7 @@ PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 �
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；224 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；235 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -207,7 +208,10 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       期间不得被迟到的进度回调拽回 `IMPORTING`（#48 / PB）——**未验**
 - [ ] 导入中点 `Cancel`：正在传的那个 `importFile` 被真正打断（不是等整张传完），
       回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）——**未验**
-- [ ] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）——**未验**
+- [ ] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
+      下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）——**未验**
+- [ ] 若 `pfd.close()` 打不断原生调用（`MtpTransfer` 未验项）：取消宽限 3 秒后必须判定「卡死」，
+      点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`），且 `Connect camera` 不再被旧 worker 拦住——**未验**
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）

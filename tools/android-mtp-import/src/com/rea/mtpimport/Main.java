@@ -67,7 +67,7 @@ public final class Main extends ComponentActivity {
     private MtpSession session;
     private Catalog catalog;
     private Selection selection;
-    private ImportService service;
+    private volatile ImportService service;
     private volatile TransferProgress lastProgress;
 
     /**
@@ -501,6 +501,9 @@ public final class Main extends ComponentActivity {
      * 重复事件不得开第二个 MTP 会话（相机会话同一时刻只能有一个）。
      */
     private void requestScan(String trigger, UsbDevice dev) {
+        // 取消卡死的 worker 不能把重扫也永久拦住（二审 B-1）：先放弃该轮再走准入判定。
+        // 放弃只摘掉引用，不在 UI 线程 close 会话（原生调用可能还占着 MtpDevice）。
+        abandonStuckService();
         AttachGate.Admit admit = attachGate.admit(dev != null, service != null && service.isRunning());
         switch (admit) {
             case GO: {
@@ -668,9 +671,16 @@ public final class Main extends ComponentActivity {
                 log.line("继续已暂停的一轮（要改选择请先 Cancel）");
                 service.resume();
                 showImportFromProgress();
-            } else {
-                log.line("已有一轮在跑，先等它结束或取消");
+                return;
             }
+            if (abandonStuckService()) {
+                // 二审 B-1 的死路：pfd.close 若打不断原生 importFile（未验），worker 永不退出，
+                // 这里静默 return 会让 Import 变成死键（CATALOG_READY 没有 Cancel 入口）。
+                // 放弃该轮 + 落 ERROR（ERROR 有 Connect camera），用户拔插数据线后可重扫。
+                model.showError("相机连接可能已失步，请拔插数据线");
+                return;
+            }
+            log.line("已有一轮在跑，先等它结束或取消");
             return;
         }
         MtpSession s = session;
@@ -680,6 +690,24 @@ public final class Main extends ComponentActivity {
             model.showError("相机连接已断开，请拔插数据线");
             return;
         }
+
+        // 会话探活（二审 B-1）：上一轮取消中断 importFile 后，MTP 会话可能失步。
+        // 复用前先用一次**只读** getObjectInfo 试一下；失败立刻落现有 ERROR 路径，
+        // 不要把失步会话带进新一轮（否则要整轮全失败才发现）。只读：不删、不改设置、不触发快门。
+        int probeHandle = plan.items().get(0).handle;
+        boolean sessionAlive;
+        try {
+            sessionAlive = s.device().getObjectInfo(probeHandle) != null;
+        } catch (Throwable t) {
+            log.line("会话探活异常：" + t);
+            sessionAlive = false;
+        }
+        if (!sessionAlive) {
+            log.line("会话探活失败：getObjectInfo(" + probeHandle + ") 无返回");
+            model.showError("相机连接可能已失步，请拔插数据线");
+            return;
+        }
+
         File out = new File(getFilesDir(), "imported");
 
         // 目标目录按 relPath 建子目录这一步在 MtpTransfer 里做（要处理重名/覆盖与路径越界）。
@@ -691,10 +719,11 @@ public final class Main extends ComponentActivity {
 
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
         // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
-        service = new ImportService(log, new MtpTransfer(s.device(), log), out);
+        final ImportService round = new ImportService(log, new MtpTransfer(s.device(), log), out);
+        service = round;
         lastProgress = null;
         model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
-        service.start(plan, new ImportListener() {
+        round.start(plan, new ImportListener() {
             @Override
             public void onPlanReady(ImportPlan p) {
                 log.line("计划：" + p.count() + " 个文件 / " + p.totalBytes() + " 字节");
@@ -702,6 +731,7 @@ public final class Main extends ComponentActivity {
 
             @Override
             public void onProgress(TransferProgress progress, ImportPlan.Item current) {
+                if (service != round) return;   // 该轮已被放弃/换轮：迟到的进度不得改写界面
                 lastProgress = progress;
                 // 合并闸（PB）：已有一个待执行更新时直接丢弃本次投递，
                 // 待执行那个 Runnable 会读 lastProgress 的最新值，主线程不会被进度回调打爆。
@@ -726,6 +756,7 @@ public final class Main extends ComponentActivity {
 
             @Override
             public void onFinished(boolean cancelled, int ok, int skipped, int failed, String summary) {
+                if (service != round) return;   // 被放弃的卡死轮次收尾时不得动界面
                 log.line("Skipped " + skipped + " existing");
                 runOnUiThread(() -> {
                     if (cancelled) {
@@ -750,10 +781,28 @@ public final class Main extends ComponentActivity {
 
             @Override
             public void onError(String message, Throwable t) {
+                if (service != round) return;
                 log.line("错误：" + message + (t == null ? "" : " · " + t));
                 runOnUiThread(() -> model.showError("导入中断，请拔插数据线"));
             }
         });
+    }
+
+    /**
+     * 取消后 worker 迟迟不退出时放弃该轮（二审 B-1 的死路出口）。
+     *
+     * 只在「已请求取消 + 仍 isRunning + 超过宽限期」时成立；正常取消窗口（毫秒级）不会触发，
+     * 避免把还在收尾的轮次误判成失步。
+     *
+     * 放弃只摘掉 `service` 引用，**不在这里 close 会话**：没能被打断的原生调用可能还占着
+     * `MtpDevice`，UI 线程 close 是未验证的原生竞态（与扫描取消同一条口径）。下一轮导入会被
+     * 只读探活挡回 `ERROR`；物理拔插后由扫描线程收尾并重建会话。
+     */
+    private boolean abandonStuckService() {
+        if (service == null || !service.isRunning() || !service.isCancelStuck()) return false;
+        log.line("本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）");
+        service = null;
+        return true;
     }
 
     /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */

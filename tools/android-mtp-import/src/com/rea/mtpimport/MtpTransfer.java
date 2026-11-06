@@ -16,11 +16,13 @@ import java.io.IOException;
  *
  * PB 的取消：`importFile` 本身没有取消参数，唯一能真正打断阻塞中传输的办法是让原生写失败。
  * 这里改用 `importFile(int, ParcelFileDescriptor)`（android-31 起的公共 API），把 pfd 的
- * `close()` 注册到 {@link CancelToken}；用户点 Cancel 时 pfd 当场关闭，`importFile` 尽快返回。
- * 本次未传满的 `.part` 由本类删除；**失败**残留的 `.part` 仍保留，生命周期归 #52（不在这里预判）。
+ * `close()` 注册到 {@link CancelToken}；用户点 Cancel 时 pfd 当场关闭，**试图**让 `importFile`
+ * 尽快返回。本次未传满的 `.part` 由本类删除；**失败**残留的 `.part` 仍保留，生命周期归 #52
+ * （不在这里预判）。
  *
- * 真机待验：相机未接入，pfd 关闭后原生调用的返回时延、以及 MTP 会话是否仍可继续使用，
- * 都还没有实测。取消后若后续操作失败，会走现有错误路径，不在这里假装成功。
+ * 真机待验：pfd 关闭能否打断阻塞中的原生调用、打断后 MTP 会话是否仍可用，**都还没有实测**。
+ * 打不断时 worker 会卡死，由 `ImportService.isCancelStuck()` + `Main` 的放弃/探活给界面出路；
+ * 下一轮复用会话前会用只读 `getObjectInfo(handle)` 探活，失败落 `ERROR`，不在这里假装成功。
  *
  * 相机侧只读：`importFile()` 是 GetObject，不删除、不格式化、不改设置、不触发快门。
  */
@@ -76,7 +78,10 @@ public final class MtpTransfer implements ResumableTransfer {
                             | ParcelFileDescriptor.MODE_TRUNCATE);
             final ParcelFileDescriptor open = pfd;
             if (token != null) {
-                // 取消动作：关闭正在写的 fd，让原生写失败。close 幂等，重复调用无害。
+                // 取消动作：关闭正在写的 fd，**试图**让原生写提前失败。
+                // 未验（二审 B-1）：android.jar 是 stub，没有任何「中止 PTP 事务后会话仍可用」
+                // 的承诺；ILCE-7C 上也还没实测过 close(pfd) 能否打断阻塞中的 importFile。
+                // 打不断时 worker 会卡在原生调用里，由 ImportService.isCancelStuck() 给界面出路。
                 token.setOnCancel(() -> closeQuietly(open));
                 if (token.isCancelled()) {
                     closeQuietly(pfd);
@@ -155,7 +160,7 @@ public final class MtpTransfer implements ResumableTransfer {
         try {
             pfd.close();
         } catch (Throwable ignored) {
-            // 取消路径下 fd 可能已关闭；close 幂等，失败不影响结果判定
+            // 取消路径下 fd 可能已关闭；重复 close 到底有没有副作用**未验**（同取消动作的说明）。
         }
     }
 
