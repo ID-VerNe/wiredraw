@@ -87,6 +87,12 @@ public final class Main extends ComponentActivity {
     private volatile ImportService service;
 
     /**
+     * 落点决策（issue #28）：默认 `getFilesDir()/imported`；请求相册本期会回退，原因非空。
+     * 惰性初始化，避免在 Activity 构造期调用 `getFilesDir()`。
+     */
+    private DestPolicy.Destination destination;
+
+    /**
      * 被放弃的上一轮（三审 B-3）：`service` 已摘掉，但 worker 可能还阻塞在原生 `importFile` 上。
      * worker 退出前不得重建会话（`scanWorker` 的 `session.close()` 会撞上那条原生调用）。
      */
@@ -379,7 +385,10 @@ public final class Main extends ComponentActivity {
 
         model.setCallbacks(callbacks);
         model.applyDeviceName("a7C");
-        model.applyLocationPath(new File(getFilesDir(), "imported").getAbsolutePath());
+        DestPolicy.Destination dest = destination();
+        model.applyLocationPath(dest.root.getAbsolutePath());
+        // 回退不能静默：请求的落点没落地时，原因必须进日志（默认私有路径下为空）。
+        if (dest.fellBack()) log.line(dest.fallbackReason);
 
         ComposeHost.mount(this, model);
         model.bindThumbnails(thumbnails);
@@ -810,6 +819,17 @@ public final class Main extends ComponentActivity {
     }
 
     /**
+     * 落点决策（issue #28）：进程内只取一次。默认应用私有目录；请求相册本期回退，
+     * 回退原因由 {@link #onCreate} 写日志，不能静默。
+     */
+    private DestPolicy.Destination destination() {
+        if (destination == null) {
+            destination = DestPolicy.choose(getFilesDir(), DestPolicy.Kind.PRIVATE);
+        }
+        return destination;
+    }
+
+    /**
      * 目标分区的可用字节。用 `getFilesDir()` 而不是 `imported/`：后者可能还没建，
      * `StatFs` 要求路径存在；两者在同一个内部存储卷上。
      *
@@ -953,7 +973,7 @@ public final class Main extends ComponentActivity {
             return;
         }
 
-        File out = new File(getFilesDir(), "imported");
+        File out = destination().root;
 
         // 目标目录按 relPath 建子目录这一步在 MtpTransfer 里做（要处理重名/覆盖与路径越界）。
         if (!out.exists() && !out.mkdirs()) {
