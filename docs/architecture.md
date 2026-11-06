@@ -55,7 +55,8 @@ PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 | 纯逻辑 | `Catalog`、`Selection`、`ImportPlan`、`TransferProgress`、`Journal`、`SpaceCheck`、`ImportGate`、`ImportService`、`UiState`、`UiText` 等 | 不允许 `import android.*`；由 Gradle 的 `compilePureJdkJava` 在编译期强制 |
 | UI | `ui/`（Compose） | 只做界面与状态映射，不承载业务规则 |
 
-纯逻辑层能在普通 JVM 上跑 `test/SelfTest.java`（当前 **406** 项断言），这是 `manual` 档的一部分。
+纯逻辑层能在普通 JVM 上跑 `test/SelfTest.java`，这是 `manual` 档的一部分；断言数量随用例增加，
+以 `selfTest` 输出末行为准。
 `pureJdkClasses` 清单还有漂移检查兜底，漏列一个纯逻辑文件就判红。
 
 ## 四、门禁层
