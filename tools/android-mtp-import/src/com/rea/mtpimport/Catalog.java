@@ -132,11 +132,16 @@ public final class Catalog {
         return new ArrayList<>(entries);
     }
 
-    /** 同一 relPath 跨 storage 重复的文件（#54）。本期只暴露、不合并路径。 */
-    public List<Entry> storageConflicts() {
+    /**
+     * 给定集合里，同一 relPath 跨 storage 重复的文件（#54）。
+     *
+     * 只在该集合内判定：两张卡同时插着但只选中其中一个时没有争用，不应算冲突。
+     */
+    public List<Entry> storageConflicts(List<Entry> selected) {
         Map<String, List<Entry>> byPath = new LinkedHashMap<>();
-        for (Entry e : entries) {
-            if (e.isFolder() || e.relPath == null) continue;
+        if (selected == null) return new ArrayList<>();
+        for (Entry e : selected) {
+            if (e == null || e.isFolder() || e.relPath == null) continue;
             List<Entry> group = byPath.get(e.relPath);
             if (group == null) {
                 group = new ArrayList<>();

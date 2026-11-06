@@ -82,9 +82,10 @@ public final class ImportPlan {
         }
         // #54：同一 relPath 若来自多个 storage，两个文件会争同一落盘路径。
         // 本期不改 relPath，只把冲突显式标出来，由 ImportService 拒绝并计入失败，绝不静默跳过/覆盖。
-        // 冲突判定统一走 Catalog.storageConflicts()，不在计划层再抄一份分组逻辑。
+        // 冲突判定统一走 Catalog.storageConflicts()，且只在本轮实际选中的导出集合内判定；
+        // 两张卡同时插着但只勾其中一个时没有争用，不应被整组拒绝。
         Set<String> conflictPaths = new HashSet<>();
-        for (Catalog.Entry e : catalog.storageConflicts()) {
+        for (Catalog.Entry e : catalog.storageConflicts(exports)) {
             conflictPaths.add(e.relPath == null ? e.name : e.relPath);
         }
         for (Catalog.Entry e : exports) {

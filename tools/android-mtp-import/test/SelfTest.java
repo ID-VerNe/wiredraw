@@ -1532,7 +1532,7 @@ public final class SelfTest {
 
     static void storageConflictCases() throws Exception {
         Catalog c = conflictCatalog();
-        List<Catalog.Entry> conflicts = c.storageConflicts();
+        List<Catalog.Entry> conflicts = c.storageConflicts(c.all());
         check("多存储同名：storageConflicts 暴露两个同 relPath 同尺寸文件（#54）",
                 conflicts.size() == 2
                         && "DCIM/100MSDCF/DSC02183.ARW".equals(conflicts.get(0).relPath)
@@ -1546,6 +1546,26 @@ public final class SelfTest {
         for (ImportPlan.Item it : p.items()) marked &= it.conflict;
         check("多存储同名：清单把两项都标成冲突（#54）", marked,
                 "count=" + p.count() + " items=" + p.items());
+
+        // 冲突只应在「本次实际选中」的集合内判定：两张卡同时插着、只勾一张时没有争用。
+        Selection one = new Selection(c);
+        one.setChecked(13, true);   // 只勾第二个存储卷的那个文件
+        ImportPlan single = ImportPlan.of(c, one, PhotoWall.of(c).units(),
+                PhotoWall.Export.RAW);
+        check("多存储同名：只勾一个时不算冲突（#54）",
+                single.count() == 1 && !single.items().get(0).conflict
+                        && single.items().get(0).storageId == 2,
+                "count=" + single.count() + " items=" + single.items());
+
+        File singleOut = Files.createTempDirectory("wiredraw-single").toFile();
+        RecordingTransfer st = new RecordingTransfer();
+        FinishRecorder sr = new FinishRecorder();
+        new ImportService(new RecordingLog(), st, singleOut).start(single, sr);
+        check("多存储同名：只勾一个能正常导入（#54）",
+                sr.done.await(5, TimeUnit.SECONDS) && sr.ok == 1 && sr.failed == 0
+                        && sr.skipped == 0 && st.calls.size() == 1,
+                "ok=" + sr.ok + " failed=" + sr.failed + " skipped=" + sr.skipped
+                        + " calls=" + st.calls.size());
 
         File out = Files.createTempDirectory("wiredraw-conflict").toFile();
         RecordingTransfer t = new RecordingTransfer();
