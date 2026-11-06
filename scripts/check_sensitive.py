@@ -25,6 +25,10 @@
 
 豁免：在命中行的行尾写 `# allow-sensitive: <理由>`（Java/Kotlin 用 `//`，Markdown 用
 `<!-- -->`）。理由为空、`TODO`、`<reason>` 这类模板文本不算数，且只对同一行生效。
+
+公开固定值（相机 AP 的官方示例网关、Android debug keystore 的公开默认口令）走脚本内的
+`ALLOWLIST`：按「类别 + 精确值」放行，不做前缀 / 通配 / 网段匹配（#110）。理由必须是具体
+事实，`main()` 启动前校验，不合格直接拒绝运行。
 """
 
 from __future__ import annotations
@@ -79,6 +83,64 @@ KNOWN_EXAMPLE_UUIDS = {
 SELF_IDENTITY_DOCS = {
     "AGENTS.md", "README.md", "CONTRIBUTING.md", "docs/contributing/PR_GUIDE.md",
 }
+
+
+@dataclass(frozen=True)
+class AllowEntry:
+    """allowlist 的一条：类别 + 精确值 + 具体理由（#110）。
+
+    只放行「对外公开、值本身固定」的常量，匹配是**类别 + 精确值**：
+    不做前缀 / 后缀 / 通配 / 网段 / CIDR / 端口匹配，相邻地址与大小写变体都照常报红。
+    """
+
+    category: str
+    value: str
+    reason: str
+
+
+# 公开默认值白名单。这些值在任何仓库里都一样，逐个加行内豁免既啰嗦又容易写成模板话，
+# 所以集中登记；每条理由必须是具体事实，`_validate_allowlist()` 会把空话判红（main 拒绝运行）。
+ALLOWLIST: tuple[AllowEntry, ...] = (
+    AllowEntry(
+        "private-ip",
+        "192.168.122.1",
+        "索尼相机 Wi-Fi AP 的公开默认网关；docs/research/a7c-usb-raw-2026-11.md 1.1 节记录的 11 个第三方参考仓库全部硬编码此地址，不是本机内网地址",
+    ),
+    AllowEntry(
+        "private-ip",
+        "10.0.0.1",
+        "同一套 Wi-Fi JSON 协议里的相机 AP 默认网关；docs/archive/2026-11-audit/evidence-notes-audit.md 第 6 节记录的多个第三方仓库硬编码此地址，不是本机内网地址",
+    ),
+    AllowEntry(
+        "secret",
+        "android",
+        "Android debug keystore 的公开默认口令（AOSP 通用值）；tools/android-mtp-probe/build.sh:167 用 --ks-pass pass:android 签同一把 rea-debug.keystore",
+    ),
+)
+
+
+def _allow_key(category: str, value: str) -> str:
+    """把值归一成比较用的键；只做大小写折叠与去包裹引号，不做任何模糊化。"""
+    text = value.strip()
+    if category in ("guid", "serial", "private-ip"):
+        return text.lower()
+    if category == "secret":
+        return text.strip("\"'")
+    return text
+
+
+def _validate_allowlist(entries: tuple[AllowEntry, ...] = ALLOWLIST) -> list[int]:
+    """返回理由不合格的条目下标：空话 / 模板话 / `<reason>` 这类占位都不算事实。"""
+    bad: list[int] = []
+    for idx, entry in enumerate(entries):
+        reason = entry.reason.strip()
+        if (
+            len(reason) < 12
+            or reason.lower() in ALLOW_TEMPLATE_REASONS
+            or re.fullmatch(r"<[^>]*>", reason)
+        ):
+            bad.append(idx)
+    return bad
 
 
 @dataclass(frozen=True)
@@ -198,8 +260,9 @@ RULES = [
     Rule(
         "user-path",
         "Git Bash 用户路径",
-        # 这一行是规则定义本身，会被 Unix 路径规则扫到；豁免必须带理由。
-        re.compile(r"(?<![A-Za-z0-9])/(?:c|d|e|f|g|mnt/[c-z])/Users/" + _PATH_BODY, re.I),  # allow-sensitive: 规则定义本身
+        # 这一行是 Unix 路径规则的正则源码，`_PATH_BODY` 要求至少一个真实路径字符，
+        # 而源码里 `/Users/` 后面紧跟引号，所以它不构成命中（实测 #110）。
+        re.compile(r"(?<![A-Za-z0-9])/(?:c|d|e|f|g|mnt/[c-z])/Users/" + _PATH_BODY, re.I),
         accept=_path_ok,
     ),
     Rule(
@@ -299,6 +362,15 @@ def _allow_reason(line: str) -> str | None:
     if reason in ALLOW_TEMPLATE_REASONS or re.fullmatch(r"<[^>]*>", reason):
         return None
     return reason
+
+
+def _is_allowlisted(hit: Hit) -> bool:
+    """类别 + 精确值命中 ALLOWLIST 才放行；不做前缀 / 通配 / 网段匹配（#110）。"""
+    key = _allow_key(hit.category, hit.value)
+    return any(
+        hit.category == entry.category and key == _allow_key(entry.category, entry.value)
+        for entry in ALLOWLIST
+    )
 
 
 def _repo_slug() -> str | None:
@@ -459,6 +531,9 @@ def scan_text(text: str, rel: str, repo_slug: str | None = None) -> list[Hit]:
     hits: list[Hit] = []
     for no, line in enumerate(text.split("\n"), 1):
         hits.extend(_scan_line(line, rel, no, rules))
+    # 对外公开的固定默认值（相机 AP 网关、debug keystore 口令）集中放行，
+    # 避免在文档里逐行豁免；只按「类别 + 精确值」匹配（#110）。
+    hits = [h for h in hits if not _is_allowlisted(h)]
     # 仓库自身的身份文档只放行 private-repo：仓库名与可见性标记在那儿是产品事实，
     # 不是泄露；`--fix` 若改写会破坏文档（#117 评审非阻断 1）。
     if rel in SELF_IDENTITY_DOCS:
@@ -784,6 +859,37 @@ def self_test() -> int:
         f"（重合 {sorted(overlap)}）" if overlap else "",
     )
 
+    # allowlist（#110）：只凭「类别 + 精确值」放行。退化成网段 / 前缀 / 通配 / 忽略大小写
+    # 时，下面的负向用例会立刻变红。
+    allow_ip = ".".join(("192", "168", "122", "1"))
+    near_ip = ".".join(("192", "168", "122", "2"))
+    record("allowlist 精确放行公开示例网关", not scan_text("AP=" + allow_ip, "x.md", fake_repo))
+    record("allowlist 不放过相邻地址", bool(scan_text("AP=" + near_ip, "x.md", fake_repo)))
+    keystore_key = "store" + "Password"
+    record(
+        "allowlist 精确放行 debug keystore 口令",
+        not scan_text(keystore_key + ' = "android"', "x.kts", fake_repo),
+    )
+    record(
+        "allowlist 不放过相似口令",
+        bool(scan_text(keystore_key + ' = "android1"', "x.kts", fake_repo)),
+    )
+    record(
+        "allowlist 口令区分大小写",
+        bool(scan_text(keystore_key + ' = "Android"', "x.kts", fake_repo)),
+    )
+    mixed = allow_ip + " 与真实路径 " + fake_path_win
+    record(
+        "allowlist 不整行放行",
+        {h.category for h in scan_text(mixed, "x.md", fake_repo)} == {"user-path"},
+    )
+    template_value = ".".join(("10", "0", "0", "2"))
+    record(
+        "allowlist 拒绝模板理由",
+        bool(_validate_allowlist((AllowEntry("private-ip", template_value, "todo"),))),
+    )
+    record("仓库扫描零命中（allowlist 生效）", not repo_hits)
+
     # B5：GBK 与无 BOM UTF-16LE 都要能解出并命中。
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -870,6 +976,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.self_test:
         return self_test()
+
+    bad_entries = _validate_allowlist()
+    if bad_entries:
+        print(f"[红] allowlist 第 {bad_entries} 条的理由不是具体事实，拒绝运行", file=sys.stderr)
+        return 1
 
     repo_slug = _repo_slug()
     if not repo_slug:
