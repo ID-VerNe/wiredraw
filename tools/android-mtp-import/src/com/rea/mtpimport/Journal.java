@@ -12,7 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 断点续传日志：记住「哪个句柄已经落了多少字节」，让下次开工能跳过或从中间接着传。
+ * 断点续传日志：记住「哪个文件已经落了多少字节」，让下次开工能跳过或从中间接着传。
  *
  * 格式故意用行式文本而不是 JSON：不引依赖、出了问题能直接 cat 出来看。
  *
@@ -21,27 +21,30 @@ import java.util.Map;
  * 12345   7340032   24389632   DCIM/100MSDCF/DSC02183.ARW
  * </pre>
  *
- * 注意：句柄是**单次会话内**有效的（MTP 的 object handle 不跨会话稳定），
- * 所以 size + relPath 才是跨会话重识别的主键，handle 只作同会话内的快路径。
- * 跨会话续传要先按 relPath 重新拿到新 handle —— 这一步在 {@link ResumableTransfer}
- * 的真实现里做，本轮框架不做。
+ * 注意：句柄是**单次会话内**有效的（MTP 的 object handle 不跨会话稳定），而且下一次会话
+ * 里同一个 handle 可能指向另一个文件。所以索引主键是 `relPath`，`size` 留在 {@link Rec}
+ * 里做同路径不同文件的判别；handle 只作为文件格式的一列保留，不再作索引。
+ * `doneBytes(int)` / `isComplete(int,long)` 仍保留给同会话内的快路径，内部改成扫描。
  */
 public final class Journal {
 
     public static final String HEADER = "# wiredraw-import journal v1";
 
     private static final class Rec {
+        int handle;
         long done;
         long size;
         String relPath;
     }
 
-    private final Map<Integer, Rec> recs = new LinkedHashMap<>();
+    private final Map<String, Rec> recs = new LinkedHashMap<>();
 
-    /** 已落盘字节数；未知返回 0。 */
+    /** 已落盘字节数；未知返回 0。同会话快路径：扫描记录里的 handle。 */
     public long doneBytes(int handle) {
-        Rec r = recs.get(handle);
-        return r == null ? 0 : r.done;
+        for (Rec r : recs.values()) {
+            if (r.handle == handle) return r.done;
+        }
+        return 0;
     }
 
     /**
@@ -53,27 +56,35 @@ public final class Journal {
      */
     public long doneBytes(String relPath, long size) {
         if (relPath == null || relPath.isEmpty() || size <= 0) return 0;
-        for (Rec r : recs.values()) {
-            if (r == null || r.size != size || !relPath.equals(r.relPath)) continue;
-            return r.done;
-        }
-        return 0;
+        Rec r = recs.get(relPath);
+        if (r == null || r.size != size) return 0;
+        return r.done;
     }
 
     /** 记录进度。doneBytes 被钳在 [0, size]，避免写进不可能的值。 */
     public void markDone(int handle, long doneBytes, long size, String relPath) {
-        Rec r = recs.computeIfAbsent(handle, k -> new Rec());
+        String safePath = relPath == null ? "" : relPath;
+        // 主键是 relPath：下一次会话同一 handle 指向另一个文件时，不能把旧记录冲掉。
+        String key = safePath.isEmpty() ? "#" + handle : safePath;
+        Rec r = recs.get(key);
+        if (r == null) {
+            r = new Rec();
+            recs.put(key, r);
+        }
+        r.handle = handle;
         r.size = Math.max(0, size);
         r.done = Math.min(r.size, Math.max(0, doneBytes));
-        r.relPath = relPath == null ? "" : relPath;
+        r.relPath = safePath;
     }
 
-    /** 已传字节数已达预期大小，整个文件可跳过。 */
+    /** 已传字节数已达预期大小，整个文件可跳过。同会话快路径：扫描 handle。 */
     public boolean isComplete(int handle, long size) {
-        Rec r = recs.get(handle);
-        if (r == null) return false;
-        if (size > 0 && r.size != size) return false;   // 大小变了（同名不同文件）就不算完成
-        return r.done >= r.size && r.size > 0;
+        for (Rec r : recs.values()) {
+            if (r.handle != handle) continue;
+            if (size > 0 && r.size != size) continue;   // 大小变了（同名不同文件）就不算完成
+            if (r.done >= r.size && r.size > 0) return true;
+        }
+        return false;
     }
 
     /**
@@ -82,11 +93,9 @@ public final class Journal {
      */
     public boolean isComplete(String relPath, long size) {
         if (relPath == null || relPath.isEmpty() || size <= 0) return false;
-        for (Rec r : recs.values()) {
-            if (r == null || r.size != size || !relPath.equals(r.relPath)) continue;
-            if (r.done >= r.size) return true;
-        }
-        return false;
+        Rec r = recs.get(relPath);
+        if (r == null || r.size != size) return false;
+        return r.done >= r.size;
     }
 
     public int size() {
@@ -104,9 +113,9 @@ public final class Journal {
         Writer w = new OutputStreamWriter(out, StandardCharsets.UTF_8);
         w.write(HEADER);
         w.write('\n');
-        for (Map.Entry<Integer, Rec> e : recs.entrySet()) {
+        for (Map.Entry<String, Rec> e : recs.entrySet()) {
             Rec r = e.getValue();
-            w.write(e.getKey() + "\t" + r.done + "\t" + r.size + "\t" + sanitize(r.relPath) + "\n");
+            w.write(r.handle + "\t" + r.done + "\t" + r.size + "\t" + sanitize(r.relPath) + "\n");
         }
         w.flush();
     }

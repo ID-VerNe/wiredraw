@@ -624,6 +624,36 @@ public final class SelfTest {
                         && !reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 2048),
                 "实际 " + reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024));
 
+        // B-1（PR #51 评审）：handle 只在单次会话内有效，重连后同一个 handle 可能指向另一个文件。
+        // 记录若以 handle 为主键，下一次会话导入新文件时会冲掉上一会话旧路径的完成记录，
+        // 再连回来就会把已导入的照片重传一遍。这里用真实的两会话流程钉死该行为。
+        Journal session1 = new Journal();
+        session1.markDone(7, 24389632, 24389632, "DCIM/100MSDCF/DSC02183.ARW");
+        ByteArrayOutputStream session1Bytes = new ByteArrayOutputStream();
+        try {
+            session1.save(session1Bytes);
+        } catch (Exception e) {
+            check("Journal：会话 1 落盘不抛异常", false, e.toString());
+            return;
+        }
+        Journal session2 = new Journal();
+        try {
+            session2.load(new ByteArrayInputStream(session1Bytes.toByteArray()));
+        } catch (Exception e) {
+            check("Journal：会话 2 读取不抛异常", false, e.toString());
+            return;
+        }
+        // 会话 2 里 handle 7 指向 2184 并导入成功：这里只记新文件，不应影响 2183 的记录
+        session2.markDone(7, 1024, 1024, "DCIM/100MSDCF/DSC02184.ARW");
+        boolean oldStillComplete = session2.isComplete("DCIM/100MSDCF/DSC02183.ARW", 24389632);
+        check("Journal：handle 复用不冲掉上一会话的完成记录",
+                oldStillComplete
+                        && session2.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024)
+                        && session2.size() == 2,
+                "2183=" + oldStillComplete
+                        + " 2184=" + session2.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024)
+                        + " size=" + session2.size());
+
         Journal junk = new Journal();
         try {
             junk.load(new ByteArrayInputStream(

@@ -21,7 +21,7 @@
 | 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
-| 续传日志读写（句柄 → 已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
+| 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 暂停 / 取消 / 逐文件回调 | ✅ 实现（暂停/取消停在文件边界） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节） |
@@ -98,7 +98,7 @@ PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 �
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；201 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；202 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -192,23 +192,24 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       顶栏徽标 = 511，`Import all 511` 与徽标同分母（U-53）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
-- [ ] 点 `Import all N` → 停在 `UNAVAILABLE`（`Not available`），日志说明 `NotImplemented`，
-      不伪装成传输中（§0.11 第 6 行）
+- [ ] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
+      与相机侧 `ImportPlan.Item.size` 一致（PA / issue #50）
+- [ ] 同一批照片再点一次 `Import all N`：日志必须出现 `Skipped N existing`，不重复搬字节（PA / issue #50）
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
 - [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
       （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
-- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`onDestroy`（`Main.java:312`）仍在 UI 线程
+- [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`onDestroy`（`Main.java:361`）仍在 UI 线程
       `session.close()` 且不 `cancel` `scanRun`，可能与扫描线程正在跑的 `getStorageIds` /
       `getObjectInfo` 相撞（`main` 既有行为，本轮不改）——**未验**
-- [ ] `awaitPermission`（`Main.java:506-507`）「判取消」与 `requestPermission` 非原子，
+- [ ] `awaitPermission`（`Main.java:600-609`）「判取消」与 `requestPermission` 非原子，
       取消后仍可能弹一次系统权限框——**未验**
 - [ ] 连续两次申请 USB 权限并在两次系统弹窗都点**拒绝**：第二次必须等回调/超时后落到 `ERROR`
       并提示 `未获得 USB 权限`，**不得**出现 `openDevice() 返回 null`
       （#11：2026-11-05 用同源、不同包名的副本验过；原包要验得先让系统清掉它的 USB 授权，
       目前只在拔插后才会清，故留给下次真机）
-- [ ] `P-09` 导入前空间预检：**未验**（本轮 `ImportService` 仍是 `NotImplemented`，该分支不可达）
+- [ ] `P-09` 导入前空间预检：**未验**（本轮只登记，实现在 PD 分节，该分支当前不可达）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
 
 > 已删除的旧条目（「目录树层级 + 已勾选计数」「`MAX_ROWS = 800` 未显示提示」「点『开始导入』」）
