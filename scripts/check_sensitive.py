@@ -489,8 +489,16 @@ def _plain_hits_on(text: str, rules: list[Rule]) -> list[tuple[Rule, int, int, s
     return found
 
 
-def _scan_line(line: str, rel: str, line_no: int, rules: list[Rule]) -> list[Hit]:
-    if _allow_reason(line):
+def _scan_line(
+    line: str,
+    rel: str,
+    line_no: int,
+    rules: list[Rule],
+    allow_exemptions: bool = True,
+) -> list[Hit]:
+    # PR 正文/评论是外部输入，任何人都能在行尾补一条 `allow-sensitive` 自带豁免；
+    # `allow_exemptions=False` 只给这类调用用（#125）。
+    if allow_exemptions and _allow_reason(line):
         return []
 
     hits: list[Hit] = []
@@ -525,12 +533,21 @@ def _scan_line(line: str, rel: str, line_no: int, rules: list[Rule]) -> list[Hit
     return deduped
 
 
-def scan_text(text: str, rel: str, repo_slug: str | None = None) -> list[Hit]:
-    """纯文本扫描入口；--self-test 直接喂内存字符串。"""
+def scan_text(
+    text: str,
+    rel: str,
+    repo_slug: str | None = None,
+    allow_exemptions: bool = True,
+) -> list[Hit]:
+    """纯文本扫描入口；`--self-test` 直接喂内存字符串。
+
+    `allow_exemptions=False` 用于 PR 正文/评论这类外部输入：那里不能认行内豁免，
+    否则任何人都能自带理由绕过门禁；脚本内 ALLOWLIST 仍然生效（#125）。
+    """
     rules = build_rules(repo_slug)
     hits: list[Hit] = []
     for no, line in enumerate(text.split("\n"), 1):
-        hits.extend(_scan_line(line, rel, no, rules))
+        hits.extend(_scan_line(line, rel, no, rules, allow_exemptions))
     # 对外公开的固定默认值（相机 AP 网关、debug keystore 口令）集中放行，
     # 避免在文档里逐行豁免；只按「类别 + 精确值」匹配（#110）。
     hits = [h for h in hits if not _is_allowlisted(h)]
@@ -799,6 +816,19 @@ def self_test() -> int:
         if not ok:
             for hit in hits:
                 print(f"        {hit.path}:{hit.line} [{hit.category}/{hit.encoding}] {hit.masked()}")
+
+    # PR 正文/评论是外部输入，行内豁免必须失效；否则任何人都能自带理由绕过门禁（#125）。
+    record(
+        "关闭行内豁免后理由不再生效",
+        bool(
+            scan_text(
+                fake_guid + "  # allow-sensitive: 文档示例，已确认为虚构值",
+                "self-test.txt",
+                fake_repo,
+                allow_exemptions=False,
+            )
+        ),
+    )
 
     # B2：路径命中不得吞掉 Markdown 闭括号与中文标点，改写后结构必须不变。
     link = "[文件](" + fake_path_win + ")"

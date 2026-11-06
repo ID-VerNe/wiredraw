@@ -56,6 +56,11 @@
       "name": "check_pr_sections.py",
       "cmd": ["python", "scripts/check_pr_sections.py"],
       "why": "PR 正文的必填分段（问题/改动/测试/影响面）、Closes|Refs 关键词、以及命中门禁链时的门禁改动段。只查结构不查内容真假；需要 GitHub 上下文，无 PR 时 SKIP 并退出 0，所以不进 ci 档"
+    },
+    {
+      "name": "check_pr_body.py",
+      "cmd": ["python", "scripts/check_pr_body.py"],
+      "why": "PR 正文与评论的敏感信息门禁：复用 check_sensitive.py 的规则与确定性占位符，命中原值不回显；正文优先读 GITHUB_EVENT_PATH，评论走 gh（CI 里需要 GH_TOKEN）。外部输入不认行内豁免，脚本内 ALLOWLIST 仍生效。无 PR 上下文 SKIP、取不全退出 2，所以不进 ci 档"
     }
   ]
 }
