@@ -479,7 +479,7 @@ class AppModel {
         if (p.catalog != null && catalog == null) {
             // 只在还没有照片墙时才建树：从 READY 切 ERROR 等态必须保留已有 wall / selection，
             // 否则「ERROR 返回照片墙、选择还在」（§1.3）演不出来。
-            // `Selection(p.catalog)` 初始是**空集**（Selection.java:20-22），不是全选；
+            // `Selection(p.catalog)` 初始是**空集**（`Selection` 构造只存 catalog，`checked` 初始为空），不是全选；
             // `showCatalog` 会把状态改成 CATALOG_READY，先记住原状态，装完树再覆盖回来。
             val prev = state
             showCatalog(p.catalog, Selection(p.catalog))

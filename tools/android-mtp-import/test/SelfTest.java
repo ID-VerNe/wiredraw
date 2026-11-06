@@ -14,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 import com.rea.mtpimport.ResumableTransfer.Kind;
 
@@ -70,6 +71,7 @@ public final class SelfTest {
         photoWallCases();
         demoTreesCases();
         demoTransferCases();
+        commentRefCases();
 
         System.out.println();
         if (failed == 0) {
@@ -2502,6 +2504,42 @@ public final class SelfTest {
                     String.format("P%04d.ARW", i)));
         }
         return c.build();
+    }
+
+    // ---------------- 注释里的「文件:行号」引用（issue #66） ----------------
+
+    /** 源码注释里指向别的文件的 `文件:行号` 形态；行号会随改动漂移，只认内容坐标。 */
+    private static final Pattern FILE_LINE_REF = Pattern.compile("\\.(java|kt):\\d+");
+
+    /**
+     * issue #66：三处注释用 `文件:行号` 指向别处，行号会随代码改动失效。
+     *
+     * 只锁 issue 点名的三个文件；全局扫描要先定豁免口径，另开单。
+     * 文件缺失也判红——文件改名后断言不能静默失效。
+     */
+    static void commentRefCases() {
+        List<String> files = List.of(
+                "src/com/rea/mtpimport/Catalog.java",
+                "src/com/rea/mtpimport/MtpSession.java",
+                "src/com/rea/mtpimport/ui/AppModel.kt");
+        StringBuilder hits = new StringBuilder();
+        for (String rel : files) {
+            File f = new File(System.getProperty("user.dir"), rel);
+            if (!f.isFile()) {
+                hits.append(rel).append("（文件不存在）\n");
+                continue;
+            }
+            try {
+                for (String line : Files.readAllLines(f.toPath())) {
+                    if (FILE_LINE_REF.matcher(line).find()) {
+                        hits.append(rel).append(": ").append(line.trim()).append('\n');
+                    }
+                }
+            } catch (IOException e) {
+                hits.append(rel).append("（读取失败: ").append(e).append("）\n");
+            }
+        }
+        check("注释不用 文件:行号 引用（issue #66）", hits.length() == 0, "命中：\n" + hits);
     }
 
     static void check(String name, boolean ok, String detail) {

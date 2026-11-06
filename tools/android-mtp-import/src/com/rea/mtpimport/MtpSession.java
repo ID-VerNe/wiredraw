@@ -14,7 +14,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * MTP 会话生命周期。这段逻辑是从已验证的探针里抽出来的
- * （tools/android-mtp-probe/.../Main.java:147-190），坑必须原样保留：
+ * （探针 `com.rea.mtpprobe.Main#probe()` 的 openDevice → MtpDevice.open → getStorageIds 重试段），
+ * 坑必须原样保留：
  *
  * 1. 相机空闲会挂起 USB：`getStorageIds()` 返回空、`open()` 卡 10 秒。
  *    这不是模式问题，重试 8 次 / 每次 3 秒；仍拿不到就得让用户拔插线。
