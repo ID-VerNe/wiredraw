@@ -214,6 +214,9 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       顶栏下方 2 dp 细线推进、临时 `Cancel` 可点、主 CTA 禁用；补齐完成后细线与 `Cancel` 消失、
       CTA 启用、徽标从中间值变为 511；点 `Cancel` 必须丢弃部分结果回 `COLD` —— **未验**
       （2026-11-06 相机被另一会话探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
+- [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
+      `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
+      `IMPORTING`（日志不得出现「先扫描」）—— **未验**（同上，相机被占用）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
 - [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数

@@ -67,8 +67,6 @@ public final class Main extends ComponentActivity {
     private MtpSession session;
     private Catalog catalog;
     private Selection selection;
-    /** 本轮扫描是否已发布过渐进快照（issue #60）：取消时据此丢弃部分结果。 */
-    private volatile boolean scanPartialPublished;
     private volatile ImportService service;
 
     /**
@@ -175,12 +173,13 @@ public final class Main extends ComponentActivity {
                 if (worker != null) worker.interrupt();
                 log.line("点 Cancel → 已请求取消扫描（会话由扫描线程收尾时关闭）");
             }
-            if (!hadImportRun && scanPartialPublished) {
+            if (!hadImportRun && model.getBackgroundScanning()) {
                 // issue #60：取消后不得把部分结果翻成 CATALOG_READY。
-                // 已发布的照片墙属于本轮扫描，整批撤掉，回到 COLD 等待下一次扫描。
+                // 以 UI 真状态判定「本轮已渐进发布」，不用跨线程影子标志：
+                // 扫描正常完成后 backgroundScanning 已清零，重扫在拿存储窗口取消时
+                // 必须保留上一轮的完整照片墙，不能误删。
                 catalog = null;
                 selection = null;
-                scanPartialPublished = false;
                 model.discardPartialCatalog();
                 log.line("扫描取消：丢弃已渐进发布的部分结果");
             }
@@ -589,7 +588,6 @@ public final class Main extends ComponentActivity {
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
-            scanPartialPublished = false;
             Catalog scanned = CatalogScanner.scan(session.device(), sids, log, run,
                     new CatalogScanner.ScanProgress() {
                         @Override
@@ -600,13 +598,13 @@ public final class Main extends ComponentActivity {
                         @Override
                         public void onPartial(Catalog snapshot, int done, int total) {
                             postIfActive(run, () -> {
-                                if (scanPartialPublished) {
+                                if (model.getBackgroundScanning()) {
                                     selection.retarget(snapshot);
                                 } else {
                                     // 本轮第一次发布：新建空集选择，避免沿用上一轮勾选。
+                                    // 首轮自己不会留下 backgroundScanning=true（完成/取消都会清零）。
                                     selection = new Selection(snapshot);
                                 }
-                                scanPartialPublished = true;
                                 catalog = snapshot;
                                 model.showPartialCatalog(snapshot, selection, done, total);
                                 log.line(String.format(Locale.US,
@@ -626,8 +624,9 @@ public final class Main extends ComponentActivity {
             // 会把用户在渐进态里的勾选冲掉。UI 队列 FIFO 保证这里晚于所有 onPartial。
             postIfActive(run, () -> {
                 catalog = scanned;
-                if (!scanPartialPublished) selection = new Selection(scanned);
-                else selection.retarget(scanned);
+                // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
+                if (model.getBackgroundScanning()) selection.retarget(scanned);
+                else selection = new Selection(scanned);
                 model.showCatalog(scanned, selection);
             });
         } catch (Throwable t) {
