@@ -40,8 +40,8 @@ adb install -g tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug
 ```
 
 **Windows PowerShell 注意**：PowerShell 里的 `bash` 落到 WSL，上面两条构建命令会失败
-（WSL 内看不到 Windows 的 SDK 路径，`gradlew` 还会报 `$'\r': command not found`）。
-用下面几条等价命令（本机已实测通过）：
+（WSL 内没有 Windows 的 SDK / JDK：探针报「找不到 Android SDK」，导片工具报
+`JAVA_HOME is not set`）。用下面几条等价命令（本机已实测通过）：
 
 ```powershell
 # 两个 APK 一起验：探针 build.sh + 导片工具自检 / 构建 / 验签

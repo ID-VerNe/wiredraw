@@ -34,7 +34,10 @@ Windows PowerShell 下 `bash` 会落到 WSL（WSL 内看不到 Windows 的 SDK �
 「找不到 Android SDK」退出）。用 Git for Windows 的 bash，或在仓库根目录走门禁执行器：
 
 ```powershell
-& "C:\Program Files\Git\bin\bash.exe" tools/android-mtp-probe/build.sh
+# 在探针目录（当前目录）执行，与上面的 bash build.sh 相同
+& "C:\Program Files\Git\bin\bash.exe" build.sh
+
+# 或在仓库根目录走门禁执行器
 python scripts/run_gates.py manual
 ```
 

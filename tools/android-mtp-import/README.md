@@ -211,8 +211,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-Windows PowerShell 用 `.bat` 包装脚本（`gradlew` 的 LF shell 脚本在 WSL 下会报
-`$'\r': command not found`）：
+Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOME` 与 SDK，
+`gradlew` 会报 `JAVA_HOME is not set`）：
 
 ```powershell
 .\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest assembleDebug
