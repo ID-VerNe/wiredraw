@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,6 +64,7 @@ public final class SelfTest {
         resumePlanCases();
         importServicePauseClockCases();
         partialResumeCases();
+        partResidueCases();
         uiStateCases();
         finishOutcomeCases();
         stalledDetectionCases();
@@ -2131,6 +2133,104 @@ public final class SelfTest {
                         && t5.resumeFroms.size() == 1 && t5.resumeFroms.get(0) == 0L,
                 "实际 " + t5.resumeFroms);
         deleteTree(staleOut);
+    }
+
+    // ---------------- 无主半成品清理（issue #52） ----------------
+
+    /**
+     * 钉住 S1（改 A）判据：保留集 = `relPath + size`，与 {@link Journal#partPath} 同口径。
+     *
+     * 两个关键方向：
+     * - 同 `relPath`、旧 size（size 已不被任何目录对象认领）→ 必须删（#52 主症状）；
+     * - `relPath` 已完全不在目录 → 必须删（对象已不存在，接不上）。
+     *
+     * 保留：`relPath + size` 都能对上（含异尺寸拒绝留下的合法半成品）。
+     * 干扰项覆盖账本、索引、`.tmp`、没有 size 段的 `.part`、子目录里的 `.part`；
+     * 另钉住 `keepNames == null` 的安全语义：一个都不删。
+     *
+     * 清理开关另钉住两个方向：枚举完整 → 照常清；枚举不完整（丢弃对象 / 存储无句柄 / 取消）
+     * → 一个都不清，并留一行含计数的原因。完整性标志与计数由 {@link ScanResult} 一次算出，
+     * {@link CatalogScanner} 只负责填数（Android 侧，JVM 单测覆盖不到的那部分靠代码走查 + 真机）。
+     */
+    static void partResidueCases() throws Exception {
+        File out = Files.createTempDirectory("wiredraw-part-residue").toFile();
+        Catalog c = sample();
+        Set<String> keep = PartResidue.keepNames(c.all());
+        Journal j = new Journal();
+
+        String keepSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
+        writeSizedFile(new File(keepSize), 40);
+
+        // 关键方向 1：同 relPath、旧 size —— 目录里已没有这个 size 的对象，必须删。
+        String staleSize = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 299);
+        writeSizedFile(new File(staleSize), 40);
+
+        // 关键方向 2：relPath 已完全不在目录 —— 无主，必须删。
+        String gone = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC99999.ARW", 300);
+        writeSizedFile(new File(gone), 40);
+
+        writeSizedFile(new File(out, "import-journal.txt"), 5);
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 5);
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME + ".tmp"), 5);
+        writeSizedFile(new File(out, "plain.part"), 5);
+        writeSizedFile(new File(out, "DCIM/stray.300.part"), 5);
+
+        check("无主半成品：保留集与 partPath 同口径（relPath + size）",
+                keep.contains(new File(keepSize).getName())
+                        && !keep.contains(new File(staleSize).getName()),
+                "keep 集不含当前 size 或不排斥旧 size");
+        check("无主半成品：keepNames(null) 返回空集，不退化成全删",
+                PartResidue.keepNames(null).isEmpty(), "返回非空");
+        check("无主半成品：keep 集为 null 时 orphans 为空",
+                PartResidue.orphans(out, null).isEmpty(), "返回非空");
+
+        // issue #52：完整性开关。丢弃过对象 / 存储取句柄失败 / 取消都算不完整。
+        ScanResult ok = ScanResult.of(c, 3, 0, 0, false);
+        ScanResult dropped = ScanResult.of(c, 3, 1, 0, false);
+        ScanResult noHandles = ScanResult.of(c, 3, 0, 1, false);
+        ScanResult cancelled = ScanResult.of(c, 3, 0, 0, true);
+        check("扫描完整性：无丢弃无失败 → complete",
+                ok.complete && ok.scanned == 3 && ok.dropped == 0, "未判为完整或计数不对");
+        check("扫描完整性：丢弃对象 → 不完整，且计数对得上",
+                !dropped.complete && dropped.scanned == 3 && dropped.dropped == 1,
+                "complete=" + dropped.complete + " scanned=" + dropped.scanned + " dropped=" + dropped.dropped);
+        check("扫描完整性：存储取句柄失败 → 不完整",
+                !noHandles.complete && noHandles.missingHandles == 1, "未判为不完整");
+        check("扫描完整性：取消 → 不完整", !cancelled.complete, "取消仍判为完整");
+
+        // 关键方向：枚举不完整 → 一个都不清，并留一行给用户看的原因。
+        RecordingLog skipLog = new RecordingLog();
+        int skipped = PartResidue.cleanIfComplete(out, keep, dropped, skipLog);
+        check("无主半成品：枚举不完整 → 一个都不清",
+                skipped == 0 && new File(staleSize).exists() && new File(gone).exists(),
+                "删了 " + skipped + " 个或文件已不在");
+        check("无主半成品：跳过清理要留原因（含丢弃计数）",
+                skipLog.contains("枚举不完整") && skipLog.contains("丢弃 1 个"),
+                "日志：" + skipLog.lines);
+        check("无主半成品：没有扫描结果 → 不清",
+                PartResidue.cleanIfComplete(out, keep, null, Log.NOOP) == 0
+                        && new File(staleSize).exists(), "null 结果时删了文件");
+
+        RecordingLog cleanLog = new RecordingLog();
+        int cleaned = PartResidue.cleanIfComplete(out, keep, ok, cleanLog);
+        check("无主半成品：枚举完整 → 照常清理", cleaned == 2 && cleanLog.contains("已清理无主半成品"),
+                "实际 " + cleaned);
+        check("无主半成品：同 relPath、旧 size → 被删（#52 主症状）",
+                !new File(staleSize).exists(), "仍存在：" + staleSize);
+        check("无主半成品：relPath 已不在目录 → 被删",
+                !new File(gone).exists(), "仍存在：" + gone);
+        check("无主半成品：relPath + size 都能对上 → 保留（异尺寸拒绝的合法半成品）",
+                new File(keepSize).isFile(), "被删：" + keepSize);
+        check("无主半成品：账本 / 索引 / .tmp / 无 size 段的 .part 不被动",
+                new File(out, "import-journal.txt").isFile()
+                        && new File(out, ImportedIndex.FILE_NAME).isFile()
+                        && new File(out, ImportedIndex.FILE_NAME + ".tmp").isFile()
+                        && new File(out, "plain.part").isFile(),
+                "干扰项被删");
+        check("无主半成品：子目录里的 .part 不被动（半成品只平铺在 outDir）",
+                new File(out, "DCIM/stray.300.part").isFile(), "子目录项被删");
+
+        deleteTree(out);
     }
 
     // ---------------- 无进展挂起判定（issue #63） ----------------

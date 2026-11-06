@@ -83,6 +83,15 @@ public final class Main extends ComponentActivity {
 
     private MtpSession session;
     private Catalog catalog;
+    /**
+     * 最近一次扫描的结果（issue #52 清理开关）。
+     *
+     * 不能拿「catalog 非空」或「清单非空」代替：渐进快照也会写 {@link #catalog}，
+     * 而扫描器在 `getObjectHandles` / `getObjectInfo` 返回 null 时会静默跳过对象，
+     * 扫描本身不抛异常。完整性标志与丢弃计数由 {@link ScanResult} 一次算清；
+     * 扫描开始 / 取消一律置 null，只有扫描正常收尾才赋值。
+     */
+    private volatile ScanResult lastScan;
     private Selection selection;
     private volatile ImportService service;
 
@@ -202,6 +211,7 @@ public final class Main extends ComponentActivity {
                 // 扫描正常完成后 backgroundScanning 已清零，重扫在拿存储窗口取消时
                 // 必须保留上一轮的完整照片墙，不能误删。
                 catalog = null;
+                lastScan = null;
                 selection = null;
                 model.discardPartialCatalog();
                 log.line("扫描取消：丢弃已渐进发布的部分结果");
@@ -615,6 +625,8 @@ public final class Main extends ComponentActivity {
             case GO: {
                 ScanRun run = new ScanRun();
                 scanRun = run;
+                // issue #52：新一轮枚举开始即撤掉上一次的完整结果；只有正常收尾才恢复。
+                lastScan = null;
                 log.line(trigger + " → 开始扫描");
                 model.showScanning(0, 0);
                 Thread worker = new Thread(() -> scanWorker(dev, run), "scan-worker");
@@ -683,7 +695,7 @@ public final class Main extends ComponentActivity {
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
-            Catalog scanned = CatalogScanner.scan(session.device(), sids, log, run,
+            ScanResult scan = CatalogScanner.scan(session.device(), sids, log, run,
                     new CatalogScanner.ScanProgress() {
                         @Override
                         public void onScan(int done, int total) {
@@ -713,16 +725,22 @@ public final class Main extends ComponentActivity {
                 return;
             }
             log.line(String.format(Locale.US, "扫描完成：文件夹 %d 个、文件 %d 个（合计 %.2f GB，其中 ARW %.2f GB）",
-                    scanned.folderCount(), scanned.fileCount(),
-                    scanned.fileBytes() / 1073741824.0, scanned.rawBytes() / 1073741824.0));
+                    scan.catalog.folderCount(), scan.catalog.fileCount(),
+                    scan.catalog.fileBytes() / 1073741824.0, scan.catalog.rawBytes() / 1073741824.0));
+            if (!scan.complete) {
+                // issue #52：残缺目录仍可显示，但不能当 `.part` 保留集；把原因提前说清。
+                log.line(scan.skipReason());
+            }
             // 收尾也必须在 UI 线程排队：扫描线程先于已投递的渐进快照执行的话，
             // 会把用户在渐进态里的勾选冲掉。UI 队列 FIFO 保证这里晚于所有 onPartial。
             postIfActive(run, () -> {
-                catalog = scanned;
+                catalog = scan.catalog;
+                // issue #52：完整扫描结果只在这里落地；渐进快照（onPartial）不置 lastScan。
+                lastScan = scan;
                 // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
-                if (model.getBackgroundScanning()) selection.retarget(scanned);
-                else selection = new Selection(scanned);
-                model.showCatalog(scanned, selection);
+                if (model.getBackgroundScanning()) selection.retarget(scan.catalog);
+                else selection = new Selection(scan.catalog);
+                model.showCatalog(scan.catalog, selection);
                 // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
                 refreshSpaceCheck();
             });
@@ -863,6 +881,30 @@ public final class Main extends ComponentActivity {
         return true;
     }
 
+    /**
+     * issue #52：清理无主 `.part`（对象已不在目录，或 size 已不被任何目录对象认领）。
+     *
+     * 两个前提缺一不可：
+     *
+     * 1. **本次枚举完整**（{@link #lastScan}）。未扫 / 取消 / 丢弃过对象 / 存储取句柄失败都不能清——
+     *    残缺目录当保留集会把仍可续传的 `.part` 全删掉，这是最坏的结果。完整性判定与跳过原因由
+     *    {@link PartResidue#cleanIfComplete} 统一处理，跳过时留一行给用户看的日志。
+     *    相机上确实没有可导入文件时（完整枚举、目录为空）仍要清，所以本方法放在 doStart 的空清单早退之前。
+     * 2. **没有活动写者**：{@link #service} 在跑（含暂停但 worker 未退）或遗留 worker 还在跑时跳过；
+     *    它们都可能正写着 `.part`。
+     *
+     * 只扫 `outDir` 顶层，不碰成品 / 索引 / Journal；删除失败只记日志，不阻断本轮。
+     */
+    private void cleanupPartResidue() {
+        if (catalog == null) return;
+        if (service != null && service.isRunning()) return;
+        if (orphanWorkerStillRunning()) return;
+        File out = destination().root;
+        // 没有目录就没有 `.part`；不要为了清理去建目录。
+        if (!out.isDirectory()) return;
+        PartResidue.cleanIfComplete(out, PartResidue.keepNames(catalog.all()), lastScan, log);
+    }
+
     private void doStart() {
         // issue #127：跳过数属于「本轮」，在入口就清空。清零必须早于下面所有早退分支：
         // 探活失败 / 无会话 / 建目录失败 / 空间不足等落 ERROR 时，Details 抽屉只判
@@ -878,6 +920,11 @@ public final class Main extends ComponentActivity {
             log.line("先扫描");
             return;
         }
+
+        // issue #52：清理无主 `.part`。开关是「本次枚举是否完整成功」，不是「清单是否为空」：
+        // 相机上没有可导入文件时也要清；枚举失败 / 取消时一律不清。详见 cleanupPartResidue()。
+        cleanupPartResidue();
+
         // 空勾选已在 ImportPlan.of 里等价于「当前 filter 可见集合」（#80 / #83），
         // 走到这里只剩可见集合里没有可导出文件。
         ImportPlan plan = ImportPlan.of(catalog, selection,
