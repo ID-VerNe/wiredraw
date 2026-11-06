@@ -13,7 +13,8 @@
 
 已知边界（不要指望它兜住这些）：
 - **不扫 commit message、PR 正文与 git 历史**。本门禁的起因就是 PR 正文里贴了换编码的值；
-  那一条由 issue #110 的后续单在 `support` 档补「读 PR 正文」的门禁，不在本脚本范围。
+  那一条由 issue #125 在 `support` 档补「读 PR 正文与评论」的门禁，不在本脚本范围
+  （#110 只负责把 `--warn` 转 `--check`）。
 - **跨行切断的 token 不保证命中**：逐行扫描，一段值被换行拆开就看不到完整形态。
 - `--fix` 只改工作区文件，不改 git 历史，也不自动 `git add` / `git commit`。
 
@@ -250,7 +251,9 @@ RULES = [
 ]
 
 # 编码形态候选：hex / 重新分组的 hex / Base64 / URL 编码。只做「解码后再跑明文规则」，不猜密钥。
-HEX_TOKEN_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{16,}(?![0-9A-Fa-f])")
+# 门槛取 14：索尼 8-4-2 配对 GUID 去掉短横线正好 14 位，写 16 会把这种换形漏掉
+# （#117 二轮评审阻断 2）。12 位与「无字母」的 hex 仍由明文规则挡在外面。
+HEX_TOKEN_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{14,}(?![0-9A-Fa-f])")
 # 4-4-4-2 / 4-4-4-4 这类重新分组：短横、冒号或单空格分隔。去掉分隔符后
 # 总 hex 长度 ≥12 才当候选（配对 GUID 的 8-4-2 重排后是 14 位，#117 评审 B4）。
 GROUPED_HEX_RE = re.compile(
@@ -338,7 +341,10 @@ def build_rules(repo_slug: str | None) -> list[Rule]:
                 re.compile(
                     # 右侧允许 `.`：`owner/repo.git` 里的仓库名后面跟的是点，
                     # 旧写法把这个点排掉，导致带 `.git` 的 URL 漏报（#117 评审 B3）。
-                    r"(?<![A-Za-z0-9_.-])" + re.escape(repo_slug) + r"(?![A-Za-z0-9_-])"
+                    # GitHub 的 owner/repo 在 URL 里不区分大小写：全小写形态同样要报
+                    # （#117 二轮评审阻断 1）。占位符按 `lower()` 生成，同值同符不受影响。
+                    r"(?<![A-Za-z0-9_.-])" + re.escape(repo_slug) + r"(?![A-Za-z0-9_-])",
+                    re.IGNORECASE,
                 ),
             )
         )
@@ -360,10 +366,14 @@ def _decoded_variants(token: str, kind: str) -> list[str]:
             return [f"{compact[0:8]}-{compact[8:12]}-{compact[12:16]}-{compact[16:]}"]
         return [f"{compact[0:8]}-{compact[8:12]}-{compact[12:]}"]
     if kind == "hex":
+        # 14 位是 8-4-2 配对 GUID 去掉短横线后的长度：直接按 8-4-2 重新插回短横线，
+        # 交给明文规则（#117 二轮评审阻断 2）。
+        if len(token) == 14:
+            variants.append(f"{token[0:8]}-{token[8:12]}-{token[12:]}")
         try:
             raw = bytes.fromhex(token)
         except ValueError:
-            return []
+            return variants
         text = raw.decode("latin-1")
         variants.append(text)
         # 抓包里常见 ASCII 与 UTF-16 交错：去掉 NUL 再试一次（init_ied.txt 就是这种）。
@@ -615,7 +625,11 @@ def self_test() -> int:
     fake_guid = "-".join(("0123abcd", "4567", "89"))
     fake_serial = "".join(("ABC", "DEF", "123456"))  # 12 位大写 hex，明显虚构
     fake_ip = ".".join(("192", "168", "55", "66"))  # 测试网段，非真实内网
-    fake_repo = "/".join(("acme", "example-project"))
+    # 故意混大小写：全小写形态才能验证仓库名规则真的忽略大小写（#117 二轮评审阻断 1）。
+    fake_repo = "/".join(("Acme", "Example-Project"))
+    # 仓库侧校验用真实 slug，否则对「本仓库自己的名字」这一值天然盲（#117 二轮评审 N1）；
+    # 没有远端时退回虚构值，不能让自检因为环境缺失而失败。
+    real_repo = _repo_slug() or fake_repo
     fake_pat = "ghp" + "_" + "A" * 36
     fake_key = "-----BEGIN " + "RSA " + "PRIVATE KEY" + "-----"
     fake_path_win = "C:" + "/" + "Users" + "/" + "alice" + "/" + "documents"
@@ -640,6 +654,9 @@ def self_test() -> int:
     cases: list[tuple[str, str, bool, set[str]]] = [
         ("明文 GUID 必红", f"GUID={fake_guid}", True, {"guid"}),
         ("hex 编码 GUID 必红", f"raw={hex_guid}", True, {"guid"}),
+        ("14 位去横线 GUID 必红", f"raw={no_dash}", True, {"guid"}),
+        ("12 位 hex 不误报", f"raw={no_dash[:12]}", False, set()),
+        ("无字母 14 位 hex 不误报", "12345678901234", False, set()),
         ("4-4-4-2 重分组必红", f"raw={grouped_dash}", True, {"guid"}),
         ("冒号分隔重分组必红", f"raw={grouped_colon}", True, {"guid"}),
         ("空格分隔重分组必红", f"raw={grouped_space}", True, {"guid"}),
@@ -661,6 +678,8 @@ def self_test() -> int:
         ("私有仓库名字面量必红", f"remote={fake_repo}", True, {"private-repo"}),
         ("仓库 URL 带 .git（SSH）必红", "git@github.com:" + fake_repo + ".git", True, {"private-repo"}),
         ("仓库 URL 带 .git（HTTPS）必红", "https://github.com/" + fake_repo + ".git", True, {"private-repo"}),
+        ("全小写 owner/repo 必红", "https://github.com/" + fake_repo.lower(), True, {"private-repo"}),
+        ("全小写 owner/repo 带 .git 必红", "git@github.com:" + fake_repo.lower() + ".git", True, {"private-repo"}),
         ("Java 的 private 关键字不报", "private boolean scanning;", False, set()),
         ("GitHub PAT 必红", fake_pat, True, {"secret"}),
         ("AWS key id 必红", "AKIA" + "0" * 16, True, {"secret"}),
@@ -734,14 +753,15 @@ def self_test() -> int:
     )
 
     # 仓库自身身份文档只放行 private-repo，其他文件照报（豁免不能无限宽）。
-    marker = "仓库 `" + fake_repo + "`（" + "private" + "）"
+    # 用真实 slug 构造，否则这条对「本仓库自己的名字」天然盲（#117 二轮评审 N1）。
+    marker = "仓库 `" + real_repo + "`（" + "private" + "）"
     record(
         "自身身份文档的 private-repo 不报",
-        not scan_text(marker, "AGENTS.md", fake_repo),
+        not scan_text(marker, "AGENTS.md", real_repo),
     )
     record(
         "非身份文档的 private-repo 仍报",
-        bool(scan_text(marker, "docs/history/x.md", fake_repo)),
+        bool(scan_text(marker, "docs/history/x.md", real_repo)),
     )
 
     # B1：门禁源码「自己扫自己」必须零命中；夹具若掺入真实值，这条会立刻变红。
@@ -756,7 +776,7 @@ def self_test() -> int:
     # 夹具里混进了真实值（#117 评审 B1 的复现方式）。
     fixture_text = "\n".join(text for _, text, _, _ in cases)
     fixture_phs = {h.placeholder() for h in scan_text(fixture_text, "self-test.txt", fake_repo)}
-    repo_hits, _, _ = scan_repo(fake_repo)
+    repo_hits, _, _ = scan_repo(real_repo)
     repo_phs = {h.placeholder() for h in repo_hits}
     overlap = fixture_phs & repo_phs
     record(
