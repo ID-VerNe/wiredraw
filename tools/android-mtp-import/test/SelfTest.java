@@ -2162,6 +2162,16 @@ public final class SelfTest {
         check("scanCounter 只给进度分母", "320/1526".equals(UiText.scanCounter(320, 1526)),
                 "实际 " + UiText.scanCounter(320, 1526));
 
+        // issue #53：P-07 / U-21 要求续传跳过数进 Details 抽屉；字面量在这里钉住。
+        check("skippedLine 形如 `Skipped N existing`（P-07 / U-21）",
+                "Skipped 12 existing".equals(UiText.skippedLine(12)),
+                "实际 " + UiText.skippedLine(12));
+        check("skippedLine 0 不显示（不得伪装「跳过 0」）",
+                "".equals(UiText.skippedLine(0)),
+                "实际 " + UiText.skippedLine(0));
+        check("skippedLine 负数按 0 处理", "".equals(UiText.skippedLine(-3)),
+                "实际 " + UiText.skippedLine(-3));
+
         String summary = UiText.doneSummary(36, 871L * mb);
         check("doneSummary 形如 `36 · 871 MB`（U-47）", summary.matches("\\d+ \u00B7 \\d+ MB"),
                 "实际 " + summary);

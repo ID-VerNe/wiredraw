@@ -97,6 +97,17 @@ public final class UiText {
         return scanned + "/" + total;
     }
 
+    /**
+     * 续传跳过数（`P-07` / `U-21` / 词表）：只进 `Details` 抽屉，主视觉不出现（`U-47` 同样禁止 `DONE` 首屏出现该句）。
+     *
+     * `skipped <= 0` 返回空串而不是 `Skipped 0 existing`：P-07 明确禁止把断点续传伪装成「跳过 0」，
+     * 没有跳过的轮次也不该在抽屉里多一行噪声。
+     */
+    public static String skippedLine(int skipped) {
+        if (skipped <= 0) return "";
+        return "Skipped " + skipped + " existing";
+    }
+
     /** 详情抽屉里的速率（P-03：不进主视觉）。 */
     public static String rate(long bytesPerSecond) {
         if (bytesPerSecond <= 0) return "0 MB/s";
