@@ -51,8 +51,8 @@ final class PartialProbe {
      */
     void run(int handle, long size, String name, File full, List<Object[]> others) {
         report("---- [PC 探针] getPartialObject 语义（" + name + "，" + size + " 字节）----");
-        // 先测普通对象支持面：越界测试会主动制造 IOException，若放在前面可能让 MTP 会话进入错误态，
-        // 之后所有调用都报 "Failed to read data"，会把「不支持」误判成普遍现象。
+        // 先测普通对象支持面：越界测试会主动制造 IOException；若它真会让会话进入错误态，
+        // 后续读取都会被误判成「不支持」，所以越界测试一律排在最后。
         if (others != null) {
             for (Object[] e : others) {
                 int h = (Integer) e[0];
@@ -130,64 +130,72 @@ final class PartialProbe {
     private void testAssemble(int handle, long size, String name, File full) throws Exception {
         File tmp = new File(full.getParentFile(), "partial_" + name);
         if (tmp.exists() && !tmp.delete()) report("[PC] 旧的 " + tmp.getName() + " 删不掉，结果可能不准");
-        byte[] buf = new byte[CHUNK];
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        long offset = 0;
-        int calls = 0;
-        long t0 = System.nanoTime();
-        try (FileOutputStream fo = new FileOutputStream(tmp)) {
-            while (offset < size) {
-                int want = (int) Math.min((long) buf.length, size - offset);
-                long n = mtp.getPartialObject(handle, offset, want, buf);
-                if (n <= 0) {
-                    report("[PC] 拼接中断：offset=" + offset + " 返回 " + n);
-                    break;
-                }
-                if (n > want) {
-                    report("[PC] 异常：请求 " + want + " 字节却返回 " + n + "（缓冲区语义不符）");
-                }
-                int copy = (int) Math.min(n, (long) want);
-                fo.write(buf, 0, copy);
-                md.update(buf, 0, copy);
-                offset += copy;
-                calls++;
-                if (calls % 8 == 0 && offset < size) {
-                    report(String.format(Locale.US, "  ...拼接 %d/%d（%d 次调用）", offset, size, calls));
+        try {
+            byte[] buf = new byte[CHUNK];
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            long offset = 0;
+            int calls = 0;
+            long t0 = System.nanoTime();
+            try (FileOutputStream fo = new FileOutputStream(tmp)) {
+                while (offset < size) {
+                    int want = (int) Math.min((long) buf.length, size - offset);
+                    long n = mtp.getPartialObject(handle, offset, want, buf);
+                    if (n <= 0) {
+                        report("[PC] 拼接中断：offset=" + offset + " 返回 " + n);
+                        break;
+                    }
+                    if (n > want) {
+                        report("[PC] 异常：请求 " + want + " 字节却返回 " + n + "（缓冲区语义不符）");
+                    }
+                    int copy = (int) Math.min(n, (long) want);
+                    fo.write(buf, 0, copy);
+                    md.update(buf, 0, copy);
+                    offset += copy;
+                    calls++;
+                    if (calls % 8 == 0 && offset < size) {
+                        report(String.format(Locale.US, "  ...拼接 %d/%d（%d 次调用）", offset, size, calls));
+                    }
                 }
             }
+            double sec = (System.nanoTime() - t0) / 1e9;
+            long got = tmp.length();
+            String md5Got = md5(tmp);
+            String md5Full = md5(full);
+            byte[] head = new byte[16];
+            int hn = 0;
+            try (FileInputStream in = new FileInputStream(tmp)) {
+                hn = Math.max(in.read(head), 0);
+            }
+            StringBuilder hx = new StringBuilder();
+            for (int i = 0; i < hn; i++) hx.append(String.format("%02X ", head[i]));
+            boolean tiff = hn >= 4 && head[0] == 0x49 && head[1] == 0x49
+                    && head[2] == 0x2A && head[3] == 0x00;
+            report(String.format(Locale.US,
+                    "[PC] 拼接结果: %d 字节 / %d 次调用 / %.2f 秒 = %.2f MB/s",
+                    got, calls, sec, (got / 1048576.0) / (sec <= 0 ? 1 : sec)));
+            report(String.format(Locale.US,
+                    "[PC] 字节数 %s（相机 %d / 拼接 %d）；MD5 %s（拼接 %s / 整文件 %s）",
+                    got == size ? "一致 ✅" : "不一致 ❌", size, got,
+                    md5Got.equals(md5Full) ? "一致 ✅" : "不一致 ❌", md5Got, md5Full));
+            report("[PC] 文件头: " + hx + (tiff ? "✅ 合法 ARW(TIFF)" : "❌ 头部不对"));
+        } finally {
+            // 拼接用的临时文件在手机私有目录，最大 24.4 MB；正常结束与中途异常都要收尾，避免残留。
+            if (tmp.exists() && !tmp.delete()) {
+                report("[PC] 临时文件 " + tmp.getAbsolutePath() + " 删除失败，需手动清理");
+            }
         }
-        double sec = (System.nanoTime() - t0) / 1e9;
-        long got = tmp.length();
-        String md5Got = md5(tmp);
-        String md5Full = md5(full);
-        byte[] head = new byte[16];
-        int hn = 0;
-        try (FileInputStream in = new FileInputStream(tmp)) {
-            hn = Math.max(in.read(head), 0);
-        }
-        StringBuilder hx = new StringBuilder();
-        for (int i = 0; i < hn; i++) hx.append(String.format("%02X ", head[i]));
-        boolean tiff = hn >= 4 && head[0] == 0x49 && head[1] == 0x49
-                && head[2] == 0x2A && head[3] == 0x00;
-        report(String.format(Locale.US,
-                "[PC] 拼接结果: %d 字节 / %d 次调用 / %.2f 秒 = %.2f MB/s",
-                got, calls, sec, (got / 1048576.0) / (sec <= 0 ? 1 : sec)));
-        report(String.format(Locale.US,
-                "[PC] 字节数 %s（相机 %d / 拼接 %d）；MD5 %s（拼接 %s / 整文件 %s）",
-                got == size ? "一致 ✅" : "不一致 ❌", size, got,
-                md5Got.equals(md5Full) ? "一致 ✅" : "不一致 ❌", md5Got, md5Full));
-        report("[PC] 文件头: " + hx + (tiff ? "✅ 合法 ARW(TIFF)" : "❌ 头部不对"));
     }
 
     /** 3) length 超过剩余字节：截断到 EOF 还是抛异常。 */
     private void testLengthOverflow(int handle, long size) throws Exception {
         byte[] buf = new byte[64 * 1024];
         long offset = Math.max(0, size - 100);
+        long remaining = size - offset;  // size < 100 时剩余会小于 100，按实际值算
         long n = mtp.getPartialObject(handle, offset, buf.length, buf);
         report(String.format(Locale.US,
-                "[PC] length 越界: offset=%d（剩余 100）、请求 %d → 返回 %d（%s）",
-                offset, buf.length, n,
-                n == 100 ? "截断到 EOF" : (n == 0 ? "返回 0" : "返回非预期长度")));
+                "[PC] length 越界: offset=%d（剩余 %d）、请求 %d → 返回 %d（%s）",
+                offset, remaining, buf.length, n,
+                n == remaining ? "截断到 EOF" : (n == 0 ? "返回 0" : "返回非预期长度")));
     }
 
     /** 4) offset 越界：offset == size 与 offset == size + 1 分别记录。 */
@@ -200,6 +208,7 @@ final class PartialProbe {
             report("[PC] offset=size（恰好 EOF）异常: " + t);
         }
         try {
+            // 有意为之的最后一步：只记录越界请求本身的报错；本轮不做会话探活（留待真机收尾批次）。
             long n = mtp.getPartialObject(handle, size + 1, buf.length, buf);
             report("[PC] offset=size+1 返回 " + n);
         } catch (Throwable t) {

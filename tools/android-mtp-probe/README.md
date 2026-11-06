@@ -76,12 +76,14 @@ MD5 = 060f09ec9eb37139060a9f49c52c98a5   （与 PC 侧 pull 下来后一致）
 实测结论：
 
 - `offset` 是**绝对偏移**：`offset=0` 连读两次拿到相同字节，且与整文件头部一致。
-- 4 张 ARW + 1 张 JPEG 的首块读取全部成功（普通对象都支持；`0xFFFFC001` 未测）。
-- 1 MiB 分块 × 25 次拼满 24.4 MB 的 ARW，字节数与 MD5 和 `importFile` 结果完全一致，
-  文件头是合法 TIFF；吞吐 22.86 MB/s，与 `importFile` 基本同速。
+- 抽样的 4 张 ARW + 1 张 JPEG 首块均成功（**不能推及所有普通对象**；`0xFFFFC001` 未测）。
+- 24 次 1 MiB + 末次 457,472 字节（共 25 次调用）拼满 24.4 MB 的 ARW，字节数与 MD5
+  和 `importFile` 结果完全一致，文件头是合法 TIFF；吞吐 22.86 MB/s，与 `importFile` 基本同速。
 - `length` 超过剩余字节会**截断到 EOF**（剩余 100 字节就返回 100），不抛异常。
 - `offset == size` 返回 0；`offset == size + 1` 抛 `IOException: Failed to read data.`。
-  **越界请求会让会话进入错误态**：此后对任何对象的 `getPartialObject` 都报错，必须避免。
+  **越界后会话是否进入错误态只有首轮观察，本轮未复现**：越界测试固定排在最后，抛异常后没有任何
+  后续读取，本轮也**未做会话探活**；该结论留到真机收尾批次复测。
+  `offset = size + 1` 是探针有意为之的最后一步，正常续传实现绝不能发出这种请求。
 - 因此续传请求必须满足 `0 <= offset <= size`，且 `length <= size - offset`；
   分块不要小于 1 MiB（64 KiB 小块单次只有 0.38–0.43 MB/s）。
 
