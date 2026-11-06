@@ -12,34 +12,51 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.UiText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 单张照片页（`photo`）。只有两件信息：`ARW · <size> MB` 胶囊 + 返回。
  *
  * 明确不做（§4.2 / U-51）：Share / Edit / Favorite / Delete / Histogram 一律没有。
- * 真实路径下内嵌 JPEG 预览未验证（§0.11 第 3 行）：**不显示占位块、不放假图**
- * （spec 增量口径，只留单行 `ARW · 24.6 MB` 胶囊）。
  *
- * demo 模式例外（issue #46）：`AppModel.previewSource` 由 debug 的 `DemoImages` 注入，
- * 有真实照片的降采样图时按 U-51「全幅照片」渲染；没有素材时 `previewFor` 返回 null，
- * 自动退回胶囊形态。
+ * 像素来源（#61）：真实 MTP 路径在 IO 线程走 `ThumbnailStore.loadPreview`
+ * （只读 `getThumbnail`：ARW → 同名同目录 JPG），**不在 composition / 主线程解码**。
+ * 加载中或拿不到像素时保持单行 `ARW · <size> MB` 胶囊形态（U-51：不显示占位块、不放假图）。
+ * demo 模式（issue #46）仍先取 `AppModel.previewSource` 的整图；没有素材时退回同一条异步链路。
  */
 @Composable
 fun PhotoScreen(model: AppModel) {
     val entry = model.openedPhoto ?: return
-    val preview = remember(entry.handle) { model.previewFor(entry) }
+    val store = model.thumbnails
+    // demo 素材是同步接口（#46 遗留），只在 debug 注入时命中；真实路径恒为 null。
+    val demoPreview = remember(entry.handle) { model.previewFor(entry) }
+    var preview by remember(entry.handle, store) {
+        mutableStateOf(demoPreview ?: store?.cachedPreview(entry.handle))
+    }
+
+    LaunchedEffect(entry.handle, store, model.backgroundScanning) {
+        if (preview == null && store != null && !model.backgroundScanning) {
+            preview = withContext(Dispatchers.IO) { model.loadPreview(entry) }
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(UiColors.photoCanvas)) {
-        if (preview != null) {
+        val bitmap = preview
+        if (bitmap != null) {
             Image(
-                bitmap = preview.asImageBitmap(),
+                bitmap = bitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()

@@ -27,6 +27,7 @@
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
 | 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
 | 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache 兜底，格子移出组合即 `evict`（离屏位图不常驻）；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
+| 看图页预览（#61） | ✅ 实现（`PhotoScreen` 异步走 `ThumbnailStore.loadPreview`，同一只读链路；加载/失败保持 U-51 胶囊；8 MiB 独立预览缓存，连续打开同一张不重复读相机；分辨率受 `getThumbnail` 本身，**真机未验**） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
@@ -256,8 +257,13 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       ARW 句柄 `getThumbnail` 若不支持，日志出现 `ARW 缩略图失败` 但**同名 JPG** 回退成功；
       两者都没有时才退回 V-19 灰块，且**不得**崩溃 —— **未验**（2026-11-06 相机被另一会话
       探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
+- [ ] 看图页（#61）：长按任一格进入 `photo` 页，必须出现该张照片的像素（全幅 `Fit`），
+      不是只有黑底 + `ARW · <size>` 胶囊；加载中与失败时才保持胶囊，**不得**出现占位块/假图；
+      返回再进同一张不重复读相机（8 MiB 预览缓存）；拔线/会话挂起时退回胶囊且不崩
+      —— **未验**（同上，相机被占用）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
-      （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
+      （有像素时全幅 `Fit`，否则单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、
+      不改徽标与 `Import all N` 分母
 - [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
       与相机侧 `ImportPlan.Item.size` 一致（PA / issue #50）
       —— 2026-11-06 实测：`DSC04541.ARW` 25393920 字节，落盘一致，文件头 `49 49 2a 00`

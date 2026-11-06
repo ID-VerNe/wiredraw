@@ -332,6 +332,12 @@ class AppModel {
     /** 读网格缩略图（**必须**在 IO 线程调用）；null 表示该条目没有可用预览。 */
     fun loadThumbnail(entry: Catalog.Entry): Bitmap? = thumbnails?.load(entry)
 
+    /** 看图页首帧只读缓存（预览缓存优先，其次网格缓存），不触发相机调用。 */
+    fun cachedPreview(handle: Int): Bitmap? = thumbnails?.cachedPreview(handle)
+
+    /** 读看图页预览（**必须**在 IO 线程调用）；null 时保持 U-51 胶囊形态。 */
+    fun loadPreview(entry: Catalog.Entry): Bitmap? = thumbnails?.loadPreview(entry)
+
     fun closePhoto() {
         openedPhoto = null
     }
