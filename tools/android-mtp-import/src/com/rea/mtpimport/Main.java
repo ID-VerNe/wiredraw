@@ -52,6 +52,12 @@ public final class Main extends ComponentActivity {
     private static final long DESTROY_JOIN_MS = 1000L;
 
     /**
+     * #59：会话探活的最长等待。探活在后台线程持 `ioLock` 发 `getObjectInfo`，
+     * UI 线程只等这么久；超时即按失步处理（相机挂起时不能无限卡住界面）。
+     */
+    private static final long PROBE_JOIN_MS = 1200L;
+
+    /**
      * 本次权限申请的序号（#11）。系统回调是广播，上一次申请迟到的回调
      * 可能落在新一次申请等待期间；只有序号匹配的回调才算数。
      */
@@ -65,6 +71,9 @@ public final class Main extends ComponentActivity {
 
     /** 界面状态（Compose 唯一数据源）。 */
     private final AppModel model = new AppModel();
+
+    /** 照片墙缩略图（issue #59）：会话级缓存，所有相机调用走 session.ioLock()。 */
+    private final ThumbnailStore thumbnails = new ThumbnailStore();
 
     /** 当前这一轮扫描的取消令牌（B1）；没有扫描时为 null，由 scanWorker 的 finally 清掉。 */
     private volatile ScanRun scanRun;
@@ -198,6 +207,9 @@ public final class Main extends ComponentActivity {
             } else {
                 // 扫描取消只回照片墙：**不动** transferViewClosed，否则下一次真实导入的进度
                 // 会被误判成「视图已关闭」，永远进不了 IMPORTING。
+                // 重扫窗口里 session 可能已经换成了新会话，而旧墙用的是旧句柄：
+                // 先摘会话，免得格子用旧 handle 去新会话取图（评审阻断项 B2）。
+                thumbnails.detachSession();
                 model.backToCatalog();
             }
         }
@@ -369,6 +381,7 @@ public final class Main extends ComponentActivity {
         model.applyLocationPath(new File(getFilesDir(), "imported").getAbsolutePath());
 
         ComposeHost.mount(this, model);
+        model.bindThumbnails(thumbnails);
 
         // 深色图标必须在 setContentView 之后设：`getInsetsController()` 依赖已挂上的 DecorView，
         // 在 onCreate 里抢在 setContentView 之前调会拿到 null（Mi 9 / Android 15 上实测直接崩溃）。
@@ -425,6 +438,9 @@ public final class Main extends ComponentActivity {
         permGate.cancel();
         Thread scanning = scanThread;
         if (scanning != null) scanning.interrupt();
+
+        // #59：先摘会话并清缓存，阻止新的 getThumbnail；在飞的缩略图请求由 ioLock 与 close 串行。
+        thumbnails.clear();
 
         long deadline = System.nanoTime() + DESTROY_JOIN_MS * 1_000_000L;
         boolean idle = awaitIdle(running, deadline)
@@ -503,7 +519,11 @@ public final class Main extends ComponentActivity {
         try {
             Class<?> cls = Class.forName("com.rea.mtpimport.DemoImages");
             Object preview = cls.getMethod("create", Context.class).invoke(null, this);
-            if (preview instanceof PhotoPreview) model.setPreviewSource((PhotoPreview) preview);
+            if (preview instanceof PhotoPreview) {
+                model.setPreviewSource((PhotoPreview) preview);
+                // 照片墙与看图页共用同一来源（issue #59 / #61）。
+                thumbnails.setDemo((PhotoPreview) preview);
+            }
         } catch (ClassNotFoundException e) {
             // release 构建：没有 demo 素材
         } catch (Throwable t) {
@@ -621,12 +641,19 @@ public final class Main extends ComponentActivity {
                 log.line("扫描已取消，跳过会话建立");
                 return;
             }
-            if (session != null) session.close();
+            if (session != null) {
+                // 先摘会话再关（与取消路径同一顺序）：缩略图拿锁后会重判 session。
+                thumbnails.detachSession();
+                session.close();
+            }
+            // 句柄只在当前会话里有效；重开前把旧缩略图整块释放。
+            thumbnails.clear();
             session = MtpSession.open(um, dev, log);
             if (session == null) {
                 postIfActive(run, () -> model.showError("相机未就绪，请拔插数据线"));
                 return;
             }
+            thumbnails.setSession(session);
             if (run.isCancelled()) {
                 // 取消可能发生在 open() 返回之前：会话不在 UI 线程关，交给 finally 收尾
                 // （同一个 MtpDevice 上 close 与 getObjectInfo 并发的竞态未验证）。
@@ -664,6 +691,8 @@ public final class Main extends ComponentActivity {
                                     selection = new Selection(snapshot);
                                 }
                                 catalog = snapshot;
+                                // 渐进快照就是当前能解析同名 JPG 的范围（#59）。
+                                thumbnails.setCatalog(snapshot);
                                 model.showPartialCatalog(snapshot, selection, done, total);
                                 log.line(String.format(Locale.US,
                                         "渐进发布：已扫描 %d/%d，照片墙 %d 张",
@@ -685,6 +714,7 @@ public final class Main extends ComponentActivity {
                 // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
                 if (model.getBackgroundScanning()) selection.retarget(scanned);
                 else selection = new Selection(scanned);
+                thumbnails.setCatalog(scanned);
                 model.showCatalog(scanned, selection);
                 // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
                 refreshSpaceCheck();
@@ -697,6 +727,8 @@ public final class Main extends ComponentActivity {
             if (run.isCancelled()) {
                 MtpSession s = session;
                 if (s != null) {
+                    // 先摘会话再关：缩略图线程拿锁后会重判 session，避免 getThumbnail 撞上 close。
+                    thumbnails.detachSession();
                     log.line("取消收尾：关闭 MTP 会话");
                     s.close();
                     session = null;
@@ -881,7 +913,8 @@ public final class Main extends ComponentActivity {
 
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
         // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
-        final ImportService round = new ImportService(log, new MtpTransfer(s.device(), log), out);
+        final ImportService round = new ImportService(
+                log, new MtpTransfer(s.device(), log, s.ioLock()), out);
         service = round;
         lastProgress = null;
         // PD：失败明细属于「本轮」；新一轮开始时清空，避免上一轮的失败混进本次 Details。
@@ -1016,6 +1049,9 @@ public final class Main extends ComponentActivity {
      *
      * `getObjectInfo(handle)` 是 GetObject，只读：不删除、不改设置、不触发快门。
      * 返回 false 表示会话可能已失步，调用方必须落现有 `ERROR` 路径，不能带着失步会话继续传。
+     *
+     * #59：探活与缩略图 / 导入共用 `ioLock`，且不在 UI 线程直接发原生调用；
+     * UI 线程最多等 {@link #PROBE_JOIN_MS}，超时按失步处理（相机挂起时不再无限卡住界面）。
      */
     private boolean probeSession(int handle, String when) {
         final MtpSession s = session;
@@ -1023,14 +1059,38 @@ public final class Main extends ComponentActivity {
             log.line(when + "：没有可用的 MTP 会话");
             return false;
         }
+        final boolean[] alive = {false};
+        final Throwable[] error = {null};
+        Thread probe = new Thread(() -> {
+            s.ioLock().lock();
+            try {
+                // 扫描取消 / onDestroy 摘掉会话后不再往已关闭/已换代的设备上发命令。
+                if (session != s) return;
+                alive[0] = s.device() != null && s.device().getObjectInfo(handle) != null;
+            } catch (Throwable t) {
+                error[0] = t;
+            } finally {
+                s.ioLock().unlock();
+            }
+        }, "probe-session");
+        probe.start();
         try {
-            final boolean alive = s.device().getObjectInfo(handle) != null;
-            if (!alive) log.line(when + "：getObjectInfo(" + handle + ") 无返回");
-            return alive;
-        } catch (Throwable t) {
-            log.line(when + "：会话探活异常：" + t);
+            probe.join(PROBE_JOIN_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return false;
         }
+        if (probe.isAlive()) {
+            log.line(when + "：探活超时（相机可能挂起）");
+            probe.interrupt();
+            return false;
+        }
+        if (error[0] != null) {
+            log.line(when + "：会话探活异常：" + error[0]);
+            return false;
+        }
+        if (!alive[0]) log.line(when + "：getObjectInfo(" + handle + ") 无返回");
+        return alive[0];
     }
 
     /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */

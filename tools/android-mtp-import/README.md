@@ -26,6 +26,7 @@
 | 建 MTP 会话、带唤醒重试拿存储 | ✅ 实现（8 次 / 3 秒，同探针） |
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
 | 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
+| 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache 兜底，格子移出组合即 `evict`（离屏位图不常驻）；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
@@ -60,6 +61,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ResumableTransfer 传输契约（整文件 / 取消 / offset 续传，语义见 #67）    [纯 JDK]
 ├─ MtpTransfer       真实传输：importFile（从头）/ getPartialObject（续传）
 │                    → 校验字节 → rename 到 relPath；取消删本次半成品（PB/PC） [android]
+├─ ThumbnailStore    照片墙缩略图：getThumbnail → 同名 JPG 回退 → 24 MiB LruCache [android]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -145,7 +147,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；280 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；284 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -214,7 +216,9 @@ P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、�
 读取，按最长边 ≤1440、JPEG 质量 80 降采样到 `src/debug/assets/demo/photo_XX.jpg`，
 EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；目录缺失 / 未配置时任务打印
 `skip` 并继续，APK 里没有素材，`photo` 页退回 `ARW · <size>` 胶囊。ARW 不进 APK，
-假树仍保留 ARW 条目与真实大小。真实 MTP 路径不走这条链路，仍按 U-51 只显示胶囊。
+假树仍保留 ARW 条目与真实大小。真实 MTP 路径不走这条链路：自 #59 起**照片墙**改由相机
+`getThumbnail` 取图（demo 模式下 `ThumbnailStore` 直接用上面的 demo 素材，照片墙格子也能
+看到图）；`photo` 页仍是 #46 的 `PhotoPreview`。
 
 ## 沿用探针的三条实测结论
 
@@ -246,6 +250,12 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
       `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
       `IMPORTING`（日志不得出现「先扫描」）—— **未验**（同上，相机被占用）
+- [ ] 缩略图（#59）：照片墙格子必须显示真实缩略图，不是灰块 + 文件名；格子滚出可视区后
+      位图必须被移出缓存（滚回会重新发 `getThumbnail`，属预期，不是重复请求缺陷）；
+      内存里最多 24 MiB 位图（LRU 兜底）。
+      ARW 句柄 `getThumbnail` 若不支持，日志出现 `ARW 缩略图失败` 但**同名 JPG** 回退成功；
+      两者都没有时才退回 V-19 灰块，且**不得**崩溃 —— **未验**（2026-11-06 相机被另一会话
+      探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （只显示单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、不改徽标与 `Import all N` 分母
 - [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数

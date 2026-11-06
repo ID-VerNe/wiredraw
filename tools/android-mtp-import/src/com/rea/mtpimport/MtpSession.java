@@ -6,8 +6,11 @@ import android.hardware.usb.UsbManager;
 import android.mtp.MtpDevice;
 import android.mtp.MtpDeviceInfo;
 import android.mtp.MtpStorageInfo;
+import android.os.Looper;
 
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * MTP 会话生命周期。这段逻辑是从已验证的探针里抽出来的
@@ -25,13 +28,26 @@ public final class MtpSession {
 
     private static final int STORAGE_RETRIES = 8;
     private static final long STORAGE_RETRY_MS = 3000;
+    /** UI 线程 close 时等缩略图 IO 的上限（#59）；超时就跳过 close，不让主线程卡死。 */
+    private static final long CLOSE_WAIT_MS = 500;
 
     private final UsbDeviceConnection conn;
     private final MtpDevice mtp;
 
+    /**
+     * 会话级 I/O 锁：同一 `MtpDevice` 不允许并行发命令。导入（`importFile` /
+     * `getPartialObject`）与照片墙缩略图（`getThumbnail`，issue #59）共用这把锁，
+     * 公平锁保证缩略图不会在长时间导入期间被饿死。
+     */
+    private final ReentrantLock ioLock = new ReentrantLock(true);
+
     private MtpSession(UsbDeviceConnection conn, MtpDevice mtp) {
         this.conn = conn;
         this.mtp = mtp;
+    }
+
+    public ReentrantLock ioLock() {
+        return ioLock;
     }
 
     /** 在已连接的 USB 设备里挑一台索尼机身；没有就返回 null。 */
@@ -101,14 +117,37 @@ public final class MtpSession {
     }
 
     public void close() {
-        try {
-            mtp.close();
-        } catch (Throwable ignored) {
-            // 已断开时 close 抛异常无所谓
+        // 与缩略图 / 导入共用同一把锁：close 必须等在飞的 getThumbnail 结束，
+        // 否则 mtp.close() 会与不同步的 getThumbnail 并行（Android 35 的 close 同步，
+        // getThumbnail 不同步）。
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            // UI 线程不能无限等：相机挂起时 getThumbnail 可能卡住，等太久就是 ANR。
+            boolean locked;
+            try {
+                locked = ioLock.tryLock(CLOSE_WAIT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                locked = false;
+            }
+            if (!locked) {
+                android.util.Log.w("MtpImport", "缩略图 IO 未结束：UI 线程跳过 close（避免 ANR）");
+                return;
+            }
+        } else {
+            ioLock.lock();
         }
         try {
-            conn.close();
-        } catch (Throwable ignored) {
+            try {
+                mtp.close();
+            } catch (Throwable ignored) {
+                // 已断开时 close 抛异常无所谓
+            }
+            try {
+                conn.close();
+            } catch (Throwable ignored) {
+            }
+        } finally {
+            ioLock.unlock();
         }
     }
 }

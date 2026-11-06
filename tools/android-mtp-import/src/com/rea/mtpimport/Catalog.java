@@ -217,4 +217,29 @@ public final class Catalog {
         for (Entry e : entries) if (!e.isFolder() && e.isRaw()) n++;
         return n;
     }
+
+    /**
+     * 找与 ARW 同名同目录的 JPG（issue #59 的缩略图回退）。
+     *
+     * 索尼机身默认同时写 JPEG，拿 JPG 的 `getThumbnail` 不需要额外验证相机能力。
+     * 只做内存匹配，不发起 MTP 调用；比较忽略大小写与扩展名。
+     */
+    public Entry findSiblingJpeg(Entry raw) {
+        if (raw == null || raw.isFolder()) return null;
+        String stem = stemOf(raw.name);
+        for (Entry e : childrenOf(raw.parent)) {
+            if (e.handle == raw.handle || e.isFolder()) continue;
+            if (!stemOf(e.name).equals(stem)) continue;
+            if (e.format == FMT_JPEG || e.name.toUpperCase(Locale.US).endsWith(".JPG")
+                    || e.name.toUpperCase(Locale.US).endsWith(".JPEG")) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    private static String stemOf(String name) {
+        int dot = name.lastIndexOf('.');
+        return (dot < 0 ? name : name.substring(0, dot)).toUpperCase(Locale.US);
+    }
 }
