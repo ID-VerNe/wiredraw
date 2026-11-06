@@ -75,7 +75,8 @@ git config core.hooksPath .githooks
 - 注释与 README、CONTRIBUTING 用中文；命令、协议名、代码标识保留英文原文。
 - 文档里的相对链接必须可达（`check_doc_links.py` 会校验），断了按门禁红处理。
 - 大文件不入库：RAW 样本、原始抓包、构建产物一律 gitignore；
-  15 个第三方参考仓库也不入库。
+  15 个第三方参考仓库也不入库。哪些目录只留本地、缺了会怎样，见
+  [本地专属目录与内部工具](docs/contributing/LOCAL_WORKSPACE.md)。
 - 文档里贴数字必须带单位与口径；涉及相机的结论必须标注环境。
 
 ## AI 协作说明

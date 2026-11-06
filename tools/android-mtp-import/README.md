@@ -37,7 +37,7 @@
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
-| **暂停（文件边界）/ 取消（关 fd 尝试中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 约 0.6 s 返回并重传；打断没有跨机型保证） |
+| **暂停（文件边界）/ 取消（关 fd 尝试中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 约 0.6 s 返回并重传；打断没有跨机型保证。issue #57 补：恢复前按 `relPath + size` 比较暂停轮次的清单，计划变了就取消旧轮次、按新计划重开——真机未验） |
 | **取消后 / 暂停恢复前复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1 / 三审 B-1：取消后与 `Pause & exit` 恢复前都探活；卡死轮次放弃后拦住扫描/新导入且不覆写 journal。探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ✅ 实现（PC / issue #50；语义由 #67 探针在 ILCE-7C 上验证，App 内端到端待真机） |
@@ -163,7 +163,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；376 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；392 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -303,6 +303,10 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
       —— 2026-11-06 三审 B-1 复核：`Pause & exit` 后停 **90 秒**再点 `Import`，恢复前只读探活通过
       （日志无「恢复前探活失败」），`继续已暂停的一轮`，剩余 2 张继续落盘，`完成 3 / 跳过 0 / 失败 0`
       （ILCE-7C 2.00 / MI 9 / Android 15 API 35 / USB MTP）
+- [ ] `Pause & exit` 回照片墙后**改勾选 / filter / 档位**再点 `Import N`：必须按新计划重开一轮
+      （日志 `暂停轮次的清单已变化（旧 N 个 / 新 M 个）：取消旧轮次，按当前勾选重新开始`），
+      不得把新勾选静默忽略、也不得继续跑旧清单；已完成文件仍由 Journal 跳过（#57）
+      —— **未验**（相机已断开，判定的纯逻辑由 SelfTest 覆盖）
 - [x] 导入中点 `Cancel`：当前 `importFile` 在本次机型约 0.6 s 返回（不是等整张传完；
       回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）
       —— 2026-11-06 实测：`DSC02707.ARW` 取消后 `已取消（未传满，半成品已删除）`、

@@ -3,25 +3,116 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-if [ -z "$SDK" ]; then
-  echo "请先设置 ANDROID_HOME（Android SDK 目录）：本仓库不分发个人机器路径。" >&2
+# 构建版本写死：同一 commit 在任何机器上都应产出相同的 APK。
+# 找不到对应组件时见下方报错里的「安装 / 改哪两行」提示。
+BT_VER="35.0.1"
+PLATFORM="android-35"
+
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) IS_WIN=1; EXE=".exe"; BAT=".bat" ;;
+  *)                     IS_WIN=0; EXE="";     BAT=""     ;;
+esac
+
+die() {
+  printf '[错误] %s\n' "$1" >&2
+  shift
+  for line in "$@"; do printf '       %s\n' "$line" >&2; done
   exit 1
+}
+
+# Windows 的 C:\x / C:/x 统一成 MSYS 风格 /c/x；其它平台原样返回。
+# 不做这步，继承来的 JAVA_HOME（C:\Program Files\...）在 Git Bash 里不可用。
+norm_path() {
+  if [ "$IS_WIN" != 1 ]; then
+    printf '%s\n' "$1"
+    return
+  fi
+  case "$1" in
+    [A-Za-z]:\\*|[A-Za-z]:/*)
+      local drive="${1:0:1}" rest="${1:2}"
+      rest="${rest//\\//}"
+      printf '/%s%s\n' "$(printf '%s' "$drive" | tr 'A-Z' 'a-z')" "$rest"
+      ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# ---- SDK 探测：ANDROID_HOME -> ANDROID_SDK_ROOT -> 常见默认路径 -------------
+SDK=""
+SDK_SEEN=""
+for cand in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" \
+            "$HOME/AppData/Local/Android/Sdk" \
+            "$HOME/Library/Android/sdk" \
+            "$HOME/Android/Sdk"; do
+  [ -n "$cand" ] || continue
+  cand="$(norm_path "$cand")"
+  [ -d "$cand" ] || continue
+  if [ -f "$cand/build-tools/$BT_VER/aapt2$EXE" ] && [ -f "$cand/platforms/$PLATFORM/android.jar" ]; then
+    SDK="$cand"
+    break
+  fi
+  [ -n "$SDK_SEEN" ] || SDK_SEEN="$cand"
+done
+
+if [ -z "$SDK" ]; then
+  if [ -n "$SDK_SEEN" ]; then
+    die "在 $SDK_SEEN 找到了 Android SDK，但缺少探针所需的组件。" \
+        "需要：build-tools/$BT_VER 与 platforms/$PLATFORM。" \
+        "安装：sdkmanager \"build-tools;$BT_VER\" \"platforms;$PLATFORM\"" \
+        "或修改本脚本顶部的 BT_VER / PLATFORM 两行，匹配你已安装的版本。"
+  fi
+  die "找不到 Android SDK（已尝试 ANDROID_HOME、ANDROID_SDK_ROOT 与常见默认路径）。" \
+      "请设置后重试：export ANDROID_HOME=/path/to/Android/Sdk"
 fi
-BT="$SDK/build-tools/35.0.1"
-ANDROID_JAR="$SDK/platforms/android-35/android.jar"
-JDK="/c/program files/eclipse adoptium/jdk-21.0.11.10-hotspot"
-JAVAC="$JDK/bin/javac"
+
+# ---- JDK 探测：JAVA_HOME -> PATH 里的 javac 反推 -------------------------
+JDK=""
+if [ -n "${JAVA_HOME:-}" ]; then
+  jhome="$(norm_path "$JAVA_HOME")"
+  if [ -x "$jhome/bin/javac$EXE" ] || [ -x "$jhome/bin/javac" ]; then
+    JDK="$jhome"
+  fi
+fi
+if [ -z "$JDK" ] && command -v javac >/dev/null 2>&1; then
+  JDK="$(dirname "$(dirname "$(command -v javac)")")"
+fi
+[ -n "$JDK" ] || die "找不到 JDK（需要 javac）。" \
+    "已尝试 JAVA_HOME 与 PATH；JAVA_HOME 指向的必须是 JDK，不能是 JRE。" \
+    "请设置后重试：export JAVA_HOME=/path/to/jdk-21"
+
+JAVAC=""
+for cand in "$JDK/bin/javac$EXE" "$JDK/bin/javac"; do
+  if [ -x "$cand" ]; then JAVAC="$cand"; break; fi
+done
+[ -n "$JAVAC" ] || JAVAC="$(command -v javac)"
+[ -n "$JAVAC" ] || die "JDK 里找不到 javac：$JDK"
+
+KEYTOOL="$JDK/bin/keytool$EXE"
+[ -x "$KEYTOOL" ] || KEYTOOL="$(command -v keytool || true)"
+
+# 第 5 步打包 dex 用 Python 3
+PY="$(command -v python || command -v python3 || true)"
+[ -n "$PY" ] || die "找不到 python（第 5 步打包 dex 需要 Python 3）。"
+
+BT="$SDK/build-tools/$BT_VER"
+ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
+AAPT2="$BT/aapt2$EXE"
+D8="$BT/d8$BAT"
+ZIPALIGN="$BT/zipalign$EXE"
+APKSIGNER="$BT/apksigner$BAT"
+
+echo "SDK = $SDK"
+echo "JDK = $JDK"
 
 OUT=build
 rm -rf "$OUT"
 mkdir -p "$OUT/flat" "$OUT/gen" "$OUT/classes" "$OUT/dex"
 
 echo "== 1. aapt2 compile =="
-"$BT/aapt2.exe" compile --dir res -o "$OUT/flat/res.zip"
+"$AAPT2" compile --dir res -o "$OUT/flat/res.zip"
 
 echo "== 2. aapt2 link =="
-"$BT/aapt2.exe" link \
+"$AAPT2" link \
   -o "$OUT/base.apk" \
   -I "$ANDROID_JAR" \
   --manifest AndroidManifest.xml \
@@ -45,11 +136,11 @@ fi
 
 echo "== 4. d8 =="
 find "$OUT/classes" -name '*.class' > "$OUT/classes.txt"
-"$BT/d8.bat" --release --lib "$ANDROID_JAR" --min-api 31 \
+"$D8" --release --lib "$ANDROID_JAR" --min-api 31 \
   --output "$OUT/dex" @"$OUT/classes.txt"
 
 echo "== 5. 打包 dex =="
-python - "$OUT/base.apk" "$OUT/dex/classes.dex" << 'PY'
+"$PY" - "$OUT/base.apk" "$OUT/dex/classes.dex" << 'PY'
 import sys, zipfile, shutil, os
 apk, dex = sys.argv[1], sys.argv[2]
 tmp = apk + ".tmp"
@@ -63,18 +154,19 @@ print("  classes.dex 已加入")
 PY
 
 echo "== 6. zipalign =="
-"$BT/zipalign.exe" -f -p 4 "$OUT/base.apk" "$OUT/aligned.apk"
+"$ZIPALIGN" -f -p 4 "$OUT/base.apk" "$OUT/aligned.apk"
 
 echo "== 7. 签名 =="
 KS="rea-debug.keystore"
 if [ ! -f "$KS" ]; then
-  "$JDK/bin/keytool" -genkeypair -v -keystore "$KS" -storepass android -keypass android \
+  [ -n "$KEYTOOL" ] || die "keystore 缺失，且找不到 keytool 重新生成；请把 JAVA_HOME 指向 JDK。"
+  "$KEYTOOL" -genkeypair -v -keystore "$KS" -storepass android -keypass android \
     -alias rea -keyalg RSA -keysize 2048 -validity 10000 \
     -dname "CN=REA Probe, OU=Dev, O=REA, L=NA, S=NA, C=CN" >/dev/null 2>&1
 fi
-"$BT/apksigner.bat" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
+"$APKSIGNER" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
   --out "$OUT/mtp-probe.apk" "$OUT/aligned.apk"
-"$BT/apksigner.bat" verify "$OUT/mtp-probe.apk"
+"$APKSIGNER" verify "$OUT/mtp-probe.apk"
 
 echo
 echo "✅ 产物: $(pwd)/$OUT/mtp-probe.apk"

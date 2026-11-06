@@ -255,6 +255,12 @@
 > 主 CTA 按 `V-10` 禁用（`enabled=false` + 视觉变化）；`Import all N` 使用**当前已知的可见导出文件数**
 > （顶栏计数胶囊显示当前已知的可见导出总量；主 CTA 处于禁用态，可见已选 0 时与胶囊同值，见 §2.2 / `V-27`）。可见已选 ≥1 时文案按 `T-CATALOG` 转 `Import N`（CTA 仍禁用）。后台补齐完成后细线与 `Cancel` 消失、主 CTA 启用、N 与胶囊同步更新为全量。
 > 取消时已发布的部分结果**必须**整批丢弃并回到 `COLD`，不得把部分结果停成 `CATALOG_READY`。
+>
+> **暂停轮次与照片墙的 `Import`（issue #57）**：`Pause & exit` 后从 `CATALOG_READY` 点
+> `Import all N` / `Import N` 时，若当前勾选 / filter / 档位算出的导出文件集合（以
+> `relPath + size` 为键）与暂停轮次相同，则恢复该轮（`Resume` 语义，Journal 跳过已完成）；
+> **不同**则旧轮次按 `Cancel` 处理（不弹确认、不把用户退到传输屏），并按新集合重新开始一轮。
+> 理由：`CATALOG_READY` 按 `U-17` 不得出现 `Cancel` 控件，提示「先 `Cancel`」没有可达动作。
 
 ### 1.3 返回键
 
@@ -263,6 +269,7 @@
 - **必须**把 `PAUSED` / `DONE` / `ERROR` / `UNAVAILABLE` 回退到照片墙（不再退出应用）；`PAUSED` / `ERROR` 不得因此丢失当前选择。
 - **必须**在 `IMPORTING` 下拦截返回键并给 `Pause & exit` / `Resume` 二选一；退出后必须保留断点。
   `transfer` 页顶部的 close/back 图标只关闭视图（回 `CATALOG_READY`），不取消任务；任务取消由 `Cancel` 承担。
+  暂停轮次的恢复清单口径见 §1.2 状态表后的「暂停轮次与照片墙的 `Import`」注（issue #57）。
 
 ---
 

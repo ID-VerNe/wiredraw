@@ -1,7 +1,9 @@
 package com.rea.mtpimport;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 待下载清单：由「当前 filter 可见集合 + 勾选集合 + 档位载荷」固化而来，之后不再受界面变化影响。
@@ -83,5 +85,27 @@ public final class ImportPlan {
 
     public boolean isEmpty() {
         return items.isEmpty();
+    }
+
+    /**
+     * 两份清单是否指向同一批文件（issue #57：恢复暂停轮次前先比较）。
+     *
+     * 跨会话的稳定主键是 `relPath + size`，与 Journal 的跳过口径一致；句柄只在当前会话有效。
+     * 顺序不参与比较（{@link #of} 已按 relPath 排序），同一集合不同顺序仍算同一批。
+     * 任一参数为 null 返回 false：没有「暂停轮次的清单」就谈不上恢复。
+     */
+    public static boolean sameFileSet(ImportPlan a, ImportPlan b) {
+        if (a == null || b == null) return false;
+        if (a.items.size() != b.items.size()) return false;
+        Map<String, Integer> diff = new HashMap<>();
+        for (Item it : a.items) diff.merge(key(it), 1, Integer::sum);
+        for (Item it : b.items) diff.merge(key(it), -1, Integer::sum);
+        // 每个键的计数都归零才是同一批；多出来的键会留下正数、缺的键留下负数。
+        for (Integer n : diff.values()) if (n != 0) return false;
+        return true;
+    }
+
+    private static String key(Item it) {
+        return it.relPath + '\u0000' + it.size;
     }
 }
