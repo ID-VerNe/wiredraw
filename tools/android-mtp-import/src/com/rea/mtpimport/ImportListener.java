@@ -23,7 +23,16 @@ public interface ImportListener {
     default void onFileFinished(ImportPlan.Item item, ResumableTransfer.Kind kind, String note) {
     }
 
-    default void onFinished(boolean cancelled, String summary) {
+    /**
+     * 一轮结束。
+     *
+     * @param cancelled 是否被用户取消
+     * @param ok        真正传输成功的文件数
+     * @param skipped   日志显示已存在、本轮跳过的文件数
+     * @param failed    传输失败的文件数
+     * @param summary   人读摘要（日志/抽屉用，不参与状态判定）
+     */
+    default void onFinished(boolean cancelled, int ok, int skipped, int failed, String summary) {
     }
 
     default void onError(String message, Throwable t) {

@@ -30,8 +30,9 @@ import java.util.concurrent.TimeUnit;
  * USB 权限 → 扫描 → 照片墙 → 传输。10 个界面态由 {@link UiState} 定义，
  * 由 {@link AppModel} 持有，Compose 只读它渲染。
  *
- * 传输那一环当前仍是 {@link ResumableTransfer.NotImplemented}：点主 CTA 会落到
- * `UNAVAILABLE`（`Not available`），不伪装成传输中（§0.11 第 6 行）。
+ * 传输（PA，issue #50）由 {@link MtpTransfer} 真正把相机对象读到
+ * `getFilesDir()/imported/`；`ImportService` 负责逐文件进度、暂停与取消。
+ * demo 仍是独立调试入口，不参与真实 USB 路径。
  */
 public final class Main extends ComponentActivity {
 
@@ -339,8 +340,8 @@ public final class Main extends ComponentActivity {
             registerReceiver(receiver, f);
         }
 
-        service = new ImportService(log, new ResumableTransfer.NotImplemented(log), getFilesDir());
-
+        // 真实传输在 doStart() 里按当前会话构造（PA / issue #50）：
+        // 没有经过扫描就没有可用的 MtpDevice，onCreate 里不提前注入占位实现。
         // 假数据入口只在 debug 里存在；有 `--es demo_state` 就直接进那个状态，不碰 USB。
         loadDemo(getIntent());
         if (!demoActive()) autoScanOnLaunch();
@@ -647,12 +648,30 @@ public final class Main extends ComponentActivity {
             log.line("没有勾选任何文件");
             return;
         }
+        if (service != null && service.isRunning()) {
+            log.line("已有一轮在跑，先等它结束或取消");
+            return;
+        }
+        MtpSession s = session;
+        if (s == null || s.device() == null) {
+            // 扫描成功后会话会保持常开；走到这里说明会话已经被取消/断开。
+            log.line("没有可用的 MTP 会话：请重新插线后点 Connect camera");
+            model.showError("相机连接已断开，请拔插数据线");
+            return;
+        }
         File out = new File(getFilesDir(), "imported");
 
-        // 目标目录按 relPath 建子目录这一步留给真实现（要处理重名/覆盖策略），
-        // 本轮先把目录建出来，让「计划 → 落盘位置」的链路是通的。
-        if (!out.exists() && !out.mkdirs()) log.line("建目标目录失败：" + out);
+        // 目标目录按 relPath 建子目录这一步在 MtpTransfer 里做（要处理重名/覆盖与路径越界）。
+        if (!out.exists() && !out.mkdirs()) {
+            log.line("建目标目录失败：" + out);
+            model.showError("无法创建导入目录");
+            return;
+        }
 
+        // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
+        // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
+        service = new ImportService(log, new MtpTransfer(s.device(), log), out);
+        lastProgress = null;
         model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
         service.start(plan, new ImportListener() {
             @Override
@@ -677,15 +696,21 @@ public final class Main extends ComponentActivity {
             }
 
             @Override
-            public void onFinished(boolean cancelled, String summary) {
+            public void onFinished(boolean cancelled, int ok, int skipped, int failed, String summary) {
+                log.line("Skipped " + skipped + " existing");
                 runOnUiThread(() -> {
                     if (cancelled) {
                         model.backToCatalog();
-                    } else if (summary != null && summary.contains("未实现")) {
-                        // 传输实现未就绪 → `Not available`，不伪装成传输中（§0.11 第 6 行）。
-                        model.showUnavailable();
-                    } else if (lastProgress != null) {
-                        model.showDone(lastProgress.filesDone(), lastProgress.bytesDone());
+                        return;
+                    }
+                    if (ok == 0 && skipped == 0 && failed > 0) {
+                        // 一个都没成：落 ERROR + `Connect camera`（不是 Retry，§1.2 / U-52）。
+                        model.showError("导入失败，请拔插数据线");
+                        return;
+                    }
+                    if (ok + skipped > 0) {
+                        model.showDone(ok + skipped,
+                                lastProgress == null ? 0 : lastProgress.bytesDone());
                     } else {
                         model.backToCatalog();
                     }
