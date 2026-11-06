@@ -958,7 +958,7 @@ public final class Main extends ComponentActivity {
 
         // PD / P-09：点主 CTA 前必须做一次空间预检。照片墙上的禁用只是提前告知；
         // 这里再判一次，防止「预检之后、点击之前」空间被别的应用吃掉（issue #124 后与
-        // 清单变化分支共用 {@link #precheckSpace(ImportPlan)}）。
+        // 清单变化分支共用 `precheckSpace(ImportPlan)`）。
         if (!precheckSpace(plan)) return;
 
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
