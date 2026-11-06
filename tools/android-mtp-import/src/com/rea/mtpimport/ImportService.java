@@ -9,10 +9,9 @@ import java.util.List;
 /**
  * 编排层：把「清单 → 逐文件传输 → 记账」串起来，管线程、暂停、取消。
  *
- * 本轮完成度：线程 / 暂停 / 取消 / 日志读写 / 进度推进都是真的；
- * 只有真正搬字节那一步委托给 {@link ResumableTransfer}，而它当前是
- * {@link ResumableTransfer.NotImplemented}。所以「开始导入」会立刻以
- * `NOT_IMPLEMENTED` 结束——这是**预期行为**，不是 bug。
+ * 真正搬字节那一步委托给 {@link ResumableTransfer}；PA（issue #50）注入的是
+ * {@link MtpTransfer}（`importFile` 整文件传输 + 字节数对账）。暂停/取消仍只停在
+ * 文件边界，单文件内中断留给 PB。
  */
 public final class ImportService {
 
@@ -75,7 +74,6 @@ public final class ImportService {
         int ok = 0;
         int skipped = 0;
         int failed = 0;
-        int notImplemented = 0;
         String stop = "";
 
         try {
@@ -93,18 +91,18 @@ public final class ImportService {
                     break;
                 }
 
-                if (journal.isComplete(item.handle, item.size)) {
+                if (journal.isComplete(item.relPath, item.size)) {
                     skipped++;
                     progress.onBytes(item.size);
                     progress.onFileDone();
-                    l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, "日志显示已传满");
+                    l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, "Skipped existing");
                     l.onProgress(progress, item);
                     continue;
                 }
 
                 String part = journal.partPath(outDir.getAbsolutePath(), item.handle);
-                ResumableTransfer.Result r =
-                        transfer.transfer(item, part, journal.doneBytes(item.handle));
+                ResumableTransfer.Result r = transfer.transfer(
+                        item, part, journal.doneBytes(item.relPath, item.size));
 
                 switch (r.kind) {
                     case OK:
@@ -121,21 +119,12 @@ public final class ImportService {
                     case FAILED:
                         failed++;
                         break;
-                    case NOT_IMPLEMENTED:
-                        notImplemented++;
-                        break;
                     default:
                         failed++;
                         break;
                 }
                 l.onFileFinished(item, r.kind, r.note);
                 l.onProgress(progress, item);
-
-                if (r.kind == ResumableTransfer.Kind.NOT_IMPLEMENTED) {
-                    // 同一个「未实现」不必对每个文件各刷一遍
-                    stop = "传输实现未就绪，已停在第一个文件";
-                    break;
-                }
             }
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -149,11 +138,11 @@ public final class ImportService {
         }
 
         String summary = String.format(
-                "完成 %d / 跳过 %d / 失败 %d / 未实现 %d（共 %d 个）%s",
-                ok, skipped, failed, notImplemented, plan.count(),
+                "完成 %d / 跳过 %d / 失败 %d（共 %d 个）%s",
+                ok, skipped, failed, plan.count(),
                 stop.isEmpty() ? "" : " · " + stop);
         log.line("本轮结束：" + summary);
-        l.onFinished(cancelled, summary);
+        l.onFinished(cancelled, ok, skipped, failed, summary);
     }
 
     private File journalFile() {

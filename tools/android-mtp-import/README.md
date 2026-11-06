@@ -3,9 +3,10 @@
 把 `tools/android-mtp-probe/`（一次性验证工具）里已经跑通的 MTP 结论，
 沉淀成一个**能日常用**的导片工具的骨架。
 
-> **本轮只搭框架，不实现真正的传输。** 点 `Import all N` / `Import N` 会落到
-> `UNAVAILABLE`（`Not available`），进度条不会动。这是计划行为，不是 bug —— 原因见
-> 「为什么不做真续传」一节。
+> **PA（issue #50）起，整文件传输是真的。** `Import all N` / `Import N` 会用
+> `MtpDevice.importFile()` 把对象读到 `getFilesDir()/imported/<relPath>`，
+> 逐文件校验字节数并推进进度；单文件内暂停/取消与 `getPartialObject` 断点续传仍未做，
+> 见「为什么不做真续传」与 issue #50 的 PB/PC/PD 分节。
 
 ## 它现在能做什么
 
@@ -21,8 +22,9 @@
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现 |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 续传日志读写（句柄 → 已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
-| 线程 / 暂停 / 取消 / 逐文件回调 | ✅ 实现 |
-| **真正搬字节（含 `getPartialObject` 续传）** | ❌ **仅接口 + 占位** |
+| 线程 / 暂停 / 取消 / 逐文件回调 | ✅ 实现（暂停/取消停在文件边界） |
+| **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
+| **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节） |
 
 ## 类职责
 
@@ -36,7 +38,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / 存取   [纯 JDK]
 ├─ ImportService     编排：线程、暂停、取消、逐文件调 transfer            [纯 JDK]
-├─ ResumableTransfer 传输契约 + NotImplemented 占位                     [纯 JDK]
+├─ ResumableTransfer 传输契约（整文件 / 续传待 PC）                       [纯 JDK]
+├─ MtpTransfer       真实传输：importFile → 校验字节 → rename 到 relPath  [android]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -68,16 +71,20 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 
 ## 为什么不做真续传
 
+PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 张 24 MP RAW，
+73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）。它没有 offset 语义，所以 PA 的
+`MtpTransfer` 明确拒绝 `resumeFrom > 0`，暂停/取消只停在文件边界。
+
 `MtpDevice.getPartialObject(handle, offset, size, buffer)` 对 a7C 的 `0xB101` 对象
 是否支持 offset 续读、超界时是报 `InvalidParameter` 还是静默少传，**本机一次都没验证过**。
-探针用的是 `importFile()`（`MtpDevice` 里没有 offset 语义）。
 
 写一个「看起来能续传」的实现比不写危险得多：它会让所有人以为断点续传已经可用，
 而真机上可能写出一堆截断的 ARW —— 而且 MD5 要等到很久以后才会对不上。
 
 真实现要做的三件事已写在 `ResumableTransfer` 的 javadoc 里：跨会话按 `size + relPath`
 重新拿到新句柄、从 `resumeFrom` 循环 `getPartialObject`、落盘字节与
-`getCompressedSizeLong()` 对账。
+`getCompressedSizeLong()` 对账。PC 分节会先用 `tools/android-mtp-probe` 把 offset
+语义钉死，再改实现。
 
 ## 构建与自检
 
@@ -91,7 +98,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；186 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；201 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest

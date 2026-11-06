@@ -2,8 +2,14 @@ package com.rea.mtpimport;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -13,8 +19,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 覆盖 build.gradle.kts 的 `pureJdkClasses` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
  * TransferProgress / Journal / AttachGate 等，清单本身是唯一事实来源）；
  * 它们不 import android.*，所以能在普通 JVM 里直接跑，这也是骨架里唯一
- * 「能拿门禁守住」的部分。真机相关的 MtpSession / CatalogScanner / ImportService
- * 不在本自检的覆盖范围（需要设备），见 README 的真机待验清单。
+ * 「能拿门禁守住」的部分。真机相关的 MtpSession / CatalogScanner / MtpTransfer
+ * 不在本自检的覆盖范围（需要设备），ImportService 只覆盖纯 JDK 编排层，
+ * 见 README 的真机待验清单。
  *
  * 运行：bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
  */
@@ -37,6 +44,7 @@ public final class SelfTest {
         planCases();
         progressCases();
         journalCases();
+        importServiceCases();
         uiStateCases();
         backNavCases();
         uiTextCases();
@@ -572,6 +580,19 @@ public final class SelfTest {
                 j.isComplete(22222, 1024), "实际 " + j.isComplete(22222, 1024));
         check("isComplete：未传满为 false",
                 !j.isComplete(12345, 24389632), "实际 " + j.isComplete(12345, 24389632));
+        check("isComplete(relPath,size)：跨会话按路径+大小也认完成",
+                j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024),
+                "实际 " + j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024));
+        check("isComplete(relPath,size)：同名但大小变了不算完成",
+                !j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 2048),
+                "实际 " + j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 2048));
+        check("isComplete(relPath,size)：未知路径不算完成",
+                !j.isComplete("DCIM/100MSDCF/DSC99999.ARW", 1024),
+                "实际 " + j.isComplete("DCIM/100MSDCF/DSC99999.ARW", 1024));
+        check("doneBytes(relPath,size)：只认同路径同大小的记录",
+                j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632) == 7340032
+                        && j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 1) == 0,
+                "实际 " + j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632));
         check("partPath 以句柄命名、不抢最终文件名",
                 j.partPath("/sdcard/out", 12345).replace('\\', '/')
                         .equals("/sdcard/out/12345.part"),
@@ -598,6 +619,10 @@ public final class SelfTest {
         check("save → load 往返保留已传字节与大小",
                 reloaded.doneBytes(12345) == 7340032 && reloaded.isComplete(22222, 1024),
                 "done=" + reloaded.doneBytes(12345));
+        check("save → load 后仍可按 relPath+size 跳过（跨会话）",
+                reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024)
+                        && !reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 2048),
+                "实际 " + reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024));
 
         Journal junk = new Journal();
         try {
@@ -612,6 +637,124 @@ public final class SelfTest {
         check("sanitize 把制表符与换行换成下划线",
                 "_a_b_".equals(Journal.sanitize("\ta\nb\r")),
                 "实际 " + Journal.sanitize("\ta\nb\r"));
+    }
+
+    // ---------------- ImportService（真实传输编排，PA / issue #50） ----------------
+
+    /**
+     * 假传输：只验证编排层（跳过、失败计数、进度、日志），不碰 android。
+     * 真实 `MtpTransfer` 用 `MtpDevice.importFile`，只能在 ILCE-7C 真机上验。
+     */
+    static final class RecordingTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        boolean failAll;
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom) {
+            calls.add(item.relPath);
+            if (failAll) return new Result(Kind.FAILED, "fake failure");
+            try {
+                File part = new File(partPath);
+                File parent = part.getParentFile();
+                if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                    return new Result(Kind.FAILED, "mkdir failed");
+                }
+                try (FileOutputStream out = new FileOutputStream(part)) {
+                    out.write(new byte[(int) Math.min(item.size, 16)]);
+                }
+                return Result.of(Kind.OK);
+            } catch (IOException e) {
+                return new Result(Kind.FAILED, e.toString());
+            }
+        }
+    }
+
+    static final class FinishRecorder implements ImportListener {
+        final CountDownLatch done = new CountDownLatch(1);
+        boolean cancelled;
+        int ok;
+        int skipped;
+        int failed;
+        String summary;
+        TransferProgress lastProgress;
+
+        @Override
+        public void onProgress(TransferProgress progress, ImportPlan.Item current) {
+            lastProgress = progress;
+        }
+
+        @Override
+        public void onFinished(boolean cancelled, int ok, int skipped, int failed, String summary) {
+            this.cancelled = cancelled;
+            this.ok = ok;
+            this.skipped = skipped;
+            this.failed = failed;
+            this.summary = summary;
+            done.countDown();
+        }
+    }
+
+    static void importServiceCases() throws Exception {
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(1, true);          // DCIM → 3 / 4 / 6 三个文件
+        ImportPlan plan = ImportPlan.of(c, s);
+
+        File out = Files.createTempDirectory("wiredraw-import").toFile();
+        RecordingTransfer t1 = new RecordingTransfer();
+        FinishRecorder r1 = new FinishRecorder();
+        new ImportService(Log.NOOP, t1, out).start(plan, r1);
+        check("ImportService：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("ImportService：3 个文件全部 OK（不再有「未实现」）",
+                r1.ok == 3 && r1.skipped == 0 && r1.failed == 0,
+                "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
+        check("ImportService：summary 不再出现「未实现」",
+                r1.summary != null && !r1.summary.contains("未实现"), "实际 " + r1.summary);
+        check("ImportService：进度按成功文件累加字节",
+                r1.lastProgress != null && r1.lastProgress.bytesDone() == 450
+                        && r1.lastProgress.filesDone() == 3,
+                r1.lastProgress == null ? "无进度"
+                        : r1.lastProgress.bytesDone() + " / " + r1.lastProgress.filesDone());
+        check("ImportService：写出的 .part 落在 outDir",
+                new File(out, "3.part").isFile() && new File(out, "4.part").isFile()
+                        && new File(out, "6.part").isFile(),
+                "实际 " + Arrays.toString(out.list()));
+        check("ImportService：日志文件写出 import-journal.txt",
+                new File(out, "import-journal.txt").isFile(),
+                "实际 " + Arrays.toString(out.list()));
+
+        // 第二轮：同一目录 + 同一 plan，应该全部按 relPath + size 跳过，不再调 transfer
+        RecordingTransfer t2 = new RecordingTransfer();
+        FinishRecorder r2 = new FinishRecorder();
+        new ImportService(Log.NOOP, t2, out).start(plan, r2);
+        check("ImportService：第二轮 5 秒内结束", r2.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("ImportService：第二轮全部 SKIPPED 且不再调 transfer",
+                r2.ok == 0 && r2.skipped == 3 && r2.failed == 0 && t2.calls.isEmpty(),
+                "ok=" + r2.ok + " skipped=" + r2.skipped + " calls=" + t2.calls.size());
+
+        // 全失败：新目录，不能把失败冒充成完成
+        File badOut = Files.createTempDirectory("wiredraw-import-bad").toFile();
+        RecordingTransfer t3 = new RecordingTransfer();
+        t3.failAll = true;
+        FinishRecorder r3 = new FinishRecorder();
+        new ImportService(Log.NOOP, t3, badOut).start(plan, r3);
+        check("ImportService：全失败一轮结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("ImportService：全失败时 ok=0 / failed=3，不冒充完成",
+                r3.ok == 0 && r3.failed == 3 && r3.skipped == 0,
+                "ok=" + r3.ok + " failed=" + r3.failed + " skipped=" + r3.skipped);
+
+        deleteTree(out);
+        deleteTree(badOut);
+    }
+
+    static void deleteTree(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) {
+            for (File k : kids) deleteTree(k);
+        }
+        if (!f.delete()) {
+            System.err.println("清理临时文件失败：" + f);
+        }
     }
 
     // ---------------- 界面状态映射（UiState） ----------------

@@ -44,6 +44,22 @@ public final class Journal {
         return r == null ? 0 : r.done;
     }
 
+    /**
+     * 按「大小 + 相对路径」查已落盘字节数。
+     *
+     * MTP handle 不跨会话稳定，重连后同一个文件会换句柄；续传的 resumeFrom 必须走这条，
+     * 否则可能把别的文件（或上一次会话里复用同一 handle 的文件）的进度当成自己的。
+     * 只有大小与 relPath 都匹配才认。
+     */
+    public long doneBytes(String relPath, long size) {
+        if (relPath == null || relPath.isEmpty() || size <= 0) return 0;
+        for (Rec r : recs.values()) {
+            if (r == null || r.size != size || !relPath.equals(r.relPath)) continue;
+            return r.done;
+        }
+        return 0;
+    }
+
     /** 记录进度。doneBytes 被钳在 [0, size]，避免写进不可能的值。 */
     public void markDone(int handle, long doneBytes, long size, String relPath) {
         Rec r = recs.computeIfAbsent(handle, k -> new Rec());
@@ -58,6 +74,19 @@ public final class Journal {
         if (r == null) return false;
         if (size > 0 && r.size != size) return false;   // 大小变了（同名不同文件）就不算完成
         return r.done >= r.size && r.size > 0;
+    }
+
+    /**
+     * 跨会话完成判定：按「大小 + 相对路径」找记录，不依赖 handle。
+     * 导入编排层应优先用这条；handle 版本只作同会话内的快路径。
+     */
+    public boolean isComplete(String relPath, long size) {
+        if (relPath == null || relPath.isEmpty() || size <= 0) return false;
+        for (Rec r : recs.values()) {
+            if (r == null || r.size != size || !relPath.equals(r.relPath)) continue;
+            if (r.done >= r.size) return true;
+        }
+        return false;
     }
 
     public int size() {
