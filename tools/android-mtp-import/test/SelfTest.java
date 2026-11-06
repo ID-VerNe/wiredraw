@@ -56,6 +56,7 @@ public final class SelfTest {
         journalCases();
         cancelTokenCases();
         importServiceCases();
+        importedIndexCases();
         pauseCancelCases();
         resumePlanCases();
         importServicePauseClockCases();
@@ -1236,6 +1237,169 @@ public final class SelfTest {
         deleteTree(flakyOut);
         deleteTree(partialOut);
         deleteTree(cancelOut);
+    }
+
+    // ---------------- 已导入索引（issue #20） ----------------
+
+    /**
+     * 假传输：和真实 `MtpTransfer` 一样把 `.part` rename 到 `outDir/<relPath>`。
+     *
+     * `RecordingTransfer` 只写 `.part`、不产生成品，索引重建在磁盘上看不到条目，
+     * 所以集成用例必须用这个。
+     */
+    static final class RenamingTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        private final File outDir;
+
+        RenamingTransfer(File outDir) {
+            this.outDir = outDir;
+        }
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            try {
+                File part = new File(partPath);
+                indexMkdirs(part.getParentFile());
+                try (FileOutputStream out = new FileOutputStream(part)) {
+                    out.write(new byte[(int) item.size]);
+                }
+                File dest = new File(outDir, item.relPath);
+                indexMkdirs(dest.getParentFile());
+                if (!part.renameTo(dest)) return new Result(Kind.FAILED, "rename failed");
+                return Result.of(Kind.OK);
+            } catch (IOException e) {
+                return new Result(Kind.FAILED, e.toString());
+            }
+        }
+    }
+
+    static void indexMkdirs(File dir) throws IOException {
+        if (dir != null && !dir.exists() && !dir.mkdirs()) {
+            throw new IOException("mkdir failed: " + dir);
+        }
+    }
+
+    /** 造一个指定字节数的文件；0 字节用来验证「不做成品」。 */
+    static File writeSizedFile(File f, int size) throws IOException {
+        indexMkdirs(f.getParentFile());
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            out.write(new byte[size]);
+        }
+        return f;
+    }
+
+    /** 读索引文件正文（去掉头部与空行），断言「文件里到底写了什么」。 */
+    static List<String> indexLines(File outDir) throws IOException {
+        File f = new File(outDir, ImportedIndex.FILE_NAME);
+        if (!f.isFile()) return new ArrayList<>();
+        List<String> raw = Files.readAllLines(f.toPath(),
+                java.nio.charset.StandardCharsets.UTF_8);
+        List<String> lines = new ArrayList<>();
+        for (String line : raw) {
+            if (!line.isEmpty() && !line.startsWith("#")) lines.add(line);
+        }
+        return lines;
+    }
+
+    static void importedIndexCases() throws Exception {
+        File out = Files.createTempDirectory("wiredraw-index").toFile();
+
+        int empty = ImportedIndex.save(out);
+        File indexFile = new File(out, ImportedIndex.FILE_NAME);
+        List<String> rawEmpty = indexFile.isFile()
+                ? Files.readAllLines(indexFile.toPath(), java.nio.charset.StandardCharsets.UTF_8)
+                : new ArrayList<String>();
+        check("已导入索引：空目录只写头、0 条（#20）",
+                empty == 0 && rawEmpty.size() == 1 && rawEmpty.get(0).equals(ImportedIndex.HEADER),
+                "条数=" + empty + " 行=" + rawEmpty);
+
+        // 成品两个 + 干扰项五个：journal、.part、索引自身、.tmp、0 字节文件。
+        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC0001.ARW"), 300);
+        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC0002.JPG"), 50);
+        writeSizedFile(new File(out, "import-journal.txt"), 10);
+        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC0001.ARW.300.part"), 7);
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME + ".tmp"), 9);
+        writeSizedFile(new File(out, "DCIM/empty.jpg"), 0);
+        // 存量索引写成 5 个 NUL：头部不对 = 损坏，按「还没生成」重写。
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 5);
+
+        int n = ImportedIndex.save(out);
+        List<String> lines = indexLines(out);
+        List<String> expected = Arrays.asList("300\tDCIM/100MSDCF/DSC0001.ARW",
+                "50\tDCIM/100MSDCF/DSC0002.JPG");
+        check("已导入索引：只收成品、按 relPath 排序（#20）",
+                n == 2 && lines.equals(expected), "条数=" + n + " 行=" + lines);
+        check("已导入索引：排除 journal / .part / 索引自身与 .tmp / 0 字节（#20）",
+                !String.join("\n", lines).contains("import-journal")
+                        && !String.join("\n", lines).contains(".part")
+                        && !String.join("\n", lines).contains("empty")
+                        && !String.join("\n", lines).contains(".tmp"),
+                "行=" + lines);
+
+        // 截断成 3 个 NUL，再 save：仍是磁盘真值（不读旧内容）。
+        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 3);
+        int n2 = ImportedIndex.save(out);
+        check("已导入索引：存量截断/乱码后重写为磁盘真值（#20）",
+                n2 == 2 && indexLines(out).equals(expected),
+                "条数=" + n2 + " 行=" + indexLines(out));
+
+        deleteTree(out);
+
+        // 集成：假传输把 .part rename 成成品，轮末索引从磁盘重建。
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(1, true);
+        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(),
+                PhotoWall.Export.JPG_FIRST);
+
+        File live = Files.createTempDirectory("wiredraw-index-live").toFile();
+        RenamingTransfer t1 = new RenamingTransfer(live);
+        FinishRecorder r1 = new FinishRecorder();
+        new ImportService(Log.NOOP, t1, live).start(plan, r1);
+        check("已导入索引：集成一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+        List<String> expectedLive = Arrays.asList("100\tDCIM/100MSDCF/DSC02183.JPG",
+                "50\tDCIM/DSC02999.ARW");
+        check("已导入索引：一轮 OK 后含两个成品（#20）",
+                r1.ok == 2 && indexLines(live).equals(expectedLive),
+                "ok=" + r1.ok + " 行=" + indexLines(live));
+
+        // 只删索引：Journal 仍能跳过，轮末从磁盘重建回原条目（#20 的降级要求）。
+        boolean removed = new File(live, ImportedIndex.FILE_NAME).delete();
+        check("已导入索引：能删掉索引文件以模拟丢失（#20）", removed, "delete 失败");
+        RenamingTransfer t2 = new RenamingTransfer(live);
+        FinishRecorder r2 = new FinishRecorder();
+        new ImportService(Log.NOOP, t2, live).start(plan, r2);
+        check("已导入索引：索引丢失不影响跳过（Journal 口径未变，#20）",
+                r2.done.await(5, TimeUnit.SECONDS) && r2.skipped == 2 && r2.ok == 0
+                        && t2.calls.isEmpty(),
+                "skipped=" + r2.skipped + " ok=" + r2.ok + " calls=" + t2.calls);
+        check("已导入索引：索引丢失后轮末重建回两个成品（#20）",
+                indexLines(live).equals(expectedLive), "行=" + indexLines(live));
+
+        // 索引写成乱码：轮末仍重写为磁盘真值。
+        writeSizedFile(new File(live, ImportedIndex.FILE_NAME), 4);
+        RenamingTransfer t3 = new RenamingTransfer(live);
+        FinishRecorder r3 = new FinishRecorder();
+        new ImportService(Log.NOOP, t3, live).start(plan, r3);
+        check("已导入索引：索引乱码后轮末仍重写为磁盘真值（#20）",
+                r3.done.await(5, TimeUnit.SECONDS) && indexLines(live).equals(expectedLive),
+                "skipped=" + r3.skipped + " 行=" + indexLines(live));
+
+        // 全失败一轮：只有 .part 残留，索引不记完成。
+        File failed = Files.createTempDirectory("wiredraw-index-failed").toFile();
+        writeSizedFile(new File(failed, "DCIM/leftover.99.part"), 9);
+        RecordingTransfer t4 = new RecordingTransfer();
+        t4.failAll = true;
+        FinishRecorder r4 = new FinishRecorder();
+        new ImportService(Log.NOOP, t4, failed).start(plan, r4);
+        check("已导入索引：全失败一轮不产条目（#20）",
+                r4.done.await(5, TimeUnit.SECONDS) && r4.failed == 2
+                        && indexLines(failed).isEmpty(),
+                "failed=" + r4.failed + " 行=" + indexLines(failed));
+
+        deleteTree(live);
+        deleteTree(failed);
     }
 
     // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------
