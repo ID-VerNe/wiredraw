@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -174,12 +175,20 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             },
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // #82：折叠箭头常驻行首，整组勾只在选中态画在行尾固定槽内（L-08 的顺序：
+        // 箭头 · 标题 · 勾槽）。两个槽在两态都参与测量，标题起点与行尾右边缘恒定，
+        // 选中只改变右槽内的绘制内容。
+        Box(Modifier.width(24.dp), contentAlignment = Alignment.CenterStart) {
+            ChevronGlyph(16.dp, UiColors.outline, up = collapsed)
+        }
         BasicText(
             group.header(),
             style = TextSmall.copy(color = UiColors.secondary),
             modifier = Modifier.weight(1f)
         )
-        ChevronGlyph(16.dp, UiColors.outline, up = model.isCollapsed(group.key))
+        Box(Modifier.width(24.dp), contentAlignment = Alignment.CenterEnd) {
+            if (allSelected) CheckGlyph(16.dp, UiColors.onSurface)
+        }
     }
 }
 
