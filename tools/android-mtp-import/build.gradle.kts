@@ -104,7 +104,7 @@ dependencies {
 // 原 check.sh 的两层保护原样迁过来，断言一条不放宽：
 //   1. PURE 清单与磁盘上「不 import android 的文件」必须一致（漏列即红）；
 //   2. 这批文件在**空 classpath** 下编译 —— 偷偷 import android.* 会直接编译失败；
-//   3. SelfTest 的 348 项断言由 JavaExec 跑，入口与断言零改动。
+//   3. SelfTest 的 362 项断言由 JavaExec 跑，入口与断言零改动。
 //
 // 清单的唯一事实来源就是下面这个列表（原 check.sh 的 PURE 数组）。
 
@@ -239,7 +239,7 @@ val verifyApk = tasks.register<Exec>("verifyApk") {
 
 tasks.register<JavaExec>("selfTest") {
     group = "verification"
-    description = "JVM 纯逻辑自检（348 项，不需要真机）"
+    description = "JVM 纯逻辑自检（362 项，不需要真机）"
     dependsOn("checkPureJdkList", compilePureJdkJava, compileSelfTestJava)
     // 中文断言名在 Windows 控制台按 cp936 输出会乱码，强制 UTF-8（原 check.sh 同样设置）
     jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")

@@ -8,7 +8,15 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 照片墙：把 {@link Catalog} 里的 ARW 按「日期组」聚合。
+ * 照片墙：把 {@link Catalog} 里的 ARW / JPG 合成「照片单元」，再按「日期组」聚合。
+ *
+ * 照片单元（UI-SPEC §0.6 / issue #83）：同一 MTP 父目录下、文件名去扩展名相同的最多一个
+ * ARW + 一个 JPG。照片墙一格 = 一个单元；组头张数按单元计（`V-12`）。
+ *
+ * 单元携带两个句柄，像素来源与导出载荷由 {@link Export} 决定（`V-32`）：
+ * {@link Export#JPG_FIRST} 优先 JPG、缺失回退 ARW；{@link Export#RAW} 只取 ARW；
+ * {@link Export#JPG} 只取 JPG。
+ * filter 只决定显示哪些单元，不改变像素来源——这条口径在 UI 层落地，本类只提供数据。
  *
  * UI-SPEC §0.6 的分组依据优先 EXIF / 文件修改时间，两者都未验证；两者都取不到时
  * 按 MTP 目录分组（目录名即日期）。{@link Catalog.Entry} 只有 handle/parent/format/size/name，
@@ -19,76 +27,218 @@ import java.util.Map;
  */
 public final class PhotoWall {
 
-    /** 一个日期组；photos 只含 ARW，按 relPath 升序。 */
+    /** 导出载荷口径（`V-32`）。 */
+    public enum Export {
+        /** `All` / 日期档：JPG 优先、缺失回退 ARW。 */
+        JPG_FIRST,
+        /** `RAW` 档：只要 ARW。 */
+        RAW,
+        /** `JPG` 档：只要 JPG。 */
+        JPG
+    }
+
+    /** filter 视图的单元筛选；返回 null 的组表示没有可见单元。 */
+    public interface UnitFilter {
+        boolean test(Unit unit);
+    }
+
+    /**
+     * 一个照片单元：同父目录、同 stem 的 ARW 与 JPG（各可空，至少一个非空）。
+     * `relPath` 取实际存在的那一个，用于排序与落盘。
+     */
+    public static final class Unit {
+        public final String key;
+        public final Catalog.Entry arw;
+        public final Catalog.Entry jpg;
+        public final String relPath;
+
+        Unit(String key, Catalog.Entry arw, Catalog.Entry jpg) {
+            this.key = key;
+            this.arw = arw;
+            this.jpg = jpg;
+            Catalog.Entry base = arw != null ? arw : jpg;
+            this.relPath = base.relPath == null ? base.name : base.relPath;
+        }
+
+        public boolean hasArw() {
+            return arw != null;
+        }
+
+        public boolean hasJpg() {
+            return jpg != null;
+        }
+
+        /** 网格 / 看图页首帧的像素来源：同名 JPG 优先，缺失回退 ARW（`V-32`）。 */
+        public Catalog.Entry preview() {
+            return jpg != null ? jpg : arw;
+        }
+
+        /** 当前档位下真正要导出的文件；该档位不适用时返回 null。 */
+        public Catalog.Entry export(Export mode) {
+            switch (mode) {
+                case RAW:
+                    return arw;
+                case JPG:
+                    return jpg;
+                default:
+                    return jpg != null ? jpg : arw;
+            }
+        }
+
+        public long exportBytes(Export mode) {
+            Catalog.Entry e = export(mode);
+            return e == null ? 0 : e.size;
+        }
+
+        /** 单元的全部句柄（ARW、JPG 各自独立参与勾选）。 */
+        public List<Integer> handles() {
+            List<Integer> out = new ArrayList<>(2);
+            if (arw != null) out.add(arw.handle);
+            if (jpg != null) out.add(jpg.handle);
+            return out;
+        }
+
+        /** 单元已选 = 任一文件句柄已勾选（勾选时两个句柄一起写，见 `AppModel.toggleUnitSelection`）。 */
+        public boolean isChecked(Selection selection) {
+            if (selection == null) return false;
+            for (int h : handles()) {
+                if (selection.isChecked(h)) return true;
+            }
+            return false;
+        }
+
+        /** 网格缓存键：优先 JPG 句柄，缺失回退 ARW。 */
+        public int previewHandle() {
+            return preview().handle;
+        }
+
+        @Override
+        public String toString() {
+            return relPath;
+        }
+    }
+
+    /** 一个日期组；photos 是照片单元，按 relPath 升序。 */
     public static final class Group {
         public final String key;
         public final String label;
-        public final List<Catalog.Entry> photos;
-        public final long bytes;
+        public final List<Unit> photos;
 
-        Group(String key, String label, List<Catalog.Entry> photos, long bytes) {
+        Group(String key, String label, List<Unit> photos) {
             this.key = key;
             this.label = label;
             this.photos = Collections.unmodifiableList(photos);
-            this.bytes = bytes;
         }
 
         public int count() {
             return photos.size();
         }
 
-        /** 组头：`Jun 7 · 12 · 284 MB`（U-44 的正则口径）。 */
-        public String header() {
-            return UiText.groupHeader(label, count(), bytes);
+        /** 组内导出载荷字节：随当前档位变化（`V-16` / `V-32`）。 */
+        public long bytes(Export mode) {
+            long sum = 0;
+            for (Unit u : photos) sum += u.exportBytes(mode);
+            return sum;
+        }
+
+        /** 组头：`Jun 7 · 43 · 74.0 MB`（U-44 的正则口径）。 */
+        public String header(Export mode) {
+            return UiText.groupHeader(label, count(), bytes(mode));
+        }
+
+        /** 只保留满足条件的单元；没有可见单元时返回 null（组头随之重算）。 */
+        public Group select(UnitFilter filter) {
+            List<Unit> keep = new ArrayList<>();
+            for (Unit u : photos) {
+                if (filter.test(u)) keep.add(u);
+            }
+            if (keep.isEmpty()) return null;
+            return new Group(key, label, keep);
         }
     }
 
     private final List<Group> groups;
+    private final List<Unit> units;
     private final int photoCount;
     private final long photoBytes;
 
-    private PhotoWall(List<Group> groups, int photoCount, long photoBytes) {
+    private PhotoWall(List<Group> groups, List<Unit> units) {
         this.groups = Collections.unmodifiableList(groups);
-        this.photoCount = photoCount;
-        this.photoBytes = photoBytes;
+        this.units = Collections.unmodifiableList(units);
+        this.photoCount = units.size();
+        long jpgFirst = 0;
+        for (Unit u : units) jpgFirst += u.exportBytes(Export.JPG_FIRST);
+        this.photoBytes = jpgFirst;
     }
 
     public List<Group> groups() {
         return groups;
     }
 
-    /** ARW 张数 —— 顶栏计数胶囊与 `Import all N` 的唯一分母（C-08）。 */
+    /** 全部照片单元，按 relPath 升序（filter 与导出计划都以它为底）。 */
+    public List<Unit> units() {
+        return units;
+    }
+
+    /** 照片单元数（空态判定与组内张数口径）。 */
     public int photoCount() {
         return photoCount;
     }
 
+    /** 全部单元按 `JPG_FIRST` 口径的载荷字节（`All` 档的默认导出量）。 */
     public long photoBytes() {
         return photoBytes;
     }
 
     public static PhotoWall of(Catalog catalog) {
-        Map<String, List<Catalog.Entry>> byFolder = new LinkedHashMap<>();
+        Map<String, UnitBuilder> byKey = new LinkedHashMap<>();
         for (Catalog.Entry e : catalog.all()) {
-            if (e.isFolder() || !e.isRaw()) continue;
-            String folder = parentFolderOf(e);
-            byFolder.computeIfAbsent(folder, k -> new ArrayList<>()).add(e);
+            if (e.isFolder()) continue;
+            if (!e.isRaw() && !e.isJpeg()) continue;   // MP4 等非照片对象不进照片墙
+            String key = e.parent + ":" + stemOf(e.name);
+            UnitBuilder b = byKey.computeIfAbsent(key, k -> new UnitBuilder());
+            if (e.isRaw()) {
+                if (b.arw == null) b.arw = e;
+            } else if (b.jpg == null) {
+                b.jpg = e;
+            }
         }
-        List<Group> out = new ArrayList<>();
-        int count = 0;
-        long bytes = 0;
-        for (Map.Entry<String, List<Catalog.Entry>> item : byFolder.entrySet()) {
+
+        List<Unit> units = new ArrayList<>(byKey.size());
+        for (Map.Entry<String, UnitBuilder> item : byKey.entrySet()) {
+            UnitBuilder b = item.getValue();
+            if (b.arw == null && b.jpg == null) continue;
+            units.add(new Unit(item.getKey(), b.arw, b.jpg));
+        }
+        units.sort((a, b) -> a.relPath.compareTo(b.relPath));
+
+        // 按单元代表文件的父目录分组（ARW 优先，纯 JPG 单元用 JPG）。
+        Map<String, List<Unit>> byFolder = new LinkedHashMap<>();
+        for (Unit u : units) {
+            Catalog.Entry base = u.arw != null ? u.arw : u.jpg;
+            String folder = parentFolderOf(base);
+            byFolder.computeIfAbsent(folder, k -> new ArrayList<>()).add(u);
+        }
+        List<Group> groups = new ArrayList<>();
+        for (Map.Entry<String, List<Unit>> item : byFolder.entrySet()) {
             String folder = item.getKey();
-            List<Catalog.Entry> photos = item.getValue();
+            List<Unit> photos = item.getValue();
             photos.sort((a, b) -> a.relPath.compareTo(b.relPath));
-            long sum = 0;
-            for (Catalog.Entry e : photos) sum += e.size;
-            out.add(new Group(folder, labelOf(folder), photos, sum));
-            count += photos.size();
-            bytes += sum;
+            groups.add(new Group(folder, labelOf(folder), photos));
         }
         // 新的日期在前；非日期目录名按字典序倒排（同一次扫描内保持稳定）。
-        out.sort((a, b) -> b.key.compareTo(a.key));
-        return new PhotoWall(out, count, bytes);
+        groups.sort((a, b) -> b.key.compareTo(a.key));
+        return new PhotoWall(groups, units);
+    }
+
+    private static final class UnitBuilder {
+        Catalog.Entry arw;
+        Catalog.Entry jpg;
+    }
+
+    static String stemOf(String name) {
+        int dot = name.lastIndexOf('.');
+        return (dot < 0 ? name : name.substring(0, dot)).toUpperCase(Locale.US);
     }
 
     /** relPath 的倒数第二段；没有父目录时返回空串。 */
@@ -139,6 +289,6 @@ public final class PhotoWall {
 
     @Override
     public String toString() {
-        return String.format(Locale.US, "PhotoWall(%d groups, %d photos)", groups.size(), photoCount);
+        return String.format(Locale.US, "PhotoWall(%d groups, %d units)", groups.size(), photoCount);
     }
 }
