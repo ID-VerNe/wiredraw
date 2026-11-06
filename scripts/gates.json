@@ -34,9 +34,9 @@
     },
     {
       "name": "check_sensitive.py",
-      "cmd": ["python", "scripts/check_sensitive.py", "--warn"],
+      "cmd": ["python", "scripts/check_sensitive.py", "--check"],
       "shard": "static",
-      "why": "敏感信息门禁：相机 GUID 及其 hex/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。首版以 --warn 只报基线；#100 已清洗到 0 命中，去掉 --warn 转 block 按 #110 执行（本单不改模式）；--fix 才改写，行内豁免必须带理由"
+      "why": "敏感信息门禁：相机 GUID 及其 hex/14 位去横线/4-4-4-2 重分组/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。命中即阻断（#110）。相机 AP 公开示例网关与 Android debug keystore 公开口令走脚本内 ALLOWLIST，只按「类别 + 精确值」放行，不做网段/通配；其余行内豁免必须带具体理由。--fix 才改写，--warn 只用于排查基线"
     }
   ],
   "manual": [

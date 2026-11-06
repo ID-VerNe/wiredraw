@@ -36,9 +36,9 @@ android {
             // 与手搓构建同一把 key：别重新生成，换 key 会让覆盖安装 INSTALL_FAILED_UPDATE_INCOMPATIBLE。
             // 指纹对照见 issue #36 的验收证据（apksigner --print-certs 的新旧 SHA-256 必须一致）。
             storeFile = rootProject.file("../android-mtp-probe/rea-debug.keystore")
-            storePassword = "android"  // allow-sensitive: 公开的 debug keystore 默认口令，与 build.sh 的 --ks-pass 一致
+            storePassword = "android"
             keyAlias = "rea"
-            keyPassword = "android"  // allow-sensitive: 公开的 debug keystore 默认口令，与 build.sh 的 --ks-pass 一致
+            keyPassword = "android"
         }
     }
 

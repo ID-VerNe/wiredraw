@@ -41,7 +41,7 @@ a7C 上没有任何东西需要"解锁"——它的 USB 口本来就是标准 MT
 ### 1.1 Wi-Fi JSON API 系（Camera Remote API，2014–2019 的旧协议）
 `kz-remote-api`、`locana`、`sony_camera_api`、`sony-remote`、`sonypy`、`Camera-Remote-API`、`sony-camera-api`、`ofxSonyRemoteCamera`、`SonyCameraRemoteAPI`、`RemoteCamera`、`RemoteCam`
 
-- 全部走 `http://192.168.122.1:8080/sony/{camera,avContent}` 这套 JSON 接口<!-- allow-sensitive: 相机 AP 的公开默认网关，非本机内网 -->
+- 全部走 `http://192.168.122.1:8080/sony/{camera,avContent}` 这套 JSON 接口
 - `kz-remote-api` / `locana` 是最完整的两个（SSDP 发现 + 全量 action 封装），但都是 C#/UWP，Windows 端
 - **致命点：这个协议在 AP（手机直连相机）模式下只暴露 JPEG。** `getContentList` 返回的 `content.original[].stillObject` 只有 `jpeg`，`url` 指向 `/contentstransfer/orgjpeg/...`。改扩展名、拼路径都拿不到 ARW——文件根本没通过这个服务暴露。
 - 社区结论一致（StackOverflow 上 2014 年问到现在）：AP 模式 = 只有 JPG；RAW 只能走 USB / PTP-IP 基础设施模式。
