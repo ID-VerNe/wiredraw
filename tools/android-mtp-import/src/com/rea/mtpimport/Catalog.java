@@ -34,14 +34,21 @@ public final class Catalog {
         public final int format;
         public final long size;
         public final String name;
+        /** 该对象所属的 MTP storageId；0 表示调用方未提供（旧构造器与既有用例）。 */
+        public final int storageId;
         public String relPath;
 
         public Entry(int handle, int parent, int format, long size, String name) {
+            this(handle, parent, format, size, name, 0);
+        }
+
+        public Entry(int handle, int parent, int format, long size, String name, int storageId) {
             this.handle = handle;
             this.parent = parent;
             this.format = format;
             this.size = size;
             this.name = name == null ? "" : name;
+            this.storageId = storageId;
         }
 
         public boolean isFolder() {
@@ -101,7 +108,7 @@ public final class Catalog {
     public Catalog snapshot() {
         Catalog copy = new Catalog();
         for (Entry e : entries) {
-            copy.add(new Entry(e.handle, e.parent, e.format, e.size, e.name));
+            copy.add(new Entry(e.handle, e.parent, e.format, e.size, e.name, e.storageId));
         }
         return copy.build();
     }
@@ -123,6 +130,32 @@ public final class Catalog {
 
     public List<Entry> all() {
         return new ArrayList<>(entries);
+    }
+
+    /**
+     * 给定集合里，同一 relPath 跨 storage 重复的文件（#54）。
+     *
+     * 只在该集合内判定：两张卡同时插着但只选中其中一个时没有争用，不应算冲突。
+     */
+    public List<Entry> storageConflicts(List<Entry> selected) {
+        Map<String, List<Entry>> byPath = new LinkedHashMap<>();
+        if (selected == null) return new ArrayList<>();
+        for (Entry e : selected) {
+            if (e == null || e.isFolder() || e.relPath == null) continue;
+            List<Entry> group = byPath.get(e.relPath);
+            if (group == null) {
+                group = new ArrayList<>();
+                byPath.put(e.relPath, group);
+            }
+            group.add(e);
+        }
+        List<Entry> out = new ArrayList<>();
+        for (List<Entry> group : byPath.values()) {
+            Set<Integer> storages = new HashSet<>();
+            for (Entry e : group) storages.add(e.storageId);
+            if (storages.size() > 1) out.addAll(group);
+        }
+        return out;
     }
 
     public Entry get(int handle) {
