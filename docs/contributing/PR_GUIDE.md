@@ -156,6 +156,8 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
 7. 正文里没有**带具体编号的 closing 关键词**：举例一律 `#NN` 占位。
    `python scripts/check_pr_sections.py --body-file <正文文件> --files <改动文件...>`
    能在本机提前复现 `support` 档的结论；省略 `--files` 等于宣称没有改动文件，门禁链会静默跳过。
+8. commit message 也扫敏感值（`support` 档 `check_commit_messages.py`）：本地 `commit-msg`
+   钩子会先拦；钩子被绕过时用 `python scripts/check_commit_messages.py --range origin/main..HEAD` 自查。
 
 ## 合并条件（全部满足才合）
 

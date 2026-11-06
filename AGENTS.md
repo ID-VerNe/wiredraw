@@ -55,6 +55,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 - **新增门禁只改清单**，然后跑 `python scripts/check_gates_manifest.py --write` 重写下面这段；
   手改会被元门禁打红（磁盘脚本、清单、本节三者必须一致）。
 - `core.hooksPath` 指向 `.githooks`：`commit-msg` 拦文案格式与 `Co-Authored-By:`，
+  并调 `scripts/check_commit_messages.py` 扫 commit message 里的敏感值（#134）；
   `pre-push` 跑 static 分片。换机器后重设一次：`git config core.hooksPath .githooks`。
 - `pre-push` 的 `SKIP_GATES=1` **仅用于钩子自身故障**（例如钩子在当前 shell 下跑不起来），
   它会打印醒目横幅但跳过 static 门禁。使用后必须在 PR 正文说明原因，并附上手动执行
@@ -74,7 +75,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 4 | `static` | `py_compile` | `python -m compileall -q scripts tools` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 | 5 | `static` | `check_sensitive.py` | `python scripts/check_sensitive.py --check` | 敏感信息门禁：相机 GUID 及其 hex/14 位去横线/4-4-4-2 重分组/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。命中即阻断（#110）。相机 AP 公开示例网关与 Android debug keystore 公开口令走脚本内 ALLOWLIST，只按「类别 + 精确值」放行，不做网段/通配；其余行内豁免必须带具体理由。--fix 才改写，--warn 只用于排查基线 |
 
-共 5 个 CI 门禁，分 1 个分片（static 5）；manual 2、support 2 见 `scripts/gates.json`。
+共 5 个 CI 门禁，分 1 个分片（static 5）；manual 2、support 3 见 `scripts/gates.json`。
 <!-- gates:ci:end -->
 
 ### 0.2 证据与验证纪律
@@ -205,6 +206,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `scripts/review_prompt.py` | 生成合并评审的派发文案（默认不含 PR 正文，`--self-test` 自检） |
 | `scripts/check_pr_sections.py` | PR 正文分段结构校验（`support` 档，CI 在 `pull_request` 上跑） |
 | `scripts/check_pr_body.py` | PR 正文与评论的敏感信息校验：复用 `check_sensitive.py` 的规则，不认行内豁免（`support` 档，评论走 gh） |
+| `scripts/check_commit_messages.py` | commit message 的敏感信息门禁：`support` 档扫 PR 的 `base..head` 新增提交，本地 `.githooks/commit-msg` 调 `--message-file` 先拦（#134） |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移；cmd 参数不许降级（`--self-test` 跑回归用例） |
 | `tools/android-mtp-probe/README.md` | MTP 探针的用法、实测结果与三个坑 |

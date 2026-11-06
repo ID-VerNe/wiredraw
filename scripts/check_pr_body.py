@@ -15,7 +15,7 @@
 理由绕过），但脚本内 `ALLOWLIST` 仍生效，因为它的值固定在仓库里。
 
 已知边界（issue #125）：
-- 不扫 commit message、review 评论 / review 正文。
+- 不扫 commit message（由 `check_commit_messages.py` 覆盖，#134）、review 评论 / review 正文。
 - 评论只在 PR 事件上复扫；晚于最后一次 PR 事件的评论不会被自动覆盖，必要时手跑 `--pr N`。
 - 跨行切断的 token 不保证命中（沿用 `check_sensitive.py` 的逐行扫描）。
 - 无 PR 上下文时 SKIP；有上下文但正文/评论取不全时退出 2——不许把「取不到」当绿。
