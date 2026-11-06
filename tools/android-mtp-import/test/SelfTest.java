@@ -1410,7 +1410,9 @@ public final class SelfTest {
         File out2 = Files.createTempDirectory("wiredraw-pb-cancel").toFile();
         CancellingTransfer ct = new CancellingTransfer();
         FinishRecorder r3 = new FinishRecorder();
-        ImportService svc2 = new ImportService(Log.NOOP, ct, out2);
+        // #65：取消日志必须能核对，不能再用 Log.NOOP 把文案放过去。
+        List<String> cancelLogs = Collections.synchronizedList(new ArrayList<>());
+        ImportService svc2 = new ImportService(cancelLogs::add, ct, out2);
         svc2.start(plan, r3);
         check("PB 取消：第一个文件已进入传输",
                 ct.entered.await(5, TimeUnit.SECONDS), "等待超时");
@@ -1418,6 +1420,12 @@ public final class SelfTest {
         check("PB 取消：取消动作在传输中被触发（不是只停界面）",
                 ct.tokenCancelled.await(5, TimeUnit.SECONDS), "取消动作未触发");
         check("PB 取消：本轮 5 秒内结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
+        // #65：关闭 fd 只是「尝试」中断原生调用；本机型实测约 0.6 s 返回，能否打断没有
+        // 跨机型保证（见 ImportService 类注释与 README）。日志串不得写成已经打断。
+        check("PB 取消：日志不把「打断」写成保证（#65）",
+                cancelLogs.stream().anyMatch(l -> l.contains("已请求取消")
+                        && l.contains("无跨机型保证") && !l.contains("会被中断")),
+                "实际 " + cancelLogs);
         check("PB 取消：cancelled=true 且取消的文件不计失败",
                 r3.cancelled && r3.ok == 0 && r3.skipped == 0 && r3.failed == 0,
                 "cancelled=" + r3.cancelled + " ok=" + r3.ok + " failed=" + r3.failed);
