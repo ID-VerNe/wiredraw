@@ -38,6 +38,7 @@ public final class SelfTest {
     public static void main(String[] args) throws Exception {
         catalogCases();
         progressiveCases();
+        siblingJpegCases();
         truncationCases();
         attachCases();
         permissionCases();
@@ -46,6 +47,7 @@ public final class SelfTest {
         scanCancelCases();
         scanReleaseCases();
         selectionCases();
+        groupSelectionCases();
         planCases();
         spaceCases();
         progressCases();
@@ -165,6 +167,43 @@ public final class SelfTest {
         check("Selection.retarget：新句柄可在新快照上勾选",
                 s.fileHandles().size() == 2,
                 "实际 " + s.fileHandles());
+    }
+
+    // ---------------- 同名 JPG 回退（#59） ----------------
+
+    /**
+     * #59：ARW 的缩略图拿不到时回退到同目录同名 JPG。只做内存匹配，
+     * 必须忽略大小写与扩展名、不得跨目录、不得把文件夹当成 JPG。
+     */
+    static void siblingJpegCases() {
+        Catalog c = new Catalog();
+        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        c.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        c.add(new Catalog.Entry(3, 2, Catalog.FMT_FOLDER, 0, "101MSDCF"));
+        c.add(new Catalog.Entry(4, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
+        c.add(new Catalog.Entry(5, 2, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
+        c.add(new Catalog.Entry(6, 3, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
+        c.add(new Catalog.Entry(7, 2, Catalog.FMT_ARW, 300, "dsc02190.arw"));
+        c.add(new Catalog.Entry(8, 2, Catalog.FMT_JPEG, 100, "DSC02190.jpg"));
+        // 同 stem 的 JPG 只存在于另一个目录：findSiblingJpeg 若遍历全库就会误命中，
+        // 该用例是目录作用域的变异哨兵。
+        c.add(new Catalog.Entry(9, 2, Catalog.FMT_ARW, 300, "DSC02199.ARW"));
+        c.add(new Catalog.Entry(10, 3, Catalog.FMT_JPEG, 100, "DSC02199.JPG"));
+        c.build();
+
+        check("同名 JPG：同目录同 stem 命中",
+                c.findSiblingJpeg(c.get(4)) != null && c.findSiblingJpeg(c.get(4)).handle == 5,
+                "实际 " + (c.findSiblingJpeg(c.get(4)) == null ? "null" : c.findSiblingJpeg(c.get(4)).handle));
+        check("同名 JPG：大小写与扩展名不敏感",
+                c.findSiblingJpeg(c.get(7)) != null && c.findSiblingJpeg(c.get(7)).handle == 8,
+                "实际 " + (c.findSiblingJpeg(c.get(7)) == null ? "null" : c.findSiblingJpeg(c.get(7)).handle));
+        check("同名 JPG：不跨目录串号",
+                c.findSiblingJpeg(c.get(9)) == null,
+                "不该命中 101MSDCF 下的同名文件，实际 "
+                        + (c.findSiblingJpeg(c.get(9)) == null ? "null" : c.findSiblingJpeg(c.get(9)).handle));
+        check("同名 JPG：文件夹条目直接返回 null",
+                c.findSiblingJpeg(c.get(2)) == null,
+                "文件夹不应有同名 JPG 回退");
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------
@@ -561,6 +600,45 @@ public final class SelfTest {
         s.selectAll();
         check("selectAll() 覆盖全部 4 个文件",
                 s.fileHandles().size() == 4, "实际 " + s.fileHandles());
+    }
+
+    // ---------------- 组选（#62） ----------------
+
+    static void groupSelectionCases() {
+        Catalog c = groupSample();
+        Selection s = new Selection(c);
+        List<PhotoWall.Group> groups = PhotoWall.of(c).groups();
+
+        PhotoWall.Group many = null;
+        PhotoWall.Group one = null;
+        for (PhotoWall.Group g : groups) {
+            if (g.count() == 2) many = g;
+            else if (g.count() == 1) one = g;
+        }
+        check("组选：用例造出 2 张组与 1 张组", many != null && one != null,
+                "groups=" + groups.size());
+
+        check("组选：空组不算已全选", !s.allCheckedOf(List.of()),
+                "空组返回 true");
+
+        s.setChecked(many.photos.get(0).handle, true);
+        check("组选：部分选中时 allCheckedOf 为 false", !s.allCheckedOf(many.photos),
+                "实际 " + s.fileHandles());
+
+        s.setCheckedAllOf(many.photos, true);
+        check("组选：补齐后组内全部已勾", s.allCheckedOf(many.photos),
+                "实际 " + s.fileHandles());
+        check("组选：只作用于本组 ARW，不跨组", !s.isChecked(one.photos.get(0).handle),
+                "1 张组被顺带勾上");
+        check("组选：组内 JPG 不在组选范围", !s.isChecked(5),
+                "实际 " + s.fileHandles());
+        check("组选：重复全选不产生重复文件", s.fileHandles().size() == 2,
+                "实际 " + s.fileHandles());
+
+        s.setCheckedAllOf(many.photos, false);
+        check("组选：已全选后取消清空本组",
+                !s.allCheckedOf(many.photos) && s.fileHandles().isEmpty(),
+                "实际 " + s.fileHandles());
     }
 
     // ---------------- ImportPlan ----------------
@@ -1696,6 +1774,20 @@ public final class SelfTest {
         c.add(new Catalog.Entry(4, 2, Catalog.FMT_JPEG, 100, "DSC02183.JPG"));
         c.add(new Catalog.Entry(6, 1, Catalog.FMT_ARW, 50, "DSC02999.ARW"));
         c.add(new Catalog.Entry(5, 0, Catalog.FMT_JPEG, 60, "C0001.JPG"));
+        return c.build();
+    }
+
+    /**
+     * #62 组选用例：两个日期目录，一个 2 张 ARW（另含 1 张同名 JPG），一个 1 张 ARW。
+     */
+    static Catalog groupSample() {
+        Catalog c = new Catalog();
+        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "20260607"));
+        c.add(new Catalog.Entry(3, 1, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
+        c.add(new Catalog.Entry(4, 1, Catalog.FMT_ARW, 100, "DSC02184.ARW"));
+        c.add(new Catalog.Entry(5, 1, Catalog.FMT_JPEG, 50, "DSC02183.JPG"));
+        c.add(new Catalog.Entry(6, 0, Catalog.FMT_FOLDER, 0, "20260608"));
+        c.add(new Catalog.Entry(8, 6, Catalog.FMT_ARW, 60, "DSC02190.ARW"));
         return c.build();
     }
 

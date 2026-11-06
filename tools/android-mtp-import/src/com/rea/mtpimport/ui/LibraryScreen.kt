@@ -1,5 +1,6 @@
 package com.rea.mtpimport.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -21,10 +22,23 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -38,12 +52,16 @@ import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.Catalog
 import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.UiText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 /**
  * 照片墙（`CATALOG_READY`）。
  *
  * 顶栏：相机线稿 + 设备短名 + 12 sp 计数胶囊 + 过滤入口（`CATALOG_READY` 形态，UI-SPEC §2.2 / `V-27`）。
- * 内容：按日期分组的缩略图网格；缩略图未落地，按 §0.7 / V-19 用**同尺寸灰块 + 文件名 12 sp**。
+ * 内容：按日期分组的缩略图网格；缩略图由 `ThumbnailStore` 在 IO 线程异步取（#59），
+ * 取不到时按 §0.7 / V-19 用**同尺寸灰块 + 文件名 12 sp** 降级。
  * 底部：单一主 CTA，48 dp，文案唯一出处是 §4.5 `T-CATALOG`。
  */
 @Composable
@@ -114,15 +132,42 @@ private fun PhotoGrid(model: AppModel) {
 /** 日期组头：整行可点（L-08）；文案是组内聚合 `Jun 7 · 12 · 284 MB`（U-44）。 */
 @Composable
 private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
+    // Selection 不是 observable：读版本号让「本组是否全选」随勾选变化重算。
+    val version = model.selectionVersion
+    val allSelected = group.photos.isNotEmpty() && model.selection?.allCheckedOf(group.photos) == true
+    val collapsed = model.isCollapsed(group.key)
+    val haptic = LocalHapticFeedback.current
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .tappable { model.toggleCollapsed(group.key) }
+            // 单击折叠/展开（L-08），长按 ≥500 ms = 组选（#62）；滚动越界会取消手势，
+            // 与单格长按进看图页互不冲突（作用在不同行/格）。
+            .pointerInput(group) {
+                detectTapGestures(
+                    onTap = { model.toggleCollapsed(group.key) },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        model.toggleGroupSelection(group)
+                    }
+                )
+            }
             .semantics {
                 // A-05：`Date group <date>, N photos, <size>`
                 contentDescription = "Date group " + group.label + ", " + group.count() +
                     " photos, " + UiText.capacity(group.bytes)
+                role = Role.Button
+                onClick(label = if (collapsed) "Expand date group" else "Collapse date group") {
+                    model.toggleCollapsed(group.key)
+                    true
+                }
+                // 手势语义由 `detectTapGestures` 提供不了，读屏靠这条进入组选（#62）。
+                onLongClick(
+                    label = if (allSelected) "Deselect date group" else "Select date group"
+                ) {
+                    model.toggleGroupSelection(group)
+                    true
+                }
             },
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -150,6 +195,29 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
     // Selection 本身不是 observable：读一次版本号，勾选后本格才会重绘。
     val version = model.selectionVersion
     val checked = model.selection?.isChecked(entry.handle) == true
+
+    // #59：缩略图在 IO 线程异步取，composition / 主线程不做同步解码；
+    // 渐进扫描期间不碰相机（扫描线程正在同一个 MtpDevice 上发 getObjectInfo）。
+    val store = model.thumbnails
+    var thumb by remember(entry.handle, store) {
+        mutableStateOf(store?.cached(entry.handle))
+    }
+    LaunchedEffect(entry.handle, store, model.backgroundScanning) {
+        if (thumb == null && store != null && !model.backgroundScanning) {
+            try {
+                thumb = withContext(Dispatchers.IO) { model.loadThumbnail(entry) }
+            } finally {
+                // 取图期间格子被滚出组合（协程取消）时，load 可能已经写完缓存：
+                // 补一次 evict，保证离屏位图不常驻（V-24）。
+                if (!isActive) store.evict(entry.handle)
+            }
+        }
+    }
+    // 格子滚出可视区（LazyVerticalGrid 移出组合）即把位图移出缓存：
+    // 不显示的位图不常驻内存；滚回时重新取图。
+    DisposableEffect(entry.handle, store) {
+        onDispose { store?.evict(entry.handle) }
+    }
 
     Box(
         Modifier
@@ -180,14 +248,30 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
                 }
             }
     ) {
-        // V-19 的降级形态：同尺寸灰块 + 文件名 12 sp（网格内唯一允许出现文件名的场景）。
-        BasicText(
-            entry.name,
-            style = TextSmall.copy(color = if (checked) UiColors.ink else UiColors.secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
-        )
+        val bitmap = thumb
+        if (bitmap != null) {
+            // 已选态沿用 V-11：外层 softOutline（2 dp 墨色）+ 未选去饱和、已选恢复饱和度。
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = if (!checked) {
+                    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.55f) })
+                } else {
+                    null
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // V-19 的降级形态：同尺寸灰块 + 文件名 12 sp（网格内唯一允许出现文件名的场景）。
+            BasicText(
+                entry.name,
+                style = TextSmall.copy(color = if (checked) UiColors.ink else UiColors.secondary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
+            )
+        }
     }
 }
 
