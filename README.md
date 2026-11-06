@@ -67,10 +67,17 @@ IED 从来没用过 `GetObjectHandles` —— 它只需要 `0xFFFFC001`，所以
 ```
 README.md                            对外门面（就是本文件）
 AGENTS.md                            ★ 协作须知：五步流程、红线、已证实结论、环境坑
-RESEARCH-android-usb-raw-a7c.md      主报告（12 节，含全部实测与踩坑记录）
-doc/
-  ISSUE_GUIDE.md                     怎么发 issue（四要素、needs-repro、回签）
-  PR_GUIDE.md                        怎么开 PR（分段、基线验证、合并评审、对账）
+docs/
+  contributing/
+    ISSUE_GUIDE.md                   怎么发 issue（四要素、needs-repro、回签）
+    PR_GUIDE.md                      怎么开 PR（分段、基线验证、合并评审、对账）
+  research/
+    README.md                        探索记录索引与结论时效
+    a7c-usb-raw-2026-11.md           主报告（12 节，含全部实测与踩坑记录）
+    a7c-ptpip-session.md             抓包会话逐条分析 + 直连探针实测
+    lja-ptp-ip-static-analysis.md    Lja_PTP_IP.dll 静态分析结论
+  archive/
+    2026-11-audit/                   早期可行性核查与仓库审计的存档
 scripts/
   gates.json                         门禁清单，唯一事实来源
   run_gates.py                       门禁执行器（本机与 CI 跑同一份）
@@ -83,7 +90,6 @@ tools/
   pe/                                Lja_PTP_IP.dll 静态分析工具
 captures/                            抓包派生的可读流水（本地证据，未随仓库分发）
 out/                                 手机侧报告与截图（本地证据，未随仓库分发）
-docs/history/                        早期可行性核查与仓库审计的存档
 ```
 
 ## 怎么协作

@@ -11,7 +11,7 @@
 以及正在建设的导片工具。
 
 先读 [README.md](README.md) 的一页结论，再看
-[RESEARCH-android-usb-raw-a7c.md](RESEARCH-android-usb-raw-a7c.md) 的完整实测记录。
+[docs/research/a7c-usb-raw-2026-11.md](docs/research/a7c-usb-raw-2026-11.md) 的完整实测记录。
 
 ## 需要什么环境
 
@@ -50,8 +50,8 @@ git config core.hooksPath .githooks
 
 ## issue 与 PR 的最小要求
 
-完整细则见 [doc/ISSUE_GUIDE.md](doc/ISSUE_GUIDE.md) 与
-[doc/PR_GUIDE.md](doc/PR_GUIDE.md)；流程总览见 [AGENTS.md](AGENTS.md) §0。最小要求：
+完整细则见 [docs/contributing/ISSUE_GUIDE.md](docs/contributing/ISSUE_GUIDE.md) 与
+[docs/contributing/PR_GUIDE.md](docs/contributing/PR_GUIDE.md)；流程总览见 [AGENTS.md](AGENTS.md) §0。最小要求：
 
 1. **先发 issue**：现象（行为类必须带一条可直接粘贴的复现命令）/ 证据链（`文件:行号`）/
    影响面（P0–P2）/ 修复候选，四要素齐全。
@@ -84,7 +84,7 @@ git config core.hooksPath .githooks
 
 - [AGENTS.md](AGENTS.md) 是协作规则的唯一事实源；本文件只是入口摘要。
 - **提交者不能给自己评审**：PR 合并前由全新上下文的 subagent 做合并评审，
-  契约见 [doc/REVIEW_DISPATCH.md](doc/REVIEW_DISPATCH.md)；
+  契约见 [docs/contributing/REVIEW_DISPATCH.md](docs/contributing/REVIEW_DISPATCH.md)；
   合并后的真机回签同样由发现者或全新上下文的会话执行。
 - **完成声明以磁盘为准**：任何「已完成」都要能用 `git status`、文件存在性与
   门禁原始输出复核，不采信转述。

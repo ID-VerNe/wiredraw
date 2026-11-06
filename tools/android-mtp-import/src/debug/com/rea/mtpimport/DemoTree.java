@@ -8,7 +8,7 @@ import java.util.Locale;
 /**
  * 假数据模式的数据源（只在 `src/debug` 里编译，release APK 不含本类，U-54）。
  *
- * 口径与真机一致（`RESEARCH-android-usb-raw-a7c.md` §12.3 / #17 的复验行）：
+ * 口径与真机一致（`docs/research/a7c-usb-raw-2026-11.md` §12.3 / #17 的复验行）：
  * 1526 个对象 = 503 个文件夹 + 511 张 ARW + 512 张 JPEG，合计 12.75 GB，其中 ARW 11.89 GB。
  * 文件夹里只有 12 个日期目录挂了照片，其余是空的日期目录——这样照片墙正好 12 个日期组。
  * issue #83 起照片墙按照片单元计（512 个单元 = 511 双格式 + 1 仅 JPG），

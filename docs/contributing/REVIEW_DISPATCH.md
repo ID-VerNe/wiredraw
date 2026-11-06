@@ -1,8 +1,8 @@
 # 合并评审（评审契约与派发）
 
-> 本文件是**合并评审这件事的唯一归属**。`doc/PR_GUIDE.md` 的「合并评审」节只做引用，
+> 本文件是**合并评审这件事的唯一归属**。`docs/contributing/PR_GUIDE.md` 的「合并评审」节只做引用，
 > 不再重复散文——散文一分散就会两边说法不一致。
-> 配套：流程总览见 [AGENTS.md](../AGENTS.md) §0 第 4 步；PR 其它规范见 [PR_GUIDE.md](PR_GUIDE.md)。
+> 配套：流程总览见 [AGENTS.md](../../AGENTS.md) §0 第 4 步；PR 其它规范见 [PR_GUIDE.md](PR_GUIDE.md)。
 
 ## 定位：评审权在谁手里
 

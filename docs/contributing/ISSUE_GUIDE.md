@@ -1,7 +1,7 @@
 # 怎么发 Issue（Issue 操作指引）
 
 > 本文件是本仓库内所有 Agent 与协作者的 issue 规范，**必须遵照执行**。
-> 配套：怎么开 PR 见 [PR_GUIDE.md](PR_GUIDE.md)；流程总览见 [AGENTS.md](../AGENTS.md) §0。
+> 配套：怎么开 PR 见 [PR_GUIDE.md](PR_GUIDE.md)；流程总览见 [AGENTS.md](../../AGENTS.md) §0。
 
 ## 定位：issue 是最小执行单元
 

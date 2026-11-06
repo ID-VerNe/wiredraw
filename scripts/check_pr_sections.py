@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PR 正文的分段结构校验（`support` 档）。
 
-只查**结构**，不查内容真假 —— 内容真假只有评审者能判（见 `doc/REVIEW_DISPATCH.md`）。
+只查**结构**，不查内容真假 —— 内容真假只有评审者能判（见 `docs/contributing/REVIEW_DISPATCH.md`）。
 盯住三件事：
 
 1. 必填分段齐全：`## 问题` / `## 改动` / `## 测试`（或 `## 验证`）/ `## 影响面`；
@@ -248,7 +248,7 @@ def closing_side_effects(body: str, visible: str) -> list[str]:
     if intended and refs:
         problems.append(
             "关闭方式冲突：可见正文里同时出现 closing 关键词与 `Refs`，"
-            "按 doc/PR_GUIDE.md「关闭方式」二选一（行为类只该用 `Refs`）"
+            "按 docs/contributing/PR_GUIDE.md「关闭方式」二选一（行为类只该用 `Refs`）"
         )
     if len(intended) > 1:
         problems.append(
@@ -281,7 +281,7 @@ def check_body(body: str, files: list[str]) -> list[str]:
     if not CLOSING.search(visible):
         problems.append(
             "缺关闭关键词：需要 `Closes #NN`（纯文档 / 纯重构）或 `Refs #NN`（行为类），"
-            "见 doc/PR_GUIDE.md「关闭方式：Closes 还是 Refs」"
+            "见 docs/contributing/PR_GUIDE.md「关闭方式：Closes 还是 Refs」"
         )
 
     problems.extend(closing_side_effects(body, visible))
@@ -395,7 +395,7 @@ SAMPLE_FULL = """## 问题
 
 ## 改动
 
-`doc/REVIEW_DISPATCH.md`
+`docs/contributing/REVIEW_DISPATCH.md`
 - 样本用。
 
 ## 测试
@@ -516,7 +516,7 @@ def self_test() -> int:
         ("段齐必绿", SAMPLE_FULL, [], 0),
         ("命中门禁链但缺 `## 门禁改动` 必红", SAMPLE_FULL, ["scripts/gates.json"], 1),
         ("命中门禁链且写了 `## 门禁改动` 必绿", SAMPLE_GATE, ["scripts/gates.json"], 0),
-        ("只改文档不触发门禁链要求", SAMPLE_FULL, ["doc/PR_GUIDE.md"], 0),
+        ("只改文档不触发门禁链要求", SAMPLE_FULL, ["docs/contributing/PR_GUIDE.md"], 0),
         ("围栏里的 `## 门禁改动` 不算数", fenced_gate, ["scripts/gates.json"], 1),
         ("围栏里的 `Closes` 不算数", fenced_closing, [], 1),
         ("缩进 2 空格的围栏也算围栏", indented_fence, ["scripts/gates.json"], 1),
@@ -659,7 +659,7 @@ def main() -> int:
     if problems:
         for p in problems:
             print(f"[红] {p}", file=sys.stderr)
-        print(f"     正文结构见 doc/PR_GUIDE.md「正文分段」；{source}", file=sys.stderr)
+        print(f"     正文结构见 docs/contributing/PR_GUIDE.md「正文分段」；{source}", file=sys.stderr)
         return 1
 
     gate_note = f"，门禁链 {len(gate_hits(files))} 个文件已声明" if gate_hits(files) else ""

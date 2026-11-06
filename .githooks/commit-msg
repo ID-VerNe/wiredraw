@@ -1,6 +1,6 @@
 #!/bin/sh
 # 拦 commit message 格式与 Co-Authored-By。
-# 规则见 AGENTS.md §5 / doc/PR_GUIDE.md「标题与 commit」。
+# 规则见 AGENTS.md §5 / docs/contributing/PR_GUIDE.md「标题与 commit」。
 set -e
 
 MSG_FILE="$1"
@@ -37,7 +37,7 @@ case "$FIRST_LINE" in
   *)
     if [ "${ALLOW_NO_ISSUE:-0}" != "1" ]; then
       echo "[commit-msg] 提醒：首行没带 issue 号。" >&2
-      echo "             doc/PR_GUIDE.md 要求分支 / 标题 / commit 三处都带 issue 号。" >&2
+      echo "             docs/contributing/PR_GUIDE.md 要求分支 / 标题 / commit 三处都带 issue 号。" >&2
       echo "             确实不需要（如 bootstrap、仓库卫生）时：" >&2
       echo "             ALLOW_NO_ISSUE=1 git commit ..." >&2
       exit 1

@@ -130,6 +130,13 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 - **逐文件失败上报**：每次 FAILED 都进 `AppModel.failedLines`（最多 20 条），固定展示在
   `Location details` 抽屉，不会被 `logLines.takeLast(8)` 挤掉；DONE 首屏受 U-47 约束
   **不出现** `Failed N`。所有文件都失败仍走现有 `ERROR` 路径。
+- **无进展挂起（#63）**：`ImportService.isStalled()` 在「worker 仍活着、**没取消、没暂停**、
+  且距最后一次进入 `importFile` 已超过 60 s」（`NO_ACTIVITY_GRACE_NANOS`）时成立。
+  `Main.abandonStuckService()` 把它与「取消卡住」共用同一条放弃出路（`ERROR`
+  「相机连接可能已失步，请拔插数据线」），于是相机休眠 / USB 掉线导致的挂起轮次不再让
+  `CATALOG_READY` 下的 `Import` 变成死键（该态按 UI-SPEC §1.3 没有 Cancel 入口）。
+  只按文件边界计时，不做字节级回调（那要改 `ResumableTransfer` 契约）；暂停中不算挂起
+  （`Pause & exit` 后可以停任意久）。真机**未验**。
 - **`P-09` 空间预检**：`SpaceCheck.requiredBytes = 计划 + ceil(5%)`；`Main` 用
   `StatFs(getFilesDir())` 取可用字节。照片墙出现、勾选变化、回到照片墙（DONE / ERROR /
   取消返回）时各刷新一次，`doStart` 启动前再判一次；不足时主 CTA 禁用、上方一行
@@ -156,7 +163,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；362 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；376 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
