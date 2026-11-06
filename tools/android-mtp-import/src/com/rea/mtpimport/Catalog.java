@@ -84,6 +84,21 @@ public final class Catalog {
         return this;
     }
 
+    /**
+     * 渐进发布用快照：复制当前已发现的对象并独立 {@link #build()}，**不改动本源对象**。
+     *
+     * 必须是深拷贝：Entry 的 relPath 在 build 时会被改写，若快照共用 Entry，
+     * 后续扫描长出的祖先会把已经交给界面的旧快照 relPath 一起改掉（issue #60）。
+     * 调用点只在扫描线程上、每 200 个对象一次，1526 个对象的复制代价可以忽略。
+     */
+    public Catalog snapshot() {
+        Catalog copy = new Catalog();
+        for (Entry e : entries) {
+            copy.add(new Entry(e.handle, e.parent, e.format, e.size, e.name));
+        }
+        return copy.build();
+    }
+
     private String resolvePath(Entry e) {
         StringBuilder sb = new StringBuilder(e.name);
         Set<Integer> seen = new HashSet<>();
@@ -193,6 +208,13 @@ public final class Catalog {
     public long rawBytes() {
         long n = 0;
         for (Entry e : entries) if (!e.isFolder() && e.isRaw()) n += e.size;
+        return n;
+    }
+
+    /** ARW 张数（照片墙的照片数口径，与 {@code PhotoWall.photoCount()} 一致）。 */
+    public int rawCount() {
+        int n = 0;
+        for (Entry e : entries) if (!e.isFolder() && e.isRaw()) n++;
         return n;
     }
 }
