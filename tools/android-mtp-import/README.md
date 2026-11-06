@@ -27,7 +27,7 @@
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
 | 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
 | 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache 兜底，格子移出组合即 `evict`（离屏位图不常驻）；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
-| 看图页预览（#61） | ✅ 实现（`PhotoScreen` 异步走 `ThumbnailStore.loadPreview`，同一只读链路；加载/失败保持 U-51 胶囊；8 MiB 独立预览缓存，连续打开同一张不重复读相机；与网格共用 512 px 长边解码上限（`MAX_EDGE`），故 ≤512 px；`getThumbnail` 源分辨率仍**真机未验**） |
+| 看图页预览（#61） | ✅ 实现（`PhotoScreen` 异步走 `ThumbnailStore.loadPreview`，同一只读链路；加载/失败保持 U-51 胶囊；8 MiB 独立预览缓存，连续打开同一张不重复读相机；真实路径与网格共用 512 px 长边解码上限（`MAX_EDGE`），故 ≤512 px；demo 分支不降采样（素材最长边 ≤1440）；`getThumbnail` 源分辨率仍**真机未验**） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
@@ -62,7 +62,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ResumableTransfer 传输契约（整文件 / 取消 / offset 续传，语义见 #67）    [纯 JDK]
 ├─ MtpTransfer       真实传输：importFile（从头）/ getPartialObject（续传）
 │                    → 校验字节 → rename 到 relPath；取消删本次半成品（PB/PC） [android]
-├─ ThumbnailStore    照片墙缩略图：getThumbnail → 同名 JPG 回退 → 24 MiB LruCache [android]
+├─ ThumbnailStore    缩略图/看图页预览：getThumbnail → 同名 JPG；网格 24 MiB + 预览 8 MiB [android]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
 ├─ PermGate          USB 权限等待门：每次申请重建、只认本次序号（#11）     [纯 JDK]
@@ -74,7 +74,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
 ├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
 ├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
-├─ PhotoPreview      照片详情页的预览来源（真实路径恒为 null）              [android]
+├─ PhotoPreview      demo 素材契约：由 ThumbnailStore 供照片墙与看图页（真实路径不注入） [android]
 ├─ ui/               Compose 三屏 + 两个抽屉 + 图标 + 主题 + AppModel       [android]
 └─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）
                      + DemoImages（真实照片占位）+ DemoTransfer（进度模拟）  [debug 变体]
@@ -219,7 +219,8 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 `skip` 并继续，APK 里没有素材，`photo` 页退回 `ARW · <size>` 胶囊。ARW 不进 APK，
 假树仍保留 ARW 条目与真实大小。真实 MTP 路径不走这条链路：自 #59 起**照片墙**改由相机
 `getThumbnail` 取图（demo 模式下 `ThumbnailStore` 直接用上面的 demo 素材，照片墙格子也能
-看到图）；`photo` 页仍是 #46 的 `PhotoPreview`。
+看到图）；`photo` 页与照片墙共用 `ThumbnailStore`：真实路径走 `getThumbnail`（#61），
+demo 走同一条 `loadPreview` 的 demo 分支取整图。
 
 ## 沿用探针的三条实测结论
 

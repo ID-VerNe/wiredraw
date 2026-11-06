@@ -140,10 +140,17 @@ public final class ThumbnailStore {
         return decoded;
     }
 
-    /** 看图页首帧只读缓存（预览缓存优先，其次网格缓存），不触发相机调用。 */
+    /**
+     * 看图页首帧只读缓存（预览缓存优先，其次网格缓存），不触发相机调用。
+     *
+     * demo 有整图（≤1440），网格缓存里只有降采样版（≤512），所以 demo 未命中预览缓存时
+     * 返回 null，让 {@link #loadPreview} 在 IO 线程取整图；真实路径仍可先显示网格缩略图。
+     */
     public Bitmap cachedPreview(int handle) {
         Bitmap hit = previewCache.get(handle);
-        return hit != null ? hit : cache.get(handle);
+        if (hit != null) return hit;
+        if (demo != null) return null;
+        return cache.get(handle);
     }
 
     /**
