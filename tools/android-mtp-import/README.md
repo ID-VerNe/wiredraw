@@ -47,6 +47,7 @@
 | **`onDestroy` 先 join worker 再关会话** | ✅ 实现（PD；1 s 有界等待，worker 未退出则跳过 `close()`；真机未验） |
 | **已导入索引（`imported-index.txt`）** | ✅ 实现（#20；`outDir` 磁盘镜像派生，每轮导入结束原子重写；主键 `relPath + size`；**本期无消费方**，供后续 UI 单读「新片」；真机未验） |
 | **多存储同名路径冲突（#54）** | ✅ 实现（`storageId` 只做判别、**不进 relPath**；同 relPath 跨存储的项显式失败、不调 transfer、不写 Journal；落盘拒绝异尺寸覆盖；**两个同名文件仍争同一路径，本期不支持同时导入**；多存储卷实际行为真机未验） |
+| **落点策略（#28）** | ✅ 策略层（默认 `getFilesDir()/imported`；布局镜像 `relPath`，不重排；相册请求**显式回退**并带原因；**相册写入未实现**，权限/MIME 真机未验） |
 
 ## 类职责
 
@@ -60,7 +61,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
 ├─ ImportedIndex     已导入索引：outDir 磁盘镜像派生（relPath + size），每轮重建    [纯 JDK]
-├─ DestPolicy        落盘冲突策略：relPath 解析 + 同名异尺寸拒绝覆盖（#54）    [纯 JDK]
+├─ DestPolicy        落盘冲突策略：relPath 解析 + 同名异尺寸拒绝覆盖（#54）；落点根（#28）    [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
 ├─ ImportGate        主 CTA 准入判定：后台扫描 + 空间不足两条件（N-1）         [纯 JDK]
 ├─ ImportService     编排：线程、暂停（文件边界）、取消、重试、逐文件调 transfer  [纯 JDK]
@@ -210,7 +211,7 @@ bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assem
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 434 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 441 项）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -251,6 +252,14 @@ adb logcat -s MTPIMPORT:*
 ```bash
 adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
 ```
+
+## 落点策略（issue #28）
+
+- **默认**：`getFilesDir()/imported`，不弹任何权限请求；系统「清理缓存」不会带走，「清除数据 / 卸载」会。
+- **布局**：镜像相机 `relPath`，即 `<root>/<relPath>`，**不额外加日期层、不加机型层**。日期分组由相机目录自带（卡内是 `2025-06-07/` 这类目录时天然按日期落）；`relPath` 同时是 Journal / 索引主键，落点路径与识别键保持一致，不出现「识别对了、路径变了」的双份账。
+- **回退可见**：请求的落点不可用时回退私有根，`DestPolicy.Destination.fallbackReason` 必须非空，`Main` 在 `onCreate` 写日志；不得只留在调试输出。
+- **相册未接入**：MediaStore 权限 / `.ARW` 的 MIME / `RELATIVE_PATH` 均未真机验证；且 `.part` 在私有目录、成品在 MediaStore 属跨 provider，`File.renameTo` 不可用，要改成流式复制。所以请求相册一律回退，不写「看似可用」的代码。接入前必须先拆「状态目录（journal / index / `.part`）」与「成品根」，否则换根会丢续传记录。
+- **存量兼容**：默认根不变，老文件路径与 `relPath + size` 键都不变，不会因为落点策略把老文件当冲突或重传。
 
 ## 假数据模式（不插相机也能走完 10 个状态）
 

@@ -58,6 +58,7 @@ public final class SelfTest {
         importServiceCases();
         importedIndexCases();
         storageConflictCases();
+        destinationPolicyCases();
         pauseCancelCases();
         resumePlanCases();
         importServicePauseClockCases();
@@ -1609,6 +1610,53 @@ public final class SelfTest {
         check("DestPolicy：异尺寸拒绝覆盖（不静默丢数据）",
                 DestPolicy.existing(diff, 300) == DestPolicy.Existing.DIFFERENT_SIZE,
                 "实际 " + DestPolicy.existing(diff, 300));
+    }
+
+    /**
+     * 落点策略（issue #28）：默认私有根、相册请求显式回退、镜像 relPath 布局、存量兼容。
+     * 这些都不需要真机；相册实际写入与权限行为仍是真机待验项。
+     */
+    static void destinationPolicyCases() throws Exception {
+        File filesDir = Files.createTempDirectory("wiredraw-destpolicy").toFile();
+        // 用字面量而不是 DestPolicy.PRIVATE_DIR：常量被改名时这条断言必须能红。
+        File privateRoot = new File(filesDir, "imported");
+
+        DestPolicy.Destination def = DestPolicy.choose(filesDir, DestPolicy.Kind.PRIVATE);
+        check("落点：默认私有根 = getFilesDir()/imported",
+                def.kind == DestPolicy.Kind.PRIVATE
+                        && def.root.getCanonicalFile().equals(privateRoot.getCanonicalFile())
+                        && !def.fellBack() && def.fallbackReason.isEmpty(),
+                "kind=" + def.kind + " root=" + def.root + " reason=[" + def.fallbackReason + "]");
+
+        DestPolicy.Destination none = DestPolicy.choose(filesDir, null);
+        check("落点：未提供请求按默认私有",
+                none.kind == DestPolicy.Kind.PRIVATE
+                        && none.root.getCanonicalFile().equals(privateRoot.getCanonicalFile())
+                        && !none.fellBack(),
+                "kind=" + none.kind + " root=" + none.root + " reason=[" + none.fallbackReason + "]");
+
+        DestPolicy.Destination gallery = DestPolicy.choose(filesDir, DestPolicy.Kind.GALLERY);
+        check("落点：相册请求回退私有（不能静默落到未验位置）",
+                gallery.kind == DestPolicy.Kind.PRIVATE
+                        && gallery.root.getCanonicalFile().equals(privateRoot.getCanonicalFile()),
+                "kind=" + gallery.kind + " root=" + gallery.root);
+        check("落点：回退必须带非空原因（日志/界面要能看出来）",
+                gallery.fellBack() && gallery.fallbackReason.contains("回退"),
+                "reason=[" + gallery.fallbackReason + "]");
+        check("落点：回退根与默认根相同（存量文件不会被当冲突）",
+                gallery.root.getCanonicalFile().equals(def.root.getCanonicalFile()),
+                "fallback=" + gallery.root + " default=" + def.root);
+
+        File mirrorDate = DestPolicy.resolve(def.root, "2025-06-07/C0001.MP4");
+        check("落点：镜像相机日期目录，不额外重排",
+                mirrorDate != null && mirrorDate.getCanonicalFile()
+                        .equals(new File(def.root, "2025-06-07/C0001.MP4").getCanonicalFile()),
+                "实际 " + mirrorDate);
+        File mirrorDcim = DestPolicy.resolve(def.root, "DCIM/100MSDCF/DSC09782.ARW");
+        check("落点：镜像 DCIM 目录，不加机型/日期层",
+                mirrorDcim != null && mirrorDcim.getCanonicalFile()
+                        .equals(new File(def.root, "DCIM/100MSDCF/DSC09782.ARW").getCanonicalFile()),
+                "实际 " + mirrorDcim);
     }
 
     /**
