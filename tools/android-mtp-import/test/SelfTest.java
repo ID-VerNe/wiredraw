@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -74,6 +75,7 @@ public final class SelfTest {
         commentRefCases();
         skippedSourceCases();
         pausePrecheckCases();
+        stuckErrorCases();
 
         System.out.println();
         if (failed == 0) {
@@ -1806,24 +1808,45 @@ public final class SelfTest {
 
     // ---------------- 无进展挂起判定（issue #63） ----------------
 
+    /**
+     * 一条挂起判定用例：跑断言的同时登记 6 个入参，供末尾的去重断言使用（issue #116）。
+     *
+     * 旧实现有两条标签传了同一组参数（`true/false/false/t0/t0+g/g`），7 个标签只钉住 6 个条件；
+     * 把入参集中登记后，「标签不同、条件相同」会直接被去重断言抓住，而不用逐条人工比对。
+     */
+    static void stalledCase(List<String> keys, String label, boolean expected,
+                            boolean running, boolean cancelled, boolean paused,
+                            long lastActivityNanos, long nowNanos, long graceNanos,
+                            String detail) {
+        keys.add(running + "|" + cancelled + "|" + paused + "|"
+                + lastActivityNanos + "|" + nowNanos + "|" + graceNanos);
+        check(label, ImportService.stalled(running, cancelled, paused,
+                lastActivityNanos, nowNanos, graceNanos) == expected, detail);
+    }
+
     static void stalledDetectionCases() {
         long g = ImportService.NO_ACTIVITY_GRACE_NANOS;
         long t0 = 10_000_000_000L;
+        List<String> keys = new ArrayList<>();
 
-        check("挂起判定：未取消 + 未暂停 + 距最后活动满 60 s → 成立",
-                ImportService.stalled(true, false, false, t0, t0 + g, g), "不成立");
-        check("挂起判定：距最后活动 59.5 s 不成立",
-                !ImportService.stalled(true, false, false, t0, t0 + g - 500_000_000L, g), "误报");
-        check("挂起判定：恰好 60 s 成立（边界含等号）",
-                ImportService.stalled(true, false, false, t0, t0 + g, g), "边界不成立");
-        check("挂起判定：已取消不成立（交给 isCancelStuck 的 3 s 口径）",
-                !ImportService.stalled(true, true, false, t0, t0 + 10 * g, g), "取消态误报");
-        check("挂起判定：暂停中不成立（Pause & exit 可停任意久）",
-                !ImportService.stalled(true, false, true, t0, t0 + 10 * g, g), "暂停态误报");
-        check("挂起判定：worker 已退出不成立",
-                !ImportService.stalled(false, false, false, t0, t0 + 10 * g, g), "未运行误报");
-        check("挂起判定：还没进过文件（lastActivity=0）不成立",
-                !ImportService.stalled(true, false, false, 0L, t0 + 10 * g, g), "0 值误报");
+        stalledCase(keys, "挂起判定：未取消 + 未暂停 + 距最后活动超过 60 s（60.5 s）→ 成立",
+                true, true, false, false, t0, t0 + g + 500_000_000L, g, "不成立");
+        stalledCase(keys, "挂起判定：距最后活动 59.5 s 不成立",
+                false, true, false, false, t0, t0 + g - 500_000_000L, g, "误报");
+        stalledCase(keys, "挂起判定：恰好 60 s 成立（边界含等号）",
+                true, true, false, false, t0, t0 + g, g, "边界不成立");
+        stalledCase(keys, "挂起判定：已取消不成立（交给 isCancelStuck 的 3 s 口径）",
+                false, true, true, false, t0, t0 + 10 * g, g, "取消态误报");
+        stalledCase(keys, "挂起判定：暂停中不成立（Pause & exit 可停任意久）",
+                false, true, false, true, t0, t0 + 10 * g, g, "暂停态误报");
+        stalledCase(keys, "挂起判定：worker 已退出不成立",
+                false, false, false, false, t0, t0 + 10 * g, g, "未运行误报");
+        stalledCase(keys, "挂起判定：还没进过文件（lastActivity=0）不成立",
+                false, true, false, false, 0L, t0 + 10 * g, g, "0 值误报");
+
+        check("挂起判定：7 条用例对应 7 个不同条件（issue #116）",
+                keys.size() == 7 && new HashSet<>(keys).size() == 7,
+                "入参组合 " + new HashSet<>(keys).size() + " / " + keys.size() + "：" + keys);
     }
 
     /** 卡在一次 importFile 里不返回，直到用例放行 —— 模拟相机休眠/USB 掉线时的原生调用。 */
@@ -2638,6 +2661,46 @@ public final class SelfTest {
         check("清单变化时空间预检先于取消旧暂停轮（issue #124）",
                 precheckAt >= 0 && cancelAt >= 0 && precheckAt < cancelAt,
                 "precheckAt=" + precheckAt + " cancelAt=" + cancelAt);
+    }
+
+    // ---------------- 挂起与取消卡住的 ERROR 文案（issue #116） ----------------
+
+    /**
+     * issue #116 第三项：两种成因在日志里已分开写，屏幕 `ERROR` 也要能区分。
+     *
+     * 纯 JDK 自检的 classpath 里没有 `Main`（import android.*），只能按源码文本判定，
+     * 与 {@link #skippedSourceCases()} 同一手法：找不到方法就判红，避免文件改名后断言静默失效。
+     */
+    static void stuckErrorCases() {
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src = null;
+        String doStart = null;
+        try {
+            src = String.join("\n", Files.readAllLines(main.toPath()));
+            doStart = methodBody(main, "private void doStart() {");
+        } catch (IOException e) {
+            src = null;
+            doStart = null;
+        }
+        final String stall = "相机长时间无响应，请拔插数据线";
+        final String cancelStuck = "相机连接可能已失步，请拔插数据线";
+        int stalledBranch = doStart == null ? -1 : doStart.indexOf("StuckKind.STALLED");
+        int stallAt = doStart == null ? -1 : doStart.indexOf(stall);
+        check("挂起与取消卡住的 ERROR 文案不同（issue #116）",
+                src != null && doStart != null && stalledBranch >= 0 && stallAt > stalledBranch
+                        && doStart.contains("stuck == StuckKind.STALLED")
+                        && doStart.contains(cancelStuck),
+                "stalledBranch=" + stalledBranch + " stallAt=" + stallAt
+                        + (src == null ? " 读不到 " + main : ""));
+        // UI-SPEC：T-ERROR / C-01 一行 ≤20 字中文原因；C-14 必须带可执行动作；
+        // §0.10 禁用写法把「传输 / 搬运 / 拷贝 / 同步」列入用户可见文案禁止项，Retry 一律禁止。
+        check("挂起 ERROR 文案符合 C-01 / C-14 / §0.10（issue #116）",
+                src != null && src.contains("\"" + stall + "\"") && stall.length() <= 20
+                        && stall.contains("拔插数据线")
+                        && !stall.contains("Retry") && !stall.contains("重试")
+                        && !stall.contains("传输") && !stall.contains("搬运")
+                        && !stall.contains("拷贝") && !stall.contains("同步"),
+                "实际「" + stall + "」长度 " + stall.length());
     }
 
     static void check(String name, boolean ok, String detail) {
