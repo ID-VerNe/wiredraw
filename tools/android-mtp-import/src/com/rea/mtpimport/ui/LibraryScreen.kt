@@ -250,11 +250,20 @@ private fun ImportBar(model: AppModel) {
     val version = model.selectionVersion
     val selected = model.selectedCount
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        // P-09：空间不足时 CTA 被禁用，并在其上方加一行 `Low space`；差额只进 Details。
+        if (model.lowSpace) {
+            BasicText(
+                "Low space",
+                style = TextSmall.copy(color = UiColors.secondary),
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+        }
         PrimaryButton(
             text = UiText.importCta(selected, model.photoCount),
             onClick = { model.callbacks?.onImport() },
             // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
-            enabled = !model.backgroundScanning
+            // P-09：空间不足时同样禁用，两个条件都必须生效。
+            enabled = !model.backgroundScanning && !model.lowSpace
         )
     }
 }

@@ -27,6 +27,9 @@ import java.util.List;
  *   `getPartialObject` 从该偏移续读；成功后才 rename 并记完成，失败继续保留 `.part`。
  *   半成品名带 `size`（`<relPath 压平>.<size>.part`），与跳过判定同口径，异 size 的旧残留
  *   不会把旧前缀续进同路径的新对象。取消会删除整个半成品（用户取消 = 从 0 重来），与 PB 一致。
+ * - **失败重试（PD / issue #50）**：单文件首次 FAILED 后同步重试，上限
+ *   {@link #MAX_FILE_ATTEMPTS}（首次 + 1 次）；每次尝试前按 `.part` 实际长度重算 `resumeFrom`。
+ *   **不做整轮自动重跑**，用户再点 Import 时 Journal 跳过已完成、`.part` 续传。
  */
 public final class ImportService {
 
@@ -37,6 +40,15 @@ public final class ImportService {
      * 取值与仓库里扫描重试的 3 秒口径一致，避免另造一个魔法数字。
      */
     static final long CANCEL_STUCK_GRACE_NANOS = 3_000_000_000L;
+
+    /**
+     * 单个文件的最多尝试次数（首次 + 1 次同步重试，PD / issue #50）。
+     *
+     * 有上限，绝不无限循环：MTP 断线/失步不会靠重试自愈，重试一次足够覆盖偶发失败；
+     * 仍失败就累计到本轮 `failed` 并保留 `.part`，由用户再点 Import（Journal 跳过已完成、
+     * `.part` 从断点续传），**不做整轮自动重跑**。
+     */
+    static final int MAX_FILE_ATTEMPTS = 2;
 
     private final Log log;
     private final ResumableTransfer transfer;
@@ -73,6 +85,25 @@ public final class ImportService {
     public boolean isRunning() {
         Thread t = worker;
         return t != null && t.isAlive();
+    }
+
+    /**
+     * 等待本轮 worker 退出，最多 `millis` 毫秒（PD / issue #50）。
+     *
+     * 返回 true 表示 worker 已退出（或本来就没在跑），调用方可以安全地关闭 MTP 会话；
+     * 返回 false 表示仍有 worker 阻塞在原生调用里，**不得**在调用线程 `session.close()`。
+     * 只做一次有界等待，不循环、不无限等。
+     */
+    public boolean awaitWorker(long millis) {
+        Thread t = worker;
+        if (t == null) return true;
+        try {
+            t.join(Math.max(1L, millis));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return !t.isAlive();
     }
 
     /** 本轮是否停在文件边界等 `Resume`（`Pause & exit` 后从照片墙再点 Import 会用）。 */
@@ -200,12 +231,34 @@ public final class ImportService {
                 // resumeFrom 恒为 0，真续传永远不生效。
                 String part = journal.partPath(outDir.getAbsolutePath(), item.relPath, item.size);
                 File partFile = new File(part);
-                long resumeFrom = Journal.resumeFrom(
-                        partFile.isFile() ? partFile.length() : 0L, item.size);
-                if (resumeFrom > 0) {
-                    log.line("发现半成品：" + item.relPath + " 已有 " + resumeFrom + " 字节，从断点续传");
+
+                // PD（issue #50）：单文件失败后同步重试，上限 MAX_FILE_ATTEMPTS。
+                // 每次尝试前都按磁盘实际长度重算 resumeFrom —— 失败可能已经写进部分字节，
+                // 第二次会走续传而不是从 0 重写。取消优先：已取消就不再重试、也不计失败。
+                int attempts = 0;
+                long resumeFrom = 0L;
+                ResumableTransfer.Result r;
+                for (;;) {
+                    attempts++;
+                    resumeFrom = Journal.resumeFrom(
+                            partFile.isFile() ? partFile.length() : 0L, item.size);
+                    if (resumeFrom > 0 && attempts == 1) {
+                        log.line("发现半成品：" + item.relPath + " 已有 " + resumeFrom
+                                + " 字节，从断点续传");
+                    }
+                    r = transfer.transfer(item, part, resumeFrom, token);
+                    if (r.kind != ResumableTransfer.Kind.FAILED) break;
+                    if (cancelled || attempts >= MAX_FILE_ATTEMPTS) break;
+                    log.line("第 " + attempts + " 次传输失败，同步重试（上限 "
+                            + MAX_FILE_ATTEMPTS + " 次）：" + item.relPath + " · " + r.note);
                 }
-                ResumableTransfer.Result r = transfer.transfer(item, part, resumeFrom, token);
+
+                if (r.kind == ResumableTransfer.Kind.FAILED && cancelled) {
+                    // 取消与失败竞态：以取消为准，不把用户主动取消计入失败。
+                    stop = "已取消";
+                    l.onFileFinished(item, ResumableTransfer.Kind.CANCELLED, "已取消");
+                    break;
+                }
 
                 switch (r.kind) {
                     case OK:
@@ -232,7 +285,11 @@ public final class ImportService {
                     case FAILED:
                     default:
                         failed++;
-                        l.onFileFinished(item, r.kind, r.note);
+                        // PD：重试耗尽后把尝试次数带进 note，界面/日志能看出不是一次就放弃。
+                        String note = attempts > 1
+                                ? r.note + " · 已尝试 " + attempts + " 次"
+                                : r.note;
+                        l.onFileFinished(item, r.kind, note);
                         l.onProgress(progress, item);
                         break;
                 }
