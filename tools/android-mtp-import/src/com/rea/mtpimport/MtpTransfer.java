@@ -18,7 +18,8 @@ import java.util.concurrent.locks.ReentrantLock;
  *   73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）；PB 的取消靠关闭 pfd 尝试打断原生写。
  * - `resumeFrom > 0`：`getPartialObject(handle, offset, min(1 MiB, size - offset), buf)` 循环
  *   append 到 `.part`。语义与边界已在 ILCE-7C 上实测（issue #67）：
- *   `offset` 是绝对偏移；普通 ARW / JPEG 对象都支持；1 MiB 分块拼满 24.4 MB ARW 的字节数、
+ *   `offset` 是绝对偏移；抽样的 4 张 ARW + 1 张 JPEG 首块均成功（未覆盖全部普通对象，
+ *   `0xFFFFC001` 未测）；1 MiB 分块拼满 24.4 MB ARW 的字节数、
  *   MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）；`length` 超剩余截断到 EOF；
  *   `offset == size` 返回 0；`offset > size` 抛 `IOException: Failed to read data.`（#67 首轮观察；
  *   越界后会话是否进入错误态本轮未复测、也未做会话探活）。所以这里永不请求越界偏移，
