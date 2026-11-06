@@ -45,6 +45,7 @@
 | **逐文件失败上报到 UI** | ✅ 实现（PD；固定进 `Location details` 失败列表，DONE 首屏受 U-47 约束不出现 `Failed N`） |
 | **`P-09` 导入前空间预检** | ✅ 实现（PD；计划 + 5% 缓冲不足时禁用主 CTA + 一行 `Low space`，差额进 Details；真机未验） |
 | **`onDestroy` 先 join worker 再关会话** | ✅ 实现（PD；1 s 有界等待，worker 未退出则跳过 `close()`；真机未验） |
+| **已导入索引（`imported-index.txt`）** | ✅ 实现（#20；`outDir` 磁盘镜像派生，每轮导入结束原子重写；主键 `relPath + size`；**本期无消费方**，供后续 UI 单读「新片」；真机未验） |
 
 ## 类职责
 
@@ -57,6 +58,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ ImportPlan        勾选 → 去重清单 + totalBytes()                     [纯 JDK]
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
+├─ ImportedIndex     已导入索引：outDir 磁盘镜像派生（relPath + size），每轮重建    [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
 ├─ ImportGate        主 CTA 准入判定：后台扫描 + 空间不足两条件（N-1）         [纯 JDK]
 ├─ ImportService     编排：线程、暂停（文件边界）、取消、重试、逐文件调 transfer  [纯 JDK]
@@ -91,7 +93,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-纯 JDK 类合计**二十八个**——主源集 26 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
+纯 JDK 类合计**二十九个**——主源集 27 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
 `DemoTransfer` 标 `[debug 变体]`。这些文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（debug 的两个用单独的清单核对）；数量以 `checkPureJdkList` 的输出为准。
 
@@ -120,6 +122,25 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
   超过目标大小视为损坏、从 0 重传；
 - 失败 / 断线保留 `.part`，取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）；
 - 结束时字节数必须等于相机侧 `ImportPlan.Item.size`，否则 FAILED 且保留 `.part`。
+
+## 已导入索引（issue #20）
+
+- **位置**：`<filesDir>/imported/imported-index.txt`，与 `import-journal.txt` 同目录。
+  `getFilesDir()` 是应用私有**持久**目录，系统「清理缓存」不会带走；「清除数据 / 卸载」会
+  （那时 Journal 也一起没了）。
+- **格式**：行式 UTF-8 文本，头 `# wiredraw-import index v1`，每行 `size \t relPath`
+  （`relPath` 复用 `Journal.sanitize` 去掉 tab / 换行），按 `relPath` 排序。
+  不采用 JSON：这里只需要逐行读，多一层转义没有收益。
+- **主键 `relPath + size`**，与 Journal 的跨会话跳过、`.part` 命名同口径。
+  **已知边界**：同路径同尺寸但内容变了（换卡后编号复用、相机内替换、格式化后重拍同名文件）
+  分辨不出来，会被当成已导入。要真正区分内容得把整文件读一遍算哈希，本单不做。
+- **派生快照，不是事件账本**：每轮导入结束（`ImportService` 的 `finally`，与 Journal 同受
+  `abandoned` 保护）递归扫 `outDir` 重新生成并原子重写（同目录 `.tmp` + `ATOMIC_MOVE`）。
+  **不读旧索引**——缺失 / 截断 / 乱码都等价于「还没生成」，重写即恢复；跳过判定仍由 Journal
+  负责，索引不参与，所以索引丢失不会触发重传。
+- **排除项**：`import-journal.txt`、索引自身与 `.tmp`、所有 `*.part`；只收普通文件且 `size > 0`。
+- **消费方**：本期（#20）**没有**。后续 UI 单（首屏「新片」计数、网格已导入标记、过滤抽屉）
+  在扫描完成后读它，按 `relPath` 与相机侧条目求交。真机**未验**。
 
 ## 错误与重试 / 空间预检 / onDestroy（PD / issue #50）
 
@@ -165,7 +186,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；409 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；420 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest

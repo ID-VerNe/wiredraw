@@ -417,6 +417,7 @@ public final class ImportService {
                 log.line("本轮已被放弃：跳过续传日志保存（不覆盖磁盘上的现有记录）");
             } else {
                 saveJournal(journal);
+                saveImportedIndex();
             }
             worker = null;
         }
@@ -431,6 +432,25 @@ public final class ImportService {
 
     private File journalFile() {
         return new File(outDir, "import-journal.txt");
+    }
+
+    /**
+     * 重建并原子重写「已导入索引」（#20）。
+     *
+     * 索引是 `outDir` 磁盘镜像的派生快照，不是事件账本：每轮结束都从磁盘真值重算，
+     * 缺失 / 截断 / 乱码都等价于「还没生成」，直接覆盖。**不读旧文件**，所以索引
+     * 本身的状态不会把已导入的照片判成新片；跳过判定也未变（仍由 {@link Journal} 负责）。
+     *
+     * 失败只记日志、不影响本轮结果——索引是后续单的输入，不是本轮成败的一部分。
+     */
+    private void saveImportedIndex() {
+        File f = new File(outDir, ImportedIndex.FILE_NAME);
+        try {
+            int n = ImportedIndex.save(outDir);
+            log.line("已导入索引已重建：" + n + " 条（" + f.getAbsolutePath() + "）");
+        } catch (IOException e) {
+            log.line("已导入索引保存失败（不影响本轮结果）：" + e);
+        }
     }
 
     private Journal loadJournal() {
