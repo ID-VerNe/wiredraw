@@ -208,7 +208,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；432 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 432 项）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -243,10 +244,11 @@ adb logcat -s MTPIMPORT:*
 **已有该设备授权记录**时静默通过，首次或无授权记录时系统仍会弹「是否允许访问 MTP」，
 必须点「允许」（manifest 挂了 `USB_DEVICE_ATTACHED` + `res/xml/device_filter.xml`）。
 
-续传日志落在 `getFilesDir()/import-journal.txt`，可以直接看：
+续传日志落在 `getFilesDir()/imported/import-journal.txt`（与已导入索引 `imported-index.txt` 同目录），
+可以直接看：
 
 ```bash
-adb exec-out run-as com.rea.mtpimport cat files/import-journal.txt
+adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
 ```
 
 ## 假数据模式（不插相机也能走完 10 个状态）
