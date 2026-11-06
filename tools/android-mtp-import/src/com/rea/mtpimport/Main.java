@@ -966,30 +966,35 @@ public final class Main extends ComponentActivity {
                 if (service != round) return;   // 被放弃的卡死轮次收尾时不得动界面
                 log.line("Skipped " + skipped + " existing");
                 runOnUiThread(() -> {
-                    if (cancelled) {
-                        // 取消：视图已在 onCancel 里关掉；这里再关一次，防迟到的进度回调
-                        // 在 onFinished 之前落地把界面拽回 IMPORTING（#48）。
-                        model.leaveTransferView();
-                        return;
-                    }
-                    if (model.getTransferViewClosed()) {
-                        // 三审顺带：`Pause & exit`（或顶部返回）后用户已回到照片墙；若暂停恰好落在
-                        // 最后一个文件，worker 会在文件边界正常结束。此时 DONE 会把界面从照片墙
-                        // 拽回传输页，与 §1.3「关视图后任务继续、不抢回界面」相冲突。
-                        log.line("本轮结束但传输视图已关闭：保持当前视图（不跳 DONE）");
-                        model.backToCatalog();
-                        return;
-                    }
-                    if (ok == 0 && skipped == 0 && failed > 0) {
-                        // 一个都没成：落 ERROR + `Connect camera`（不是 Retry，§1.2 / U-52）。
-                        model.showError("导入失败，请拔插数据线");
-                        return;
-                    }
-                    if (ok + skipped > 0) {
-                        model.showDone(ok + skipped,
-                                lastProgress == null ? 0 : lastProgress.bytesDone());
-                    } else {
-                        model.backToCatalog();
+                    // 判定顺序收进纯 JDK 的 FinishOutcome（issue #64）：全失败优先于「视图已关闭」，
+                    // 避免关闭视图后整轮全失败被 backToCatalog 静默吞掉。
+                    FinishOutcome.Action action = FinishOutcome.of(
+                            cancelled, model.getTransferViewClosed(), ok, skipped, failed);
+                    switch (action) {
+                        case LEAVE_TRANSFER_VIEW:
+                            // 取消：视图已在 onCancel 里关掉；这里再关一次，防迟到的进度回调
+                            // 在 onFinished 之前落地把界面拽回 IMPORTING（#48）。
+                            model.leaveTransferView();
+                            return;
+                        case SHOW_ERROR:
+                            // 一个都没成：落 ERROR + `Connect camera`（不是 Retry，§1.2 / U-52）。
+                            model.showError("导入失败，请拔插数据线");
+                            return;
+                        case STAY_CURRENT_VIEW:
+                            // 三审顺带：`Pause & exit`（或顶部返回）后用户已回到照片墙；若暂停恰好落在
+                            // 最后一个文件，worker 会在文件边界正常结束。此时 DONE 会把界面从照片墙
+                            // 拽回传输页，与 §1.3「关视图后任务继续、不抢回界面」相冲突。
+                            log.line("本轮结束但传输视图已关闭：保持当前视图（不跳 DONE）");
+                            model.backToCatalog();
+                            return;
+                        case SHOW_DONE:
+                            model.showDone(ok + skipped,
+                                    lastProgress == null ? 0 : lastProgress.bytesDone());
+                            return;
+                        case BACK_TO_CATALOG:
+                        default:
+                            // 兜底：新增 Action 必须在此显式处理，否则会静默落到回照片墙。
+                            model.backToCatalog();
                     }
                 });
             }

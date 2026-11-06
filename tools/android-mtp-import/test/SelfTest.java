@@ -58,6 +58,7 @@ public final class SelfTest {
         importServicePauseClockCases();
         partialResumeCases();
         uiStateCases();
+        finishOutcomeCases();
         importGateCases();
         topBarSpecCases();
         colorTokensCases();
@@ -1713,6 +1714,51 @@ public final class SelfTest {
         check("顶栏在全部 10 态常驻（#44 决策 2）",
                 java.util.Arrays.stream(UiState.State.values()).allMatch(UiState::hasTopBar),
                 "任何状态都不得去掉顶栏；内容按 UI-SPEC §2.2 的方案 A 逐态表");
+    }
+
+    // ---------------- 整轮结束去向（FinishOutcome，issue #64） ----------------
+
+    static void finishOutcomeCases() {
+        // 核心：关闭视图 + 整轮全失败 —— 旧顺序（closed 在前）会静默回照片墙。
+        check("FinishOutcome：关闭视图 + 整轮全失败仍落 ERROR",
+                FinishOutcome.of(false, true, 0, 0, 3) == FinishOutcome.Action.SHOW_ERROR,
+                "实际 " + FinishOutcome.of(false, true, 0, 0, 3));
+
+        check("FinishOutcome：取消优先于全失败（只关视图、不落 ERROR）",
+                FinishOutcome.of(true, false, 0, 0, 3) == FinishOutcome.Action.LEAVE_TRANSFER_VIEW,
+                "实际 " + FinishOutcome.of(true, false, 0, 0, 3));
+
+        check("FinishOutcome：取消 + 关闭视图 + 全失败仍是 LEAVE_TRANSFER_VIEW",
+                FinishOutcome.of(true, true, 0, 0, 2) == FinishOutcome.Action.LEAVE_TRANSFER_VIEW,
+                "实际 " + FinishOutcome.of(true, true, 0, 0, 2));
+
+        check("FinishOutcome：关闭视图 + 有成功 → 保持当前视图（不跳 DONE）",
+                FinishOutcome.of(false, true, 5, 0, 1) == FinishOutcome.Action.STAY_CURRENT_VIEW,
+                "实际 " + FinishOutcome.of(false, true, 5, 0, 1));
+
+        check("FinishOutcome：关闭视图 + 全部已存在跳过 → 保持当前视图（不是 ERROR）",
+                FinishOutcome.of(false, true, 0, 4, 0) == FinishOutcome.Action.STAY_CURRENT_VIEW,
+                "实际 " + FinishOutcome.of(false, true, 0, 4, 0));
+
+        check("FinishOutcome：未关闭 + 全失败 → ERROR",
+                FinishOutcome.of(false, false, 0, 0, 1) == FinishOutcome.Action.SHOW_ERROR,
+                "实际 " + FinishOutcome.of(false, false, 0, 0, 1));
+
+        check("FinishOutcome：未关闭 + 有成功 → DONE",
+                FinishOutcome.of(false, false, 3, 0, 0) == FinishOutcome.Action.SHOW_DONE,
+                "实际 " + FinishOutcome.of(false, false, 3, 0, 0));
+
+        check("FinishOutcome：未关闭 + 全部跳过 → DONE（跳过计入完成数）",
+                FinishOutcome.of(false, false, 0, 2, 0) == FinishOutcome.Action.SHOW_DONE,
+                "实际 " + FinishOutcome.of(false, false, 0, 2, 0));
+
+        check("FinishOutcome：空轮次 → 回照片墙",
+                FinishOutcome.of(false, false, 0, 0, 0) == FinishOutcome.Action.BACK_TO_CATALOG,
+                "实际 " + FinishOutcome.of(false, false, 0, 0, 0));
+
+        check("FinishOutcome：部分成功部分失败（未关闭）→ DONE 而不是 ERROR",
+                FinishOutcome.of(false, false, 2, 1, 3) == FinishOutcome.Action.SHOW_DONE,
+                "实际 " + FinishOutcome.of(false, false, 2, 1, 3));
     }
 
     // ---------------- 主 CTA 准入与顶栏形态（N-1：Compose 与自检共用同一判定） ----------------
