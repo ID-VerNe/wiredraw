@@ -207,9 +207,9 @@ python scripts/review_prompt.py --self-test        # 自检
 评审通过后由提交者合并，完成「合并后：对账与回签」的自查部分，
 再另派一个全新上下文的会话做回签。
 
-> **本机 `git push` 不通时**：`https://github.com` 走代理会返回 `CONNECT tunnel failed 502`，
-> 但 **SSH 与 `api.github.com` 都通**。用
-> `git push git@github.com:<owner>/<repo>.git <branch>`（`<owner>/<repo>` 即本仓库），`gh` 命令照常可用。
+> **`git push` 网络受限时**：改用 SSH remote
+> （`git push git@github.com:<owner>/<repo>.git <branch>`，`<owner>/<repo>` 即本仓库），
+> `gh` 命令照常可用。
 
 ## 合并后：对账与回签
 

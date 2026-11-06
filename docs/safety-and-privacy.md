@@ -6,7 +6,7 @@
 ## 一、探针只读（硬约束）
 
 `tools/` 下所有连相机的代码**只读**：不删除、不格式化、不改相机设置、不触发快门。
-要加写操作，必须先开会话讨论并落进 issue，不在 PR 里顺手加。
+要加写操作，必须先开 issue 讨论并写清用途与影响，不在 PR 里顺手加。
 
 ### 允许的 opcode
 
@@ -50,7 +50,7 @@ PTP/IP 探针（[`tools/sony-ptpip/probe.py`](../tools/sony-ptpip/probe.py)）�
 | 相机 / PC 内网地址 | `<相机IP>` / `<PC 内网 IP>` | 不入库；示例与文档一律用占位 |
 | 抓包文件 | 不入库 | `captures/` 与 `out/` 是本地证据；pcap 内含序列号、GUID 与路径，分享前必须脱敏 |
 
-- 隐私清洗的执行记录见 #100；新写文档与示例统一使用上表占位符。
+- 新写文档与示例统一使用上表占位符；提交前会被下面的门禁扫一遍。
 - 被跟踪文件由 [`scripts/check_sensitive.py`](../scripts/check_sensitive.py) 扫描（`ci` 档）；
   PR 正文与评论另由 `support` 档的 [`scripts/check_pr_body.py`](../scripts/check_pr_body.py) 扫描。
   两者命中即阻断，行内豁免必须带具体理由。

@@ -22,6 +22,16 @@
 /captures/
 /out/
 
+# ---- 按扩展名兜底 ----
+# 目录规则挡不住放在根目录或临时目录里的单个文件，这里按扩展名一并忽略。
+# RAW 单张约 24 MB；pcap / pcapng 内含序列号、配对 GUID 与路径，分享前必须脱敏。
+# 写两条大小写变体是为了在 core.ignorecase=false 的环境下也命中。
+*.ARW
+*.arw
+*.pcap
+*.pcapng
+*.pcap.gz
+
 # ---- 构建产物 ----
 /tools/android-mtp-probe/build/
 /tools/android-mtp-import/build/
