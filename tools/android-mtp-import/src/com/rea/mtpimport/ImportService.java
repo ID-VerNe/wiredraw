@@ -51,7 +51,8 @@ public final class ImportService {
      *
      * 取 60 秒的依据：本链路实测 USB MTP 21.43 MB/s（见主报告第 11 节），单张 24 MP RAW
      * 约 1.1 s；60 s 已是 50 倍余量，足以覆盖相机降速，同时用户点 `Import` 时能等到一次判定。
-     * 只按**文件边界**计时，不做字节级回调（见 README「无进展挂起（#63）」）。
+     * 挂起判定**只按文件边界**计时（见 README「无进展挂起（#63）」）；#70 的块级进度回调
+     * 只用于界面数字，不参与挂起判定。
      */
     static final long NO_ACTIVITY_GRACE_NANOS = 60_000_000_000L;
 
@@ -93,7 +94,8 @@ public final class ImportService {
      * 只按文件边界刷新：`transfer.transfer(...)` 调用前记一次，返回后不记——
      * 于是一次整文件 `importFile`、或续传路径里一段 `getPartialObject` 分块循环持续多久，
      * 都能被 {@link #isStalledAt(long)} 看出。
-     * 不做字节级回调（要改 {@link ResumableTransfer} 契约，见 README「无进展挂起（#63）」）。
+     * #70 的块级进度回调存在，但**不参与**挂起判定，所以这里仍是文件边界语义
+     * （见 README「无进展挂起（#63）」）。
      */
     private volatile long lastActivityNanos;
 
