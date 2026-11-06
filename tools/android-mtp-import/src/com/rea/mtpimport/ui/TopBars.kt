@@ -100,6 +100,13 @@ fun LibraryTopBar(model: AppModel) {
         Spacer(Modifier.width(8.dp))
         TopBarLabel(model.deviceName, model, detailsEntry = true)
         Spacer(Modifier.weight(1f))
+        // 渐进态的唯一临时动作（issue #60）：后台补齐时仍要能取消扫描。
+        // 完成后消失，不成为常驻控件；热区 48 dp（A-01）。
+        if (model.backgroundScanning) {
+            IconAction(desc = "Cancel", onClick = { model.callbacks?.onCancel() }) {
+                CloseGlyph(20.dp, UiColors.ink)
+            }
+        }
         IconAction("Filter", onClick = { model.filterOpen = true }) {
             FilterGlyph(20.dp, UiColors.outline)
         }

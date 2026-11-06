@@ -37,6 +37,7 @@ public final class SelfTest {
 
     public static void main(String[] args) throws Exception {
         catalogCases();
+        progressiveCases();
         truncationCases();
         attachCases();
         permissionCases();
@@ -46,6 +47,7 @@ public final class SelfTest {
         scanReleaseCases();
         selectionCases();
         planCases();
+        spaceCases();
         progressCases();
         journalCases();
         cancelTokenCases();
@@ -104,6 +106,65 @@ public final class SelfTest {
         check("folderCount()/fileCount() 分类正确",
                 c.folderCount() == 2 && c.fileCount() == 4,
                 "folder=" + c.folderCount() + " file=" + c.fileCount());
+    }
+
+    // ---------------- 渐进发布（#60） ----------------
+
+    /**
+     * #60：扫描不再等全量才出照片墙。快照必须与本源解耦；快照长大后
+     * 已勾选句柄不得丢。
+     */
+    static void progressiveCases() {
+        Catalog partial = new Catalog();
+        partial.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        partial.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        partial.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW"));
+
+        Catalog first = partial.snapshot();
+        check("snapshot：发布时已算好 relPath",
+                "DCIM/100MSDCF/DSC02183.ARW".equals(first.get(3).relPath),
+                "实际 " + first.get(3).relPath);
+        check("snapshot：只含发布时已发现的对象",
+                first.all().size() == 3 && first.rawCount() == 1,
+                "size=" + first.all().size() + " raw=" + first.rawCount());
+
+        // snapshot() 不得把本源设成 built，否则扫描线程继续 add 会抛 IllegalStateException。
+        boolean sourceStillOpen = true;
+        try {
+            partial.add(new Catalog.Entry(4, 2, Catalog.FMT_ARW, 400, "DSC02184.ARW"));
+            partial.build();
+        } catch (IllegalStateException e) {
+            sourceStillOpen = false;
+        }
+        check("snapshot：发布不改动本源的 built 状态", sourceStillOpen, "回源 add/build 抛了 IllegalStateException");
+
+        Catalog second = partial.snapshot();
+        check("snapshot：旧快照不被后续扫描改写",
+                first.all().size() == 3 && first.get(3).relPath != null
+                        && "DCIM/100MSDCF/DSC02183.ARW".equals(first.get(3).relPath),
+                "size=" + first.all().size());
+        check("snapshot：新快照包含继续扫描的对象",
+                second.all().size() == 4 && second.rawCount() == 2,
+                "size=" + second.all().size() + " raw=" + second.rawCount());
+
+        PhotoWall w1 = PhotoWall.of(first);
+        PhotoWall w2 = PhotoWall.of(second);
+        check("渐进发布：照片墙张数随快照增长",
+                w1.photoCount() == 1 && w2.photoCount() == 2,
+                "first=" + w1.photoCount() + " second=" + w2.photoCount());
+
+        Selection s = new Selection(first);
+        s.setChecked(3, true);
+        check("渐进发布：第一次快照上的勾选生效", s.isChecked(3), "句柄 3 未勾上");
+
+        s.retarget(second);
+        check("Selection.retarget：已勾句柄在更大快照里保留",
+                s.isChecked(3) && s.fileHandles().size() == 1,
+                "checked=" + s.isChecked(3) + " files=" + s.fileHandles());
+        s.toggle(4);
+        check("Selection.retarget：新句柄可在新快照上勾选",
+                s.fileHandles().size() == 2,
+                "实际 " + s.fileHandles());
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------
@@ -521,6 +582,29 @@ public final class SelfTest {
                 "isEmpty=" + empty.isEmpty() + " total=" + empty.totalBytes());
     }
 
+    // ---------------- SpaceCheck（PD / P-09） ----------------
+
+    static void spaceCases() {
+        check("SpaceCheck：正好等于计划 + 5% 缓冲时放行",
+                SpaceCheck.enough(1050, 1000), "free=1050 planned=1000");
+        check("SpaceCheck：少 1 字节即判不足",
+                !SpaceCheck.enough(1049, 1000), "free=1049 planned=1000");
+        check("SpaceCheck：5% 向上取整（1 字节计划也留 1 字节缓冲）",
+                SpaceCheck.requiredBytes(1) == 2, "实际 " + SpaceCheck.requiredBytes(1));
+        check("SpaceCheck：0 字节计划不拦",
+                SpaceCheck.requiredBytes(0) == 0 && SpaceCheck.enough(0, 0),
+                "required=" + SpaceCheck.requiredBytes(0));
+        check("SpaceCheck：负数计划按 0 处理",
+                SpaceCheck.requiredBytes(-5) == 0, "实际 " + SpaceCheck.requiredBytes(-5));
+        check("SpaceCheck：负数可用空间不放行",
+                !SpaceCheck.enough(-1, 10), "free=-1 planned=10");
+
+        // describe 的 Need 是**含 5% 缓冲后的需求**（5 GB → 5.3 GB），不是计划原值。
+        String detail = SpaceCheck.describe(3L * 1073741824L, 5L * 1073741824L);
+        check("SpaceCheck.describe 同时给出含缓冲的需求与剩余（GB，1 位小数）",
+                detail.contains("5.3 GB") && detail.contains("3.0 GB"), "实际 " + detail);
+    }
+
     // ---------------- TransferProgress ----------------
 
     static void progressCases() {
@@ -732,6 +816,61 @@ public final class SelfTest {
         }
     }
 
+    /** 每个文件的第一次调用失败、第二次成功；用来钉住单文件同步重试（PD / issue #50）。 */
+    static final class FlakyTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        /** 每次调用收到的 resumeFrom，用来钉住「第二次按 `.part` 实际长度续传」。 */
+        final List<Long> resumeFroms = new ArrayList<>();
+        private final java.util.Set<String> seen = new java.util.HashSet<>();
+        /** 首次失败前落盘的字节数；模拟失败时已经写进部分字节。0 表示不落盘。 */
+        long firstFailureBytes;
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            resumeFroms.add(resumeFrom);
+            // 同一个 relPath 首次失败，第二次成功（模拟一次偶发读失败）。
+            if (seen.add(item.relPath)) {
+                if (firstFailureBytes > 0) {
+                    try {
+                        File part = new File(partPath);
+                        File parent = part.getParentFile();
+                        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                            return new Result(Kind.FAILED, "mkdir failed");
+                        }
+                        try (FileOutputStream out = new FileOutputStream(part)) {
+                            out.write(new byte[(int) firstFailureBytes]);
+                        }
+                    } catch (IOException e) {
+                        return new Result(Kind.FAILED, e.toString());
+                    }
+                }
+                return new Result(Kind.FAILED, "fake first failure");
+            }
+            return writeFakePart(item, partPath);
+        }
+    }
+
+    /**
+     * 第一次调用先请求取消、再返回 FAILED：钉住「取消优先于失败」的分支（PD / issue #50）。
+     * 若编排层把这条计成失败，`failed` 会变成 1，用例即红。
+     */
+    static final class CancelOnFailTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        Runnable onFirstCall;
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+            calls.add(item.relPath);
+            Runnable r = onFirstCall;
+            if (r != null) {
+                onFirstCall = null;
+                r.run();
+            }
+            return new Result(Kind.FAILED, "fake failure after cancel");
+        }
+    }
+
     static final class FinishRecorder implements ImportListener {
         final CountDownLatch done = new CountDownLatch(1);
         boolean cancelled;
@@ -807,9 +946,63 @@ public final class SelfTest {
         check("ImportService：全失败时 ok=0 / failed=3，不冒充完成",
                 r3.ok == 0 && r3.failed == 3 && r3.skipped == 0,
                 "ok=" + r3.ok + " failed=" + r3.failed + " skipped=" + r3.skipped);
+        // PD / issue #50：重试必须有上限。全失败时每个文件恰好尝试 2 次（硬编码，
+        // 不引用 MAX_FILE_ATTEMPTS，避免「断言跟着实现走」的自指）。
+        check("PD 重试：全失败时每个文件恰好尝试 2 次（有上限）",
+                t3.calls.size() == plan.count() * 2,
+                "calls=" + t3.calls.size() + " 期望=" + (plan.count() * 2));
+
+        // PD：首次失败、第二次成功的文件仍算完成，且尝试次数有上限。
+        File flakyOut = Files.createTempDirectory("wiredraw-import-flaky").toFile();
+        FlakyTransfer t4 = new FlakyTransfer();
+        FinishRecorder r4 = new FinishRecorder();
+        new ImportService(Log.NOOP, t4, flakyOut).start(plan, r4);
+        check("PD 重试：偶发失败一轮在 5 秒内结束", r4.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PD 重试：首次失败、第二次成功仍算完成",
+                r4.ok == 3 && r4.failed == 0 && r4.skipped == 0,
+                "ok=" + r4.ok + " failed=" + r4.failed);
+        check("PD 重试：每个文件恰好尝试 2 次（首次 + 1 次同步重试）",
+                t4.calls.size() == plan.count() * 2,
+                "calls=" + t4.calls.size());
+
+        // PD / B-2：首次失败已落 40 字节，第二次 attempt 必须按 `.part` 实际长度重算
+        // resumeFrom（40），不能沿用 0 或只算一次。
+        File partialOut = Files.createTempDirectory("wiredraw-import-partial").toFile();
+        FlakyTransfer t5 = new FlakyTransfer();
+        t5.firstFailureBytes = 40L;
+        FinishRecorder r5 = new FinishRecorder();
+        new ImportService(Log.NOOP, t5, partialOut).start(plan, r5);
+        check("PD 重试：落部分字节的一轮在 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PD 重试：落部分字节后第二次仍算完成",
+                r5.ok == 3 && r5.failed == 0 && r5.skipped == 0,
+                "ok=" + r5.ok + " failed=" + r5.failed + " skipped=" + r5.skipped);
+        boolean resumesOk = t5.resumeFroms.size() == plan.count() * 2;
+        for (int i = 0; resumesOk && i < t5.resumeFroms.size(); i += 2) {
+            resumesOk = t5.resumeFroms.get(i) == 0L && t5.resumeFroms.get(i + 1) == 40L;
+        }
+        check("PD 重试：第二次 attempt 按 .part 实际长度重算 resumeFrom（40 字节）",
+                resumesOk, "实际 " + t5.resumeFroms);
+
+        // PD / B-2：首次 FAILED 同时已请求取消 → 归为已取消，不计失败、也不再重试。
+        File cancelOut = Files.createTempDirectory("wiredraw-import-cancel-fail").toFile();
+        CancelOnFailTransfer t6 = new CancelOnFailTransfer();
+        ImportService svc6 = new ImportService(Log.NOOP, t6, cancelOut);
+        t6.onFirstCall = svc6::cancel;
+        FinishRecorder r6 = new FinishRecorder();
+        svc6.start(plan, r6);
+        check("PD 重试：取消与失败竞态一轮在 5 秒内结束",
+                r6.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PD 重试：FAILED 同时已请求取消归为 CANCELLED，failed 不增",
+                r6.cancelled && r6.failed == 0 && r6.ok == 0,
+                "cancelled=" + r6.cancelled + " failed=" + r6.failed + " ok=" + r6.ok);
+        check("PD 重试：取消优先，不再发起同步重试",
+                t6.calls.size() == 1, "calls=" + t6.calls.size());
 
         deleteTree(out);
         deleteTree(badOut);
+        deleteTree(flakyOut);
+        deleteTree(partialOut);
+        deleteTree(cancelOut);
     }
 
     // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------
@@ -1041,6 +1234,9 @@ public final class SelfTest {
         long afterCancel = System.nanoTime();
         check("PB 卡死：取消后 worker 仍未退出（模拟 pfd.close 打不断原生调用）",
                 svc3.isRunning(), "worker 已退出");
+        // PD / issue #50：onDestroy 关闭会话前先有界 join；worker 卡住时必须如实返回 false。
+        check("PD onDestroy：worker 卡住时 awaitWorker 超时返回 false",
+                !svc3.awaitWorker(50), "实际返回 true");
         check("PB 卡死：宽限期内不判定卡死",
                 !svc3.isCancelStuckAt(afterCancel), "实际 true");
         check("PB 卡死：超过宽限期判定为卡死（界面必须能给 ERROR 出路）",
@@ -1052,6 +1248,8 @@ public final class SelfTest {
         check("PB 放弃：被放弃的轮次跳过续传日志保存（不覆盖磁盘上的现有记录）",
                 !new File(out3, "import-journal.txt").exists(), "日志仍被写出");
         check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
+        check("PD onDestroy：worker 退出后 awaitWorker 返回 true",
+                svc3.awaitWorker(5000), "实际返回 false");
         deleteTree(out3);
     }
 

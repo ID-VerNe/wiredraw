@@ -7,16 +7,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -28,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -55,10 +51,40 @@ fun LibraryScreen(model: AppModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 方案 A。
         LibraryTopBar(model)
+        // 渐进态（issue #60 / UI-SPEC V-23）：后台补齐时顶栏下方加 2 dp 进度细线，完成后消失。
+        if (model.backgroundScanning) ScanLine(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PhotoGrid(model)
         }
         ImportBar(model)
+    }
+}
+
+/**
+ * 渐进态的 2 dp 进度细线（issue #60 / UI-SPEC V-23）。
+ *
+ * 不写文字、不写数字：扫描分母（1526）按 C-09 只能出现在 `T-SCANNING`，
+ * 这里只用宽度表达进度；照片墙仍是本状态唯一的内容区焦点。
+ */
+@Composable
+private fun ScanLine(model: AppModel) {
+    val fraction = if (model.scanTotal > 0) {
+        (model.scanDone.toFloat() / model.scanTotal).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .background(UiColors.outlineSoft)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction)
+                .height(2.dp)
+                .background(UiColors.ink)
+        )
     }
 }
 
@@ -171,9 +197,20 @@ private fun ImportBar(model: AppModel) {
     val version = model.selectionVersion
     val selected = model.selectedCount
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        // P-09：空间不足时 CTA 被禁用，并在其上方加一行 `Low space`；差额只进 Details。
+        if (model.lowSpace) {
+            BasicText(
+                "Low space",
+                style = TextSmall.copy(color = UiColors.secondary),
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+        }
         PrimaryButton(
             text = UiText.importCta(selected, model.photoCount),
-            onClick = { model.callbacks?.onImport() }
+            onClick = { model.callbacks?.onImport() },
+            // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
+            // P-09：空间不足时同样禁用，两个条件都必须生效。
+            enabled = !model.backgroundScanning && !model.lowSpace
         )
     }
 }

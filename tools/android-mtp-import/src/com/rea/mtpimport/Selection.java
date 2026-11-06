@@ -14,11 +14,22 @@ import java.util.Set;
  */
 public final class Selection {
 
-    private final Catalog catalog;
+    private Catalog catalog;
     private final Set<Integer> checked = new LinkedHashSet<>();
 
     public Selection(Catalog catalog) {
         this.catalog = catalog;
+    }
+
+    /**
+     * 渐进发布（issue #60）：扫描线程不断把更大的快照推上来，已勾选句柄必须保留。
+     *
+     * 只换 Catalog 引用，不动 checked——快照只增不减，旧句柄始终有效；
+     * `fileHandles()` 会按新 Catalog 重新过滤，新增对象随下一次勾选进入集合。
+     */
+    public void retarget(Catalog next) {
+        if (next == null) throw new IllegalArgumentException("retarget(null)");
+        this.catalog = next;
     }
 
     public boolean isChecked(int handle) {

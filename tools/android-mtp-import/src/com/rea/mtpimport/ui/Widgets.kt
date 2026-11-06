@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -50,24 +51,41 @@ fun Modifier.tappable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
     )
 }
 
-/** 主 CTA：实心墨底 + 白字 + 48 dp 高 + 全圆角（L-06 / §2.1）。 */
+/**
+ * 主 CTA：实心墨底 + 白字 + 48 dp 高 + 全圆角（L-06 / §2.1）。
+ *
+ * `enabled=false` 只用于渐进态（issue #60：扫描线程还在后台补齐，主 CTA 与扫描不能
+ * 并行发 MTP 命令）。按 V-10 同时改视觉并置 `enabled=false`，不得只靠点击无反应。
+ */
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
     Box(
         modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(UiColors.ink)
-            .tappable(onClick = onClick)
-            .semantics { role = Role.Button }
+            // P-09：空间不足时 CTA 禁用，视觉退到浅描边底 + 次级字色，仍保持 48 dp 热区形状。
+            .background(if (enabled) UiColors.ink else UiColors.outlineSoft)
+            .tappable(enabled = enabled, onClick = onClick)
+            .semantics {
+                role = Role.Button
+                if (!enabled) disabled()
+            }
             .padding(horizontal = 24.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         // V-03：主按钮与正文同级（14 sp，`body-md`），不用 `label-md`（PR #41 第四轮评审 B2）。
         BasicText(
             text,
-            style = TextBody.copy(color = UiColors.canvas, textAlign = TextAlign.Center)
+            style = TextBody.copy(
+                color = if (enabled) UiColors.canvas else UiColors.secondary,
+                textAlign = TextAlign.Center
+            )
         )
     }
 }
