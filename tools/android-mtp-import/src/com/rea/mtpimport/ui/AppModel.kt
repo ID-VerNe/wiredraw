@@ -57,6 +57,14 @@ class AppModel {
     var scanDone by mutableIntStateOf(0)
     var scanTotal by mutableIntStateOf(0)
 
+    /**
+     * 渐进态（issue #60）：照片墙已发布、扫描线程仍在后台补齐。
+     * 不是新状态——界面仍是 `CATALOG_READY`，这一个标志只控制
+     * 顶栏进度细线 / 临时 `Cancel` 与主 CTA 的 `enabled`（UI-SPEC §1.2 渐进态）。
+     */
+    var backgroundScanning by mutableStateOf(false)
+        private set
+
     var importDoneFiles by mutableIntStateOf(0)
     var importTotalFiles by mutableIntStateOf(0)
     var importDoneBytes by mutableLongStateOf(0L)
@@ -142,29 +150,68 @@ class AppModel {
     }
 
     fun showCold() {
+        backgroundScanning = false
         state = UiState.State.COLD
     }
 
     fun showPermission() {
+        backgroundScanning = false
         state = UiState.State.PERMISSION_PENDING
     }
 
+    /**
+     * 扫描进度回调。渐进发布之后（[backgroundScanning] 为 true）只更新细线分母，
+     * **不得**把界面从 `CATALOG_READY` 拽回 `SCANNING`——照片墙已经能用了。
+     */
     fun showScanning(done: Int, total: Int) {
         scanDone = done
         scanTotal = total
+        if (backgroundScanning) return
         state = UiState.State.SCANNING
     }
 
+    /**
+     * 渐进发布（issue #60）：把已发现的照片先送上照片墙，扫描继续在后台补齐。
+     * 只在已发现 ARW 时调用；首次调用会从 `SCANNING` 切到 `CATALOG_READY`。
+     */
+    fun showPartialCatalog(c: Catalog, s: Selection, done: Int, total: Int) {
+        catalog = c
+        selection = s
+        wall = PhotoWall.of(c)
+        scanDone = done
+        scanTotal = total
+        selectionVersion++
+        if ((wall?.photoCount() ?: 0) == 0) {
+            state = UiState.State.SCANNING
+            return
+        }
+        backgroundScanning = true
+        state = UiState.State.CATALOG_READY
+    }
+
+    /** 取消扫描：已渐进发布的部分结果整批撤掉（issue #60 的取消语义）。 */
+    fun discardPartialCatalog() {
+        if (!backgroundScanning) return
+        catalog = null
+        wall = null
+        selection = null
+        selectionVersion++
+        backgroundScanning = false
+    }
+
     fun showEmpty() {
+        backgroundScanning = false
         state = UiState.State.EMPTY_CATALOG
     }
 
     fun showUnavailable() {
+        backgroundScanning = false
         state = UiState.State.UNAVAILABLE
     }
 
     fun showError(reason: String) {
         errorReason = reason
+        backgroundScanning = false
         state = UiState.State.ERROR
     }
 
@@ -173,6 +220,7 @@ class AppModel {
         selection = s
         wall = PhotoWall.of(c)
         selectionVersion++
+        backgroundScanning = false
         state = if (wall!!.photoCount() == 0) UiState.State.EMPTY_CATALOG else UiState.State.CATALOG_READY
     }
 

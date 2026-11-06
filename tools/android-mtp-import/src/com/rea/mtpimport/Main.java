@@ -67,6 +67,8 @@ public final class Main extends ComponentActivity {
     private MtpSession session;
     private Catalog catalog;
     private Selection selection;
+    /** 本轮扫描是否已发布过渐进快照（issue #60）：取消时据此丢弃部分结果。 */
+    private volatile boolean scanPartialPublished;
     private volatile ImportService service;
 
     /**
@@ -172,6 +174,15 @@ public final class Main extends ComponentActivity {
                 Thread worker = scanThread;
                 if (worker != null) worker.interrupt();
                 log.line("点 Cancel → 已请求取消扫描（会话由扫描线程收尾时关闭）");
+            }
+            if (!hadImportRun && scanPartialPublished) {
+                // issue #60：取消后不得把部分结果翻成 CATALOG_READY。
+                // 已发布的照片墙属于本轮扫描，整批撤掉，回到 COLD 等待下一次扫描。
+                catalog = null;
+                selection = null;
+                scanPartialPublished = false;
+                model.discardPartialCatalog();
+                log.line("扫描取消：丢弃已渐进发布的部分结果");
             }
             if (hadImportRun) {
                 // 取消传输后立刻关掉传输视图：worker 被打断时/收尾前的迟到进度不得把界面
@@ -578,18 +589,47 @@ public final class Main extends ComponentActivity {
             }
             for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
 
+            scanPartialPublished = false;
             Catalog scanned = CatalogScanner.scan(session.device(), sids, log, run,
-                    (done, total) -> postIfActive(run, () -> model.showScanning(done, total)));
+                    new CatalogScanner.ScanProgress() {
+                        @Override
+                        public void onScan(int done, int total) {
+                            postIfActive(run, () -> model.showScanning(done, total));
+                        }
+
+                        @Override
+                        public void onPartial(Catalog snapshot, int done, int total) {
+                            postIfActive(run, () -> {
+                                if (scanPartialPublished) {
+                                    selection.retarget(snapshot);
+                                } else {
+                                    // 本轮第一次发布：新建空集选择，避免沿用上一轮勾选。
+                                    selection = new Selection(snapshot);
+                                }
+                                scanPartialPublished = true;
+                                catalog = snapshot;
+                                model.showPartialCatalog(snapshot, selection, done, total);
+                                log.line(String.format(Locale.US,
+                                        "渐进发布：已扫描 %d/%d，照片墙 %d 张",
+                                        done, total, snapshot.rawCount()));
+                            });
+                        }
+                    });
             if (!run.accept()) {
                 log.line("扫描已取消，丢弃本轮结果（不上照片墙）");
                 return;
             }
-            catalog = scanned;
-            selection = new Selection(catalog);
             log.line(String.format(Locale.US, "扫描完成：文件夹 %d 个、文件 %d 个（合计 %.2f GB，其中 ARW %.2f GB）",
                     scanned.folderCount(), scanned.fileCount(),
                     scanned.fileBytes() / 1073741824.0, scanned.rawBytes() / 1073741824.0));
-            postIfActive(run, () -> model.showCatalog(scanned, selection));
+            // 收尾也必须在 UI 线程排队：扫描线程先于已投递的渐进快照执行的话，
+            // 会把用户在渐进态里的勾选冲掉。UI 队列 FIFO 保证这里晚于所有 onPartial。
+            postIfActive(run, () -> {
+                catalog = scanned;
+                if (!scanPartialPublished) selection = new Selection(scanned);
+                else selection.retarget(scanned);
+                model.showCatalog(scanned, selection);
+            });
         } catch (Throwable t) {
             log.line("扫描异常：" + t);
             postIfActive(run, () -> model.showError("相机连接已断开，请拔插数据线"));
