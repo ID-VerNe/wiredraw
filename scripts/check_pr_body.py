@@ -7,7 +7,8 @@
 输入来源：
 - 正文：优先 `GITHUB_EVENT_PATH` 事件载荷的 `pull_request.body`（CI 不依赖 gh 登录态）；
   本地 `--pr N` 用 `gh pr view N --json body`；`--body-file` 供离线自查。
-- 评论：`gh pr view N --json comments`（issue comments，不含 review 线程）。
+- 评论：`gh pr view N --json comments`（issue comments，不含 review 线程）；定位用评论 URL
+  里的 `#issuecomment-<数字>`，拿不到 URL 时退回 node id 或本次返回序号。
 
 规则：直接复用 `check_sensitive.scan_text`，命中即退出 1；只打印打码值与确定性占位符，
 不回显原值。PR 正文/评论是外部输入，**不认行内 `allow-sensitive` 豁免**（任何人都能自带
@@ -71,11 +72,19 @@ def _gh_json(args: list[str], runner=None) -> dict:
         raise EnvProblem(f"gh 返回的不是 JSON：{exc}") from exc
 
 
+def _comment_label(item: dict, idx: int) -> str:
+    """评论定位优先用 URL 里的 issuecomment 数字 ID；缺 URL 时退回 node id / 返回序号。"""
+    url = item.get("url") or ""
+    marker = "#issuecomment-"
+    if marker in url:
+        return f"PR 评论 #{url.rsplit(marker, 1)[1]}"
+    return f"PR 评论 #{item.get('databaseId') or item.get('id') or idx}"
+
+
 def _parse_comments(data: dict) -> list[tuple[str, str]]:
     comments: list[tuple[str, str]] = []
     for idx, item in enumerate(data.get("comments") or [], 1):
-        label = f"PR 评论 #{item.get('databaseId') or idx}"
-        comments.append((label, item.get("body") or ""))
+        comments.append((_comment_label(item, idx), item.get("body") or ""))
     return comments
 
 
@@ -198,6 +207,18 @@ def _self_test() -> int:
         "评论命中",
         bool(comment_hits) and comment_hits[0].path.startswith("PR 评论"),
     )
+
+    label_hits = _parse_comments(
+        {
+            "comments": [
+                {
+                    "url": "https://example.invalid/pull/1#issuecomment-6688496705",
+                    "body": "正文",
+                }
+            ]
+        }
+    )
+    record("评论定位取 URL 里的数字 ID", label_hits[0][0] == "PR 评论 #6688496705")
 
     both = scan_sources("正文 " + sample,
                         [("PR 评论 #12", "评论 " + sample)], repo)
