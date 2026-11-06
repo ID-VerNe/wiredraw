@@ -13,7 +13,9 @@
 2. `UsbManager.openDevice()` → `MtpDevice.open()`
 3. 枚举存储、统计卡内文件（按 ARW / JPEG / MP4 / 文件夹分类）
 4. 挑最大的 3 张 ARW 下载，量吞吐、比大小、算 MD5、校验 TIFF 文件头
-5. 全程日志到 logcat（tag `MTPPROBE`），同时写一份到 `getFilesDir()/report.txt`
+5. 对第一张已下载的 ARW 做 `getPartialObject` 语义验证（offset / length 越界 / 普通对象支持面 /
+   分块拼接与整文件比 MD5），见下方「PC 探针」一节
+6. 全程日志到 logcat（tag `MTPPROBE`），同时写一份到 `getFilesDir()/report.txt`
 
 ## 构建（不需要 Gradle）
 
@@ -66,6 +68,22 @@ MD5 = 060f09ec9eb37139060a9f49c52c98a5   （与 PC 侧 pull 下来后一致）
 ```
 
 对比：Wi-Fi PTP/IP 走 IED 那套只有 **0.95 MB/s**，USB MTP 快约 **22 倍**。
+
+## PC 探针（`getPartialObject`，2026-11-06）
+
+环境：小米 9 / Android 15 (API 35) / ILCE-7C 2.00 / USB MTP（issue #67，#50 的 PC 分节）。
+
+实测结论：
+
+- `offset` 是**绝对偏移**：`offset=0` 连读两次拿到相同字节，且与整文件头部一致。
+- 4 张 ARW + 1 张 JPEG 的首块读取全部成功（普通对象都支持；`0xFFFFC001` 未测）。
+- 1 MiB 分块 × 25 次拼满 24.4 MB 的 ARW，字节数与 MD5 和 `importFile` 结果完全一致，
+  文件头是合法 TIFF；吞吐 22.86 MB/s，与 `importFile` 基本同速。
+- `length` 超过剩余字节会**截断到 EOF**（剩余 100 字节就返回 100），不抛异常。
+- `offset == size` 返回 0；`offset == size + 1` 抛 `IOException: Failed to read data.`。
+  **越界请求会让会话进入错误态**：此后对任何对象的 `getPartialObject` 都报错，必须避免。
+- 因此续传请求必须满足 `0 <= offset <= size`，且 `length <= size - offset`；
+  分块不要小于 1 MiB（64 KiB 小块单次只有 0.38–0.43 MB/s）。
 
 ## 三个坑（都踩过）
 

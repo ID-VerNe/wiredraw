@@ -239,6 +239,8 @@ public class Main extends Activity {
         StringBuilder samples = new StringBuilder();
         // 收集所有 ARW，用于挑最大的几张做批量测速
         List<Object[]> arwList = new ArrayList<>(); // {handle, size, name}
+        // PC 探针（issue #67）：另收几张 JPEG，验证 getPartialObject 对非 ARW 对象是否同样可用
+        List<Object[]> jpegList = new ArrayList<>(); // {handle, size, name}
 
         int scanned = 0;
         long scanStart = System.nanoTime();
@@ -261,6 +263,7 @@ public class Main extends Activity {
                 arwList.add(new Object[]{sh[1], size, name});
             } else if (fmt == 0x3801 || name.toUpperCase(Locale.US).endsWith(".JPG")) {
                 jpeg++;
+                jpegList.add(new Object[]{sh[1], size, name});
             } else {
                 other++;
             }
@@ -312,6 +315,11 @@ public class Main extends Activity {
         File dir = getFilesDir();
         long totalBytes = 0;
         long batchStart = System.nanoTime();
+        // PC 探针要对同一张已整文件下载的文件做分块对照，先记住第一张的句柄与落盘路径
+        File firstFull = null;
+        int firstHandle = -1;
+        long firstSize = 0;
+        String firstName = null;
 
         out("---- 批量下载，测稳定吞吐（共 " + batch + " 张）----");
         for (int i = 0; i < batch; i++) {
@@ -334,12 +342,16 @@ public class Main extends Activity {
             long got = dst.length();
             totalBytes += got;
             out(String.format(Locale.US,
-                    "  [%d/%d] %-14s %6.2f MB / %.2f 秒 = %5.2f MB/s  大小%s",
-                    i + 1, batch, name, got / 1048576.0, sec,
+                    "  [%d/%d] h=0x%08X %-14s %6.2f MB / %.2f 秒 = %5.2f MB/s  大小%s",
+                    i + 1, batch, handle, name, got / 1048576.0, sec,
                     (got / 1048576.0) / (sec <= 0 ? 1 : sec),
                     size == got ? "✅一致" : "❌期望" + size));
 
             if (i == 0) {
+                firstFull = dst;
+                firstHandle = handle;
+                firstSize = size;
+                firstName = name;
                 // 只对第一张做完整性校验
                 out("  MD5 = " + md5(dst));
                 byte[] head = new byte[16];
@@ -360,6 +372,22 @@ public class Main extends Activity {
                 "批量合计: %.2f MB / %.2f 秒 = %.2f MB/s（含文件系统写入）",
                 totalBytes / 1048576.0, batchSec,
                 (totalBytes / 1048576.0) / (batchSec <= 0 ? 1 : batchSec)));
+
+        // PC 探针：验证 getPartialObject 的 offset / length 语义（issue #67，#50 PC 分节）。
+        // 只读：只对已枚举到的对象分块读取，不发任何写 opcode。
+        if (firstFull != null) {
+            List<Object[]> others = new ArrayList<>();
+            // 对照组 1：本轮刚 importFile 过的另外两张（验证「是否只有第一张能用」）
+            for (int i = 1; i < batch; i++) others.add(arwList.get(i));
+            // 对照组 2：本轮没碰过的对象（验证普通对象支持面）
+            int added = 0;
+            for (int i = batch; i < arwList.size() && added < 2; i++) {
+                others.add(arwList.get(i));
+                added++;
+            }
+            if (!jpegList.isEmpty()) others.add(jpegList.get(0));
+            new PartialProbe(mtp, this::out).run(firstHandle, firstSize, firstName, firstFull, others);
+        }
 
         mtp.close();
         conn.close();
