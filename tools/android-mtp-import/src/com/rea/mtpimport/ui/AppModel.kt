@@ -311,6 +311,22 @@ class AppModel {
         callbacks?.onSelectionChanged()
     }
 
+    /**
+     * 日期组选（issue #62）：组内有未选 → 全选；已全选 → 全不选。
+     *
+     * 全选时自动展开（让 V-11 的格子形态变化可见）。只回调一次 `onSelectionChanged`，
+     * 空间预检不按张数重复跑；空组直接返回（没有可选对象）。
+     */
+    fun toggleGroupSelection(group: PhotoWall.Group) {
+        val sel = selection ?: return
+        if (group.photos.isEmpty()) return
+        val select = !sel.allCheckedOf(group.photos)
+        sel.setCheckedAllOf(group.photos, select)
+        selectionVersion++
+        if (select) collapsed.remove(group.key)
+        callbacks?.onSelectionChanged()
+    }
+
     fun openPhoto(entry: Catalog.Entry) {
         openedPhoto = entry
     }
