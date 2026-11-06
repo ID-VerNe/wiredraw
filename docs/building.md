@@ -49,7 +49,8 @@ bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assem
 # 产物：tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
 ```
 
-- 纯逻辑自检当前是 **406** 项断言，不需要真机；只需定位 Android SDK（配置阶段即校验）。
+- 纯逻辑自检不需要真机；只需定位 Android SDK（配置阶段即校验）。项数随用例增加，
+  **以 `selfTest` 输出末行 `== 自检全绿：N 项 ==` 为准**。
 - 纯 JDK 边界由编译期强制：`compilePureJdkJava` 编译这批文件时不给 `android.jar`，
   偷 `import android.*` 会直接编译失败。
 - `manual` 档还会跑 `verifyApk`，用 SDK 的 `apksigner` 实测验签。
