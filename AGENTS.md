@@ -59,6 +59,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 - `pre-push` 的 `SKIP_GATES=1` **仅用于钩子自身故障**（例如钩子在当前 shell 下跑不起来），
   它会打印醒目横幅但跳过 static 门禁。使用后必须在 PR 正文说明原因，并附上手动执行
   `python scripts/run_gates.py ci` 的原始输出；它不是「门禁红了赶时间」的通行证。
+  绕过会写入 `$(git rev-parse --git-path skip-gates.log)`，用于事后审计。
 - Android 构建门禁在 `manual` 档，CI 跑不了（需要 Android SDK + JDK）。
 
 <!-- gates:ci:begin -->
