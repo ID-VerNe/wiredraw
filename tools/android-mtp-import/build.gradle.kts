@@ -36,9 +36,9 @@ android {
             // 与手搓构建同一把 key：别重新生成，换 key 会让覆盖安装 INSTALL_FAILED_UPDATE_INCOMPATIBLE。
             // 指纹对照见 issue #36 的验收证据（apksigner --print-certs 的新旧 SHA-256 必须一致）。
             storeFile = rootProject.file("../android-mtp-probe/rea-debug.keystore")
-            storePassword = "android"
+            storePassword = "android"  // allow-sensitive: 公开的 debug keystore 默认口令，与 build.sh 的 --ks-pass 一致
             keyAlias = "rea"
-            keyPassword = "android"
+            keyPassword = "android"  // allow-sensitive: 公开的 debug keystore 默认口令，与 build.sh 的 --ks-pass 一致
         }
     }
 
@@ -252,7 +252,7 @@ tasks.register<JavaExec>("selfTest") {
 // Compose 假数据只有元数据，photo 页没有像素。这里在 **debug 构建** 时从本机素材目录
 // 降采样生成 `src/debug/assets/demo/photo_XX.jpg`，产物 gitignore；素材目录/文件清单走
 // `local.properties`（也可被 `-Pdemo.photo.dir` / `-Pdemo.photo.files` 覆盖）：
-//   demo.photo.dir=C:/Users/.../知更鸟
+//   demo.photo.dir=C:/<照片目录>
 //   demo.photo.files=DSC04882.JPG,DSC04835.JPG,...   # 可选，留空取目录里前 5 张 JPG
 //
 // 个人照片不入库；目录缺失时清空产物并跳过，别的机器 / CI 上没有素材也能跑 manual 门禁。
