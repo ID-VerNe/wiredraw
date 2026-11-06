@@ -846,36 +846,60 @@ public final class Main extends ComponentActivity {
         }
         if (service != null && service.isRunning()) {
             if (service.isPaused()) {
-                // 三审 B-1：`Pause & exit` 后可在照片墙停任意久，相机可能已挂起/断开。
-                // 恢复前必须与新一轮一样做只读探活；失步时 resume 只会让整轮逐个 FAILED，
-                // 而 skipped > 0 时 onFinished 仍会落 DONE，把失败掩盖过去。
-                final ImportService pausedRound = service;
-                if (!probeSession(plan.items().get(0).handle, "恢复暂停轮次前探活")) {
-                    log.line("恢复前探活失败：取消该轮（不 resume，避免逐个 FAILED 被 DONE 掩盖）");
-                    pausedRound.cancel();
-                    // worker 还能自己退出（暂停不是卡死），但要挡掉它的 onFinished：置空引用后
-                    // 回调会因 `service != round` 被丢弃，ERROR 不会被 leaveTransferView 冲掉。
-                    orphanService = pausedRound;
+                if (!service.canResumeWith(plan)) {
+                    // issue #57：用户可能在照片墙改了勾选 / filter / 档位，这里算出的 plan 与暂停
+                    // 轮次已不是同一批文件。旧清单继续跑违背用户意图，而 CATALOG_READY 按 UI-SPEC
+                    // §1.3 / U-17 没有 Cancel 入口，不能把「先 Cancel」当提示；所以直接取消旧轮次、
+                    // 按新计划重开一轮。暂停落在文件边界，本轮没有写了一半的 .part，已完成文件由
+                    // Journal 按 `relPath + size` 跳过，不会丢。
+                    final ImportService pausedRound = service;
+                    final ImportPlan pausedPlan = pausedRound.plan();
+                    log.line(String.format(Locale.US,
+                            "暂停轮次的清单已变化（旧 %d 个 / 新 %d 个）：取消旧轮次，按当前勾选重新开始",
+                            pausedPlan == null ? 0 : pausedPlan.count(), plan.count()));
+                    // 先置空引用：旧轮次迟到的 onFinished 会因 `service != round` 被丢弃，
+                    // 不会把新轮次的界面冲掉（与放弃卡死同一口径）。
                     service = null;
-                    model.showError("相机连接可能已失步，请拔插数据线");
+                    pausedRound.cancel();
+                    if (!pausedRound.awaitWorker(1000)) {
+                        // 暂停中 worker 停在文件边界，正常 200 ms 内退出；打不断时给 ERROR 出路，
+                        // 不放行新一轮（旧 worker 可能仍占着同一个 MtpDevice）。
+                        orphanService = pausedRound;
+                        model.showError("相机连接可能已失步，请拔插数据线");
+                        return;
+                    }
+                    // 继续往下走：按新 plan 探活并新建一轮。
+                } else {
+                    // 三审 B-1：`Pause & exit` 后可在照片墙停任意久，相机可能已挂起/断开。
+                    // 恢复前必须与新一轮一样做只读探活；失步时 resume 只会让整轮逐个 FAILED，
+                    // 而 skipped > 0 时 onFinished 仍会落 DONE，把失败掩盖过去。
+                    final ImportService pausedRound = service;
+                    if (!probeSession(plan.items().get(0).handle, "恢复暂停轮次前探活")) {
+                        log.line("恢复前探活失败：取消该轮（不 resume，避免逐个 FAILED 被 DONE 掩盖）");
+                        pausedRound.cancel();
+                        // worker 还能自己退出（暂停不是卡死），但要挡掉它的 onFinished：置空引用后
+                        // 回调会因 `service != round` 被丢弃，ERROR 不会被 leaveTransferView 冲掉。
+                        orphanService = pausedRound;
+                        service = null;
+                        model.showError("相机连接可能已失步，请拔插数据线");
+                        return;
+                    }
+                    // Pause & exit 之后从照片墙回来：恢复同一轮，Journal 已记账的文件不会重传。
+                    log.line("继续已暂停的一轮");
+                    service.resume();
+                    showImportFromProgress();
                     return;
                 }
-                // Pause & exit 之后从照片墙回来：恢复同一轮，Journal 已记账的文件不会重传。
-                // 换选择要先把这一轮 Cancel 掉，避免把旧清单接着跑。
-                log.line("继续已暂停的一轮（要改选择请先 Cancel）");
-                service.resume();
-                showImportFromProgress();
-                return;
-            }
-            if (abandonStuckService()) {
+            } else if (abandonStuckService()) {
                 // 二审 B-1 的死路：pfd.close 若打不断原生 importFile（未验），worker 永不退出，
                 // 这里静默 return 会让 Import 变成死键（CATALOG_READY 没有 Cancel 入口）。
                 // 放弃该轮 + 落 ERROR（ERROR 有 Connect camera），用户拔插数据线后可重扫。
                 model.showError("相机连接可能已失步，请拔插数据线");
                 return;
+            } else {
+                log.line("已有一轮在跑，先等它结束或取消");
+                return;
             }
-            log.line("已有一轮在跑，先等它结束或取消");
-            return;
         }
         // 放弃过卡死轮次时，旧 worker 可能仍占着同一个 MtpDevice：不放行新导入（三审 B-3）。
         if (orphanWorkerStillRunning()) return;
