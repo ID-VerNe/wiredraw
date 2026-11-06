@@ -44,6 +44,20 @@ public final class Main extends ComponentActivity {
     private static final long DEMO_TICK_MS = 250;
 
     /**
+     * onDestroy 等待 worker 退出的总预算（PD / issue #50）。
+     *
+     * 只做一次有界等待：超过预算就跳过 `session.close()`，不在 UI 线程撞原生传输。
+     * 正常取消实测约 0.6 s，所以给 1 s 预算；打不断的原生调用仍会被截断在 1 s。
+     */
+    private static final long DESTROY_JOIN_MS = 1000L;
+
+    /**
+     * #59：会话探活的最长等待。探活在后台线程持 `ioLock` 发 `getObjectInfo`，
+     * UI 线程只等这么久；超时即按失步处理（相机挂起时不能无限卡住界面）。
+     */
+    private static final long PROBE_JOIN_MS = 1200L;
+
+    /**
      * 本次权限申请的序号（#11）。系统回调是广播，上一次申请迟到的回调
      * 可能落在新一次申请等待期间；只有序号匹配的回调才算数。
      */
@@ -317,6 +331,18 @@ public final class Main extends ComponentActivity {
         }
 
         @Override
+        public void onSelectionChanged() {
+            // PD / P-09：勾选变化会改变计划大小，空间预检必须跟着刷新（由 Compose 在主线程回调）。
+            refreshSpaceCheck();
+        }
+
+        @Override
+        public void onBackToCatalog() {
+            // PD / P-09：DONE / ERROR / 取消返回照片墙时同样重算，避免沿用上一轮的预检结果。
+            refreshSpaceCheck();
+        }
+
+        @Override
         public void onDemoState(String name) {
             // 抽屉切态会换掉整块载荷，先停掉正在跑的模拟 ticker，避免两套进度互相覆盖
             stopDemoImport();
@@ -400,15 +426,55 @@ public final class Main extends ComponentActivity {
             unregisterReceiver(receiver);
         } catch (Exception ignored) {
         }
-        if (service != null) service.cancel();
+        // PD（issue #50）：先请求停止，再在有限预算内 join。
+        // worker 没退出前**不得**在 UI 线程 close 会话：那条原生调用可能还占着 MtpDevice。
+        ImportService running = service;
+        if (running != null) running.cancel();
+        ImportService orphan = orphanService;
+        if (orphan != null) orphan.cancel();
+        ScanRun scan = scanRun;
+        if (scan != null) scan.cancel();
+        // 销毁后不会再收到回调（receiver 已注销），提前释放还在等权限的扫描线程，别让它空等 120 秒
+        permGate.cancel();
+        Thread scanning = scanThread;
+        if (scanning != null) scanning.interrupt();
+
+        // #59：先摘会话并清缓存，阻止新的 getThumbnail；在飞的缩略图请求由 ioLock 与 close 串行。
         thumbnails.clear();
-        if (session != null) session.close();
+
+        long deadline = System.nanoTime() + DESTROY_JOIN_MS * 1_000_000L;
+        boolean idle = awaitIdle(running, deadline)
+                & awaitIdle(orphan, deadline)
+                & awaitIdle(scanning, deadline);
+        if (idle) {
+            if (session != null) session.close();
+        } else {
+            logLine("销毁时仍有 worker 未退出：跳过关闭 MTP 会话（不在 UI 线程撞原生传输）");
+        }
         // demo 模拟 ticker 必须随 Activity 一起停，否则 Handler 持有 Activity 造成泄漏
         demoTicker.removeCallbacksAndMessages(null);
         demoTransfer = null;
-        // 销毁后不会再收到回调（receiver 已注销），提前释放还在等权限的扫描线程，别让它空等 120 秒
-        permGate.cancel();
         super.onDestroy();
+    }
+
+    /** onDestroy 的有界等待：用共享截止时刻，三个 worker 加起来也不超过 {@link #DESTROY_JOIN_MS}。 */
+    private static boolean awaitIdle(ImportService s, long deadlineNanos) {
+        if (s == null) return true;
+        long remainingMs = Math.max(1L, (deadlineNanos - System.nanoTime()) / 1_000_000L);
+        return s.awaitWorker(remainingMs);
+    }
+
+    /** 扫描线程版本；中断请求后只等一次，不循环。 */
+    private static boolean awaitIdle(Thread t, long deadlineNanos) {
+        if (t == null) return true;
+        long remainingMs = Math.max(1L, (deadlineNanos - System.nanoTime()) / 1_000_000L);
+        try {
+            t.join(remainingMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return !t.isAlive();
     }
 
     @Override
@@ -650,6 +716,8 @@ public final class Main extends ComponentActivity {
                 else selection = new Selection(scanned);
                 thumbnails.setCatalog(scanned);
                 model.showCatalog(scanned, selection);
+                // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
+                refreshSpaceCheck();
             });
         } catch (Throwable t) {
             log.line("扫描异常：" + t);
@@ -717,6 +785,44 @@ public final class Main extends ComponentActivity {
         // 也不要把 MUTABLE 与 IMMUTABLE 同时给，会抛 IllegalArgumentException。
         um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_MUTABLE));
         return seq;
+    }
+
+    /**
+     * 刷新空间预检（PD / P-09），只在 UI 线程调用。
+     *
+     * 计划大小随勾选变化，所以照片墙显示后与每次勾选变化各算一次；不足时把
+     * `lowSpace` 交给 AppModel（主 CTA 禁用 + 一行 `Low space`），差额进 Details。
+     * 计划为空时不拦：点击本来也不会启动导入。
+     */
+    private void refreshSpaceCheck() {
+        if (demoActive() || catalog == null || selection == null) {
+            model.setSpaceStatus(false, "");
+            return;
+        }
+        ImportPlan plan = ImportPlan.of(catalog, selection);
+        if (plan.isEmpty()) {
+            model.setSpaceStatus(false, "");
+            return;
+        }
+        long free = freeBytes();
+        boolean enough = SpaceCheck.enough(free, plan.totalBytes());
+        model.setSpaceStatus(!enough, enough ? "" : SpaceCheck.describe(free, plan.totalBytes()));
+    }
+
+    /**
+     * 目标分区的可用字节。用 `getFilesDir()` 而不是 `imported/`：后者可能还没建，
+     * `StatFs` 要求路径存在；两者在同一个内部存储卷上。
+     *
+     * 预检本身失败时按「足够」处理（返回 `Long.MAX_VALUE`）：不能让一次取数异常反过来阻断导入，
+     * 真正的空间问题由传输层的写失败兜底。
+     */
+    private long freeBytes() {
+        try {
+            return new android.os.StatFs(getFilesDir().getAbsolutePath()).getAvailableBytes();
+        } catch (Throwable t) {
+            log.line("空间预检取数失败，跳过拦截：" + t);
+            return Long.MAX_VALUE;
+        }
     }
 
     private void doStart() {
@@ -795,12 +901,24 @@ public final class Main extends ComponentActivity {
             return;
         }
 
+        // PD / P-09：点主 CTA 前必须做一次空间预检。照片墙上的禁用只是提前告知；
+        // 这里再判一次，防止「预检之后、点击之前」空间被别的应用吃掉。
+        long free = freeBytes();
+        if (!SpaceCheck.enough(free, plan.totalBytes())) {
+            model.setSpaceStatus(true, SpaceCheck.describe(free, plan.totalBytes()));
+            log.line("空间不足：计划 " + plan.totalBytes() + " 字节，可用 " + free + " 字节");
+            return;
+        }
+        model.setSpaceStatus(false, "");
+
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
         // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
         final ImportService round = new ImportService(
                 log, new MtpTransfer(s.device(), log, s.ioLock()), out);
         service = round;
         lastProgress = null;
+        // PD：失败明细属于「本轮」；新一轮开始时清空，避免上一轮的失败混进本次 Details。
+        model.clearFailedLines();
         model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
         round.start(plan, new ImportListener() {
             @Override
@@ -831,6 +949,13 @@ public final class Main extends ComponentActivity {
             public void onFileFinished(ImportPlan.Item item, ResumableTransfer.Kind kind,
                                        String note) {
                 log.line("[" + kind + "] " + item.relPath + (note.isEmpty() ? "" : " · " + note));
+                // PD / issue #50：逐文件失败必须进 UI。DONE 首屏受 U-47 约束不能出现 Failed N，
+                // 所以落到 Details 抽屉的固定失败列表——不会被后续日志挤出 takeLast(8)。
+                // 被放弃/换轮的迟到回调不改当前轮次的失败列表。
+                if (kind == ResumableTransfer.Kind.FAILED && service == round) {
+                    String fail = "Failed: " + item.relPath + (note.isEmpty() ? "" : " · " + note);
+                    runOnUiThread(() -> model.addFailedLine(fail));
+                }
             }
 
             @Override
@@ -924,6 +1049,9 @@ public final class Main extends ComponentActivity {
      *
      * `getObjectInfo(handle)` 是 GetObject，只读：不删除、不改设置、不触发快门。
      * 返回 false 表示会话可能已失步，调用方必须落现有 `ERROR` 路径，不能带着失步会话继续传。
+     *
+     * #59：探活与缩略图 / 导入共用 `ioLock`，且不在 UI 线程直接发原生调用；
+     * UI 线程最多等 {@link #PROBE_JOIN_MS}，超时按失步处理（相机挂起时不再无限卡住界面）。
      */
     private boolean probeSession(int handle, String when) {
         final MtpSession s = session;
@@ -931,14 +1059,38 @@ public final class Main extends ComponentActivity {
             log.line(when + "：没有可用的 MTP 会话");
             return false;
         }
+        final boolean[] alive = {false};
+        final Throwable[] error = {null};
+        Thread probe = new Thread(() -> {
+            s.ioLock().lock();
+            try {
+                // 扫描取消 / onDestroy 摘掉会话后不再往已关闭/已换代的设备上发命令。
+                if (session != s) return;
+                alive[0] = s.device() != null && s.device().getObjectInfo(handle) != null;
+            } catch (Throwable t) {
+                error[0] = t;
+            } finally {
+                s.ioLock().unlock();
+            }
+        }, "probe-session");
+        probe.start();
         try {
-            final boolean alive = s.device().getObjectInfo(handle) != null;
-            if (!alive) log.line(when + "：getObjectInfo(" + handle + ") 无返回");
-            return alive;
-        } catch (Throwable t) {
-            log.line(when + "：会话探活异常：" + t);
+            probe.join(PROBE_JOIN_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return false;
         }
+        if (probe.isAlive()) {
+            log.line(when + "：探活超时（相机可能挂起）");
+            probe.interrupt();
+            return false;
+        }
+        if (error[0] != null) {
+            log.line(when + "：会话探活异常：" + error[0]);
+            return false;
+        }
+        if (!alive[0]) log.line(when + "：getObjectInfo(" + handle + ") 无返回");
+        return alive[0];
     }
 
     /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */

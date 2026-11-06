@@ -69,6 +69,7 @@ fun PrimaryButton(
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(24.dp))
+            // P-09：空间不足时 CTA 禁用，视觉退到浅描边底 + 次级字色，仍保持 48 dp 热区形状。
             .background(if (enabled) UiColors.ink else UiColors.outlineSoft)
             .tappable(enabled = enabled, onClick = onClick)
             .semantics {

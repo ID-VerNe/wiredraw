@@ -6,8 +6,10 @@ import android.hardware.usb.UsbManager;
 import android.mtp.MtpDevice;
 import android.mtp.MtpDeviceInfo;
 import android.mtp.MtpStorageInfo;
+import android.os.Looper;
 
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -26,6 +28,8 @@ public final class MtpSession {
 
     private static final int STORAGE_RETRIES = 8;
     private static final long STORAGE_RETRY_MS = 3000;
+    /** UI 线程 close 时等缩略图 IO 的上限（#59）；超时就跳过 close，不让主线程卡死。 */
+    private static final long CLOSE_WAIT_MS = 500;
 
     private final UsbDeviceConnection conn;
     private final MtpDevice mtp;
@@ -115,8 +119,23 @@ public final class MtpSession {
     public void close() {
         // 与缩略图 / 导入共用同一把锁：close 必须等在飞的 getThumbnail 结束，
         // 否则 mtp.close() 会与不同步的 getThumbnail 并行（Android 35 的 close 同步，
-        // getThumbnail 不同步，见评审阻断项 1）。
-        ioLock.lock();
+        // getThumbnail 不同步）。
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            // UI 线程不能无限等：相机挂起时 getThumbnail 可能卡住，等太久就是 ANR。
+            boolean locked;
+            try {
+                locked = ioLock.tryLock(CLOSE_WAIT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                locked = false;
+            }
+            if (!locked) {
+                android.util.Log.w("MtpImport", "缩略图 IO 未结束：UI 线程跳过 close（避免 ANR）");
+                return;
+            }
+        } else {
+            ioLock.lock();
+        }
         try {
             try {
                 mtp.close();

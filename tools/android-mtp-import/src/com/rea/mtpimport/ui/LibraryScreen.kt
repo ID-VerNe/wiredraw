@@ -54,6 +54,7 @@ import com.rea.mtpimport.Catalog
 import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.UiText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -226,7 +227,13 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
     }
     LaunchedEffect(entry.handle, store, model.backgroundScanning) {
         if (thumb == null && store != null && !model.backgroundScanning) {
-            thumb = withContext(Dispatchers.IO) { model.loadThumbnail(entry) }
+            try {
+                thumb = withContext(Dispatchers.IO) { model.loadThumbnail(entry) }
+            } finally {
+                // 取图期间格子被滚出组合（协程取消）时，load 可能已经写完缓存：
+                // 补一次 evict，保证离屏位图不常驻（V-24）。
+                if (!isActive) store.evict(entry.handle)
+            }
         }
     }
     // 格子滚出可视区（LazyVerticalGrid 移出组合）即把位图移出缓存：
@@ -297,11 +304,20 @@ private fun ImportBar(model: AppModel) {
     val version = model.selectionVersion
     val selected = model.selectedCount
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        // P-09：空间不足时 CTA 被禁用，并在其上方加一行 `Low space`；差额只进 Details。
+        if (model.lowSpace) {
+            BasicText(
+                "Low space",
+                style = TextSmall.copy(color = UiColors.secondary),
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+        }
         PrimaryButton(
             text = UiText.importCta(selected, model.photoCount),
             onClick = { model.callbacks?.onImport() },
             // 渐进态禁用：扫描线程与导入不能在同一 MTP 会话上并行发命令。
-            enabled = !model.backgroundScanning
+            // P-09：空间不足时同样禁用，两个条件都必须生效。
+            enabled = !model.backgroundScanning && !model.lowSpace
         )
     }
 }

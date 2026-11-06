@@ -53,9 +53,23 @@ fun DetailsDrawer(model: AppModel) {
             }
             BasicText(model.locationPath, style = TextMonoData)
 
+            // P-09：空间预检的差额只在 Details 出现（主视觉只有一行 `Low space`）。
+            if (model.lowSpace && model.lowSpaceDetail.isNotEmpty()) {
+                Spacer(Modifier.heightIn(min = 8.dp))
+                BasicText(model.lowSpaceDetail, style = TextMonoData)
+            }
+
             if (model.logLines.isNotEmpty()) {
                 Spacer(Modifier.heightIn(min = 8.dp))
                 model.logLines.takeLast(8).forEach { line ->
+                    BasicText(line, style = TextMonoData)
+                }
+            }
+
+            // PD：逐文件失败固定展示，不随日志滚动被挤掉（DONE 首屏受 U-47 约束不能出现 Failed N）。
+            if (model.failedLines.isNotEmpty()) {
+                Spacer(Modifier.heightIn(min = 8.dp))
+                model.failedLines.forEach { line ->
                     BasicText(line, style = TextMonoData)
                 }
             }
