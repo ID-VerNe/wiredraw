@@ -123,7 +123,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 
 - `resumeFrom == 0` 仍走已验的 `importFile`；
 - `0 < resumeFrom < size` 走 `getPartialObject(handle, offset, min(1 MiB, size - offset), buf)`
-  循环 append 到 `.part`，**永不请求 `offset > size`**；
+  循环 append 到 `.part`，**永不请求 `offset > size`**；每块按绝对偏移回调携带进度
+  （#70，见下节「文件内进度」）；
 - `resumeFrom == size` 直接把半成品 rename 落盘；
 - 半成品按 `<relPath 压平>.<size>.part` 命名（`Journal.partPath`），与跳过判定的
   `relPath + size` 同口径、跨会话稳定；同路径异 size 的旧残留不会被当成本对象的前缀；
@@ -197,8 +198,8 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
   挂起落 `ERROR`「相机长时间无响应，请拔插数据线」，取消卡住仍是「相机连接可能已失步，
   请拔插数据线」（issue #116）。于是相机休眠 / USB 掉线导致的挂起轮次不再让
   `CATALOG_READY` 下的 `Import` 变成死键（该态按 UI-SPEC §1.3 没有 Cancel 入口）。
-  只按文件边界计时，不做字节级回调（那要改 `ResumableTransfer` 契约）；暂停中不算挂起
-  （`Pause & exit` 后可以停任意久）。真机**未验**。
+  只按文件边界计时；`ResumableTransfer` 虽已有 #70 的块级进度回调，但它不参与挂起判定；
+  暂停中不算挂起（`Pause & exit` 后可以停任意久）。真机**未验**。
 - **`P-09` 空间预检**：`SpaceCheck.requiredBytes = 计划 + ceil(5%)`；`Main` 用
   `StatFs(getFilesDir())` 取可用字节。照片墙出现、勾选变化、回到照片墙（DONE / ERROR /
   取消返回）时各刷新一次，`doStart` 启动前再判一次；不足时主 CTA 禁用、上方一行
@@ -210,8 +211,21 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
   则跳过关闭并记一行日志（不在 UI 线程撞原生传输）。跳过 `close()` 时会话保持打开：若进程
   随后被杀，相机可能按 `AGENTS.md` §4 挂起、需要拔插数据线。以上仍属**真机未验**。
 
-`#70`（续传期间界面进度停在原值）**不在 PD**：它需要 `ResumableTransfer` 暴露当前文件的
-已传字节回调，并改 `TransferProgress` 的当前文件口径，属进度反馈链，按 #70 单独做。
+## 文件内进度（issue #70）
+
+`ResumableTransfer` 新增 `LongConsumer progress` 参数，续传路径每块按**绝对偏移**上报；
+整文件 `importFile` 路径没有字节级回调，仍在文件边界一次推进。`TransferProgress` 把
+「已完成文件字节」与「当前文件字节」分开记：
+
+- `beginFile(alreadyOnDisk, size)` 进入一次尝试时**重设**当前文件（不是累加）——
+  同一文件失败后重试会再调一次，累加会把磁盘上同一段字节记两遍（重试后数字跳到 80 而不是 40）；
+- `commitFile(size)` 成功时按对账大小只记一次已完成字节，块级上报在此清零；
+- `rollbackFile()` 失败 / 取消时丢掉当前文件的进度，已完成文件不动。
+
+`bytesDone()` 是两者之和并钳在计划总量，`fraction` / `bytesPerSec` / `etaSeconds` / `summary`
+全部改用 `bytesDone()`。**界面呈现不改**：仍受 `UI-SPEC.md` 约束（图标 + 短英文，环内一个
+主数字），不新增百分比大字或进度条样式。失败回退会让界面数字**往回走**，属预期行为
+（失败的文件没有被传完），不是进度抖动。真机**未验**。
 
 ## 构建与自检
 
@@ -234,7 +248,7 @@ Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOM
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 453 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 474 项）：
 
 ```bash
 # Linux / macOS / Git Bash

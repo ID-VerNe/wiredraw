@@ -1,5 +1,7 @@
 package com.rea.mtpimport;
 
+import java.util.function.LongConsumer;
+
 /**
  * 断点续传的**契约**。PA / PB 的 {@link MtpTransfer} 先只做整文件传输与取消；
  * PC 分节（issue #50）已按下面钉死的语义补上 offset 续读。
@@ -71,6 +73,10 @@ public interface ResumableTransfer {
      * @param resumeFrom 已落盘字节数（由 {@link Journal#resumeFrom} 按磁盘实际长度判定），
      *                   0 表示从头开始；等于 item.size 表示半成品已满，只需落盘
      * @param token      取消令牌；实现方必须在文件内注册中断动作（见 {@link CancelToken}）
+     * @param progress   issue #70：当前文件的**绝对字节偏移**回调（与 getPartialObject 的 offset
+     *                   同口径），实现方按块上报；不支持文件内上报的路径（整文件 importFile）
+     *                   可以不调用，由编排层在文件边界记账
      */
-    Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token);
+    Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token,
+                    LongConsumer progress);
 }
