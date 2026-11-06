@@ -84,7 +84,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
 ├─ FinishOutcome     整轮结束去向：全失败优先于「视图已关闭」（issue #64）  [纯 JDK]
 ├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
-├─ TopBarSpec        顶栏常驻 + 计数胶囊条件（仅 CATALOG_READY，V-27）        [纯 JDK]
+├─ TopBarSpec        顶栏常驻 + 计数胶囊条件（仅 CATALOG_READY 且计数非零，V-27） [纯 JDK]
 ├─ ColorTokens       UI-SPEC 颜色 token 数值 + 对比度/胶囊派生（issue #78）  [纯 JDK]
 ├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
 ├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
@@ -92,17 +92,19 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
 ├─ PhotoPreview      demo 素材契约：由 ThumbnailStore 供照片墙与看图页（真实路径不注入） [android]
 ├─ ui/               Compose 三屏 + 两个抽屉 + 图标 + 主题 + AppModel       [android]
-└─ src/debug/        DemoTree（假树）+ DemoEntry（`--es demo_state` 入口）
-                     + DemoImages（真实照片占位）+ DemoTransfer（进度模拟）  [debug 变体]
+└─ src/debug/        DemoTree（假树）+ DemoTransfer（进度模拟）           [debug 变体 · 纯 JDK]
+                     DemoEntry（`--es demo_state` 入口）                  [debug 变体 · Android]
+                     DemoImages（真实照片占位）                          [debug 变体 · Android]
 ```
 
 **Compose 只做 UI 层与状态映射**：`AttachGate` / `Catalog` / `Journal` /
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-纯 JDK 类合计**三十二个**——主源集 30 个标 `[纯 JDK]`，`src/debug` 下的 `DemoTree` /
-`DemoTransfer` 标 `[debug 变体]`。这些文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
-`test/SelfTest.java`（debug 的两个用单独的清单核对）；数量以 `checkPureJdkList` 的输出为准。
+纯 JDK 类的清单只有一处：`build.gradle.kts` 的 `pureJdkClasses`（主源集）与
+`pureJdkDebugClasses`（`src/debug` 下的 `DemoTree` / `DemoTransfer`）。这些文件**不允许
+import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`。**文档不写死数量**——
+以 `checkPureJdkList` 输出末行的 `N 个纯 JDK 文件，与清单一致` 为准。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
 （classpath 故意为空），所以哪个纯逻辑类偷偷 `import android.*` 会直接编译失败，而不是等真机才崩。
@@ -248,7 +250,7 @@ Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOM
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，
-以输出末行 `== 自检全绿：N 项 ==` 为准（2026-11-07 实测 474 项）：
+以输出末行 `== 自检全绿：N 项 ==` 为准（文档不写死项数，免得随用例增加而漂移）：
 
 ```bash
 # Linux / macOS / Git Bash
