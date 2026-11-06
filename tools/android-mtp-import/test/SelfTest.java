@@ -72,6 +72,7 @@ public final class SelfTest {
         demoTreesCases();
         demoTransferCases();
         commentRefCases();
+        skippedSourceCases();
 
         System.out.println();
         if (failed == 0) {
@@ -2540,6 +2541,67 @@ public final class SelfTest {
             }
         }
         check("注释不用 文件:行号 引用（issue #66）", hits.length() == 0, "命中：\n" + hits);
+    }
+
+    // ---------------- Skipped 文案单一出处 / doStart 清零顺序（issue #127） ----------------
+
+    /**
+     * 从 `signature` 行之后读到方法体，止于第一条 4 空格缩进的 `}`（本仓库方法收尾固定这个缩进）。
+     *
+     * 用例要断言 `doStart()` 内部的语句顺序，但纯 JDK 自检的 classpath 里没有 `Main`（它 import
+     * android.*），只能按源码文本判定——与 {@link #commentRefCases()} 同一手法。找不到方法返回 null，
+     * 由调用方判红，避免文件改名后断言静默失效。
+     */
+    private static String methodBody(File f, String signature) throws IOException {
+        List<String> lines = Files.readAllLines(f.toPath());
+        int start = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).trim().equals(signature)) {
+                start = i;
+                break;
+            }
+        }
+        if (start < 0) return null;
+        StringBuilder body = new StringBuilder();
+        for (int i = start + 1; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (line.equals("    }")) break;
+            body.append(line).append('\n');
+        }
+        return body.toString();
+    }
+
+    /**
+     * issue #127（源自 #53 评审遗留）的两条：
+     *
+     * 1. 「Skipped N existing」只能由 {@link UiText#skippedLine} 产出——`Main` 里复刻字面量会让 UI
+     *    与日志两处同时维护；同时日志必须还接在 `UiText` 上，不能靠「删掉字面量」把日志也删没。
+     * 2. `model.showSkipped(0)` 必须在 `doStart()` 的第一条 `return;` 之前——早退分支落 ERROR 时
+     *    不得让上一轮的 `Skipped N existing` 留在 Details 抽屉里。
+     */
+    static void skippedSourceCases() {
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src = null;
+        try {
+            src = String.join("\n", Files.readAllLines(main.toPath()));
+        } catch (IOException e) {
+            src = null;
+        }
+        check("Skipped 文案不在 Main 复刻，日志走 UiText.skippedLine（issue #127）",
+                src != null && !src.contains("\"Skipped ") && src.contains("UiText.skippedLine(skipped)"),
+                src == null ? "读不到 " + main : "字面量仍在或日志未接 UiText");
+
+        String doStart = null;
+        try {
+            doStart = methodBody(main, "private void doStart() {");
+        } catch (IOException e) {
+            doStart = null;
+        }
+        int clearAt = doStart == null ? -1 : doStart.indexOf("model.showSkipped(0)");
+        int firstReturn = doStart == null ? -1 : doStart.indexOf("return;");
+        check("doStart 入口先清 skippedLine，早退不留过期值（issue #127）",
+                clearAt >= 0 && firstReturn >= 0 && clearAt < firstReturn,
+                "clearAt=" + clearAt + " firstReturn=" + firstReturn);
     }
 
     static void check(String name, boolean ok, String detail) {
