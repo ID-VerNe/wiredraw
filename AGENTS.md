@@ -100,7 +100,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 项 | 值 |
 |---|---|
 | 产品名 | 索尼 a7C 经 USB 有线传 RAW 到安卓（先打通 MTP 导片，后续加 PTP 遥控） |
-| 仓库 | `ID-VerNe/wiredraw`（private） |
+| 仓库 | `ID-VerNe/wiredraw` |
 | 目录名 | `sony-camera-remote-repos`（**与仓库名不一致，别被目录名误导**） |
 | 技术栈 | Python 3（工具脚本，**只用标准库**）+ Java / Android（探针 APK，手搓构建）+ Kotlin / Android（导片工具，Gradle + Compose 编译器） |
 | 包管理器 | Python 侧仍零依赖；Android 导片工具用 Gradle（Kotlin + Compose），探针 APK 仍手搓 |
@@ -210,6 +210,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 文件 | 内容 |
 |---|---|
 | `README.md` | 对外门面：结论速览、实测数据、三个坑、仓库结构 |
+| `SECURITY.md` | 安全报告渠道与范围：私密报告、勿附设备身份、只读边界 |
 | `docs/known-limitations.md` | 已知限制：会话挂起、format 过滤、PTP 会话边界、首次授权、未验证项 |
 | `docs/verification-matrix.md` | 验证环境矩阵：每条能力 × 环境编号的通过 / 失败 / 未验证，防止单机结论外推 |
 | `docs/safety-and-privacy.md` | 安全与隐私边界：只读 opcode、设备身份占位、调试密钥 |
