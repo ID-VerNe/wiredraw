@@ -18,6 +18,8 @@
 > 展示在 `Location details`、`P-09` 导入前空间预检（不足时禁用主 CTA + 一行 `Low space`），
 > 以及 `onDestroy` 先有界 join worker 再关闭会话。见「错误与重试 / 空间预检 / onDestroy（PD）」。
 
+> 文中 `#NN` 形式的编号指本仓库 issue，便于对照需求来源。
+
 ## 它现在能做什么
 
 | 能力 | 状态 |
