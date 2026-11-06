@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.function.LongConsumer;
 
 /**
  * 编排层：把「清单 → 逐文件传输 → 记账」串起来，管线程、暂停、取消。
@@ -366,10 +367,18 @@ public final class ImportService {
                         log.line("发现半成品：" + item.relPath + " 已有 " + resumeFrom
                                 + " 字节，从断点续传");
                     }
+                    // #70：进入本次尝试前重设当前文件进度（续传从磁盘实际长度开始；
+                    // 失败后重试会再走一次，重设而非累加，保证同一段字节不被记两遍）。
+                    progress.beginFile(resumeFrom, item.size);
+                    // #70：传输层按块回调绝对偏移，这里同时刷新监听器——界面能拿到文件内进度。
+                    LongConsumer sink = bytes -> {
+                        progress.onFileProgress(bytes);
+                        l.onProgress(progress, item);
+                    };
                     // issue #63：进入本次 importFile 前刷新「最后活动时刻」。
                     // 放在 transfer 之前、返回后不刷新，这样一次原生调用卡住多久就能被看出。
                     lastActivityNanos = clock.nanoTime();
-                    r = transfer.transfer(item, part, resumeFrom, token);
+                    r = transfer.transfer(item, part, resumeFrom, token, sink);
                     if (r.kind != ResumableTransfer.Kind.FAILED) break;
                     if (cancelled || attempts >= MAX_FILE_ATTEMPTS) break;
                     log.line("第 " + attempts + " 次传输失败，同步重试（上限 "
@@ -378,6 +387,8 @@ public final class ImportService {
 
                 if (r.kind == ResumableTransfer.Kind.FAILED && cancelled) {
                     // 取消与失败竞态：以取消为准，不把用户主动取消计入失败。
+                    // #70：当前文件没传完，丢掉文件内进度（界面数字会往回走，属预期）。
+                    progress.rollbackFile();
                     stop = "已取消";
                     l.onFileFinished(item, ResumableTransfer.Kind.CANCELLED, "已取消");
                     break;
@@ -387,8 +398,8 @@ public final class ImportService {
                     case OK:
                         ok++;
                         journal.markDone(item.handle, item.size, item.size, item.relPath);
-                        progress.onBytes(item.size);
-                        progress.onFileDone();
+                        // #70：只按对账大小记一次完成字节，块级上报的当前文件进度在此清零。
+                        progress.commitFile(item.size);
                         l.onFileFinished(item, r.kind, r.note);
                         l.onProgress(progress, item);
                         break;
@@ -402,12 +413,16 @@ public final class ImportService {
                     case CANCELLED:
                         // 取消的文件既不记完成也不计失败；半成品已由传输层清掉。
                         // 不推进进度，避免给界面一个「这个文件传完了」的假信号。
+                        // #70：丢掉当前文件的块级进度，已完成文件不动。
+                        progress.rollbackFile();
                         stop = "已取消";
                         l.onFileFinished(item, r.kind, r.note);
                         break;
                     case FAILED:
                     default:
                         failed++;
+                        // #70：失败回退当前文件那部分进度（界面数字往回走属预期，不是抖动）。
+                        progress.rollbackFile();
                         // PD：重试耗尽后把尝试次数带进 note，界面/日志能看出不是一次就放弃。
                         String note = attempts > 1
                                 ? r.note + " · 已尝试 " + attempts + " 次"

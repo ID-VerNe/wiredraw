@@ -8,6 +8,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.LongConsumer;
 
 /**
  * 真实 MTP 传输（PA / PB / PC，issue #50）：只读相机对象，写到手机侧 `.part`，对账后改名到最终路径。
@@ -63,7 +64,8 @@ public final class MtpTransfer implements ResumableTransfer {
     }
 
     @Override
-    public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+    public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token,
+                           LongConsumer progress) {
         if (device == null) {
             return new Result(Kind.FAILED, "MTP 会话已断开");
         }
@@ -112,7 +114,7 @@ public final class MtpTransfer implements ResumableTransfer {
                 return finish(item, part, dest);
             }
             if (from > 0) {
-                return append(item, part, dest, from, token);
+                return append(item, part, dest, from, token, progress);
             }
             return whole(item, part, dest, token);
         } finally {
@@ -195,7 +197,8 @@ public final class MtpTransfer implements ResumableTransfer {
      * 分块上限 1 MiB、长度不超过剩余字节：`offset > size` 抛 IOException（#67 首轮观察；
      * 越界后会话是否进入错误态未复测），这里任何一种都不可能发出去。
      */
-    private Result append(ImportPlan.Item item, File part, File dest, long from, CancelToken token) {
+    private Result append(ImportPlan.Item item, File part, File dest, long from, CancelToken token,
+                          LongConsumer progress) {
         FileOutputStream out = null;
         final AtomicReference<FileOutputStream> ref = new AtomicReference<>();
         try {
@@ -215,6 +218,8 @@ public final class MtpTransfer implements ResumableTransfer {
 
             byte[] buf = new byte[CHUNK];
             long offset = from;
+            // #70：先把续传起点报给进度（数字从磁盘实际长度接着涨，而不是等文件结束才跳）。
+            if (progress != null) progress.accept(offset);
             while (offset < item.size) {
                 if (token != null && token.isCancelled()) {
                     closeQuietly(out);
@@ -243,6 +248,8 @@ public final class MtpTransfer implements ResumableTransfer {
                 }
                 out.write(buf, 0, (int) n);
                 offset += n;
+                // #70：按绝对偏移上报，每块一次（1 MiB 在 22.86 MB/s 下约 44 ms）。
+                if (progress != null) progress.accept(offset);
             }
 
             closeQuietly(out);

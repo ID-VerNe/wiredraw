@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongConsumer;
 import java.util.regex.Pattern;
 
 import com.rea.mtpimport.ResumableTransfer.Kind;
@@ -54,6 +55,7 @@ public final class SelfTest {
         planCases();
         spaceCases();
         progressCases();
+        progressFileCases();
         journalCases();
         cancelTokenCases();
         importServiceCases();
@@ -64,6 +66,7 @@ public final class SelfTest {
         resumePlanCases();
         importServicePauseClockCases();
         partialResumeCases();
+        resumeProgressCases();
         partResidueCases();
         uiStateCases();
         finishOutcomeCases();
@@ -894,6 +897,63 @@ public final class SelfTest {
                 "实际 " + restarted.bytesPerSec(secondStart + 1_000_000_000L));
     }
 
+    // ---------------- 文件内进度（issue #70） ----------------
+
+    /**
+     * 文件内进度的记账单元：已完成字节（doneBytes）与当前文件字节分开，bytesDone() 是两者之和。
+     *
+     * 关键两条：
+     * - `beginFile` 是**重设**当前文件，不是往已完成字节里再加一遍（重试不得双计）；
+     * - `onFileProgress` 收**绝对偏移**，回退被忽略、超出文件大小被钳。
+     */
+    static void progressFileCases() {
+        long t0 = 1_000_000_000L;
+
+        TransferProgress p = new TransferProgress(200, 2);
+        p.start(t0);
+        p.onBytes(100);
+        p.beginFile(40, 100);
+        check("文件内进度：beginFile 把已落盘的 40 字节计入总量（100 + 40 = 140）",
+                p.bytesDone() == 140, "实际 " + p.bytesDone());
+
+        p.onFileProgress(60);
+        check("文件内进度：onFileProgress 按绝对偏移上报（100 + 60 = 160）",
+                p.bytesDone() == 160, "实际 " + p.bytesDone());
+
+        p.onFileProgress(50);
+        check("文件内进度：绝对偏移回退被忽略（160 不降到 150）",
+                p.bytesDone() == 160, "实际 " + p.bytesDone());
+
+        p.beginFile(40, 100);
+        check("文件内进度：同一文件重新 beginFile 是重设而不是累加（仍为 140）",
+                p.bytesDone() == 140, "实际 " + p.bytesDone());
+
+        p.onFileProgress(60);
+        p.commitFile(100);
+        check("文件内进度：commitFile 只按 size 记一次，不叠加当前文件字节（总 200）",
+                p.bytesDone() == 200 && p.filesDone() == 1,
+                "bytes=" + p.bytesDone() + " files=" + p.filesDone());
+
+        TransferProgress rb = new TransferProgress(200, 2);
+        rb.start(t0);
+        rb.onBytes(100);
+        rb.beginFile(40, 100);
+        rb.onFileProgress(80);
+        rb.rollbackFile();
+        check("文件内进度：失败回退只丢掉当前文件，保留已完成部分（100）",
+                rb.bytesDone() == 100, "实际 " + rb.bytesDone());
+
+        TransferProgress cl = new TransferProgress(200, 2);
+        cl.start(t0);
+        cl.beginFile(0, 100);
+        cl.onFileProgress(120);
+        check("文件内进度：当前文件进度被钳在 size（120 → 100）",
+                cl.bytesDone() == 100, "实际 " + cl.bytesDone());
+        cl.onFileProgress(-5);
+        check("文件内进度：负的绝对偏移被忽略（仍为 100）",
+                cl.bytesDone() == 100, "实际 " + cl.bytesDone());
+    }
+
     // ---------------- Journal ----------------
 
     static void journalCases() throws RuntimeException {
@@ -1051,7 +1111,8 @@ public final class SelfTest {
         boolean failAll;
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             resumeFroms.add(resumeFrom);
             parts.add(partPath);
@@ -1082,7 +1143,8 @@ public final class SelfTest {
         long firstFailureBytes;
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             resumeFroms.add(resumeFrom);
             // 同一个 relPath 首次失败，第二次成功（模拟一次偶发读失败）。
@@ -1108,6 +1170,69 @@ public final class SelfTest {
     }
 
     /**
+     * issue #70：像真实续传路径一样按块上报**当前文件的绝对偏移**，并可选「首次失败 + 重试闸门」。
+     *
+     * - `failFirst=true`：同一 relPath 的第一次调用在落 40 字节后返回 FAILED；
+     *   第二次调用（重试）刚上报 resumeFrom 就停住，等用例核对「重试不双计」后再放行。
+     * - 闸门只挂在第 2 次调用（第一个文件的重试），不干扰后续文件。
+     */
+    static final class ResumeReportingTransfer implements ResumableTransfer {
+        final List<String> calls = new ArrayList<>();
+        final List<Long> resumeFroms = new ArrayList<>();
+        final CountDownLatch retryEntered = new CountDownLatch(1);
+        final CountDownLatch releaseRetry = new CountDownLatch(1);
+        private final boolean failFirst;
+        private final long chunk;
+        private final Set<String> failed = new HashSet<>();
+
+        ResumeReportingTransfer(boolean failFirst, long chunk) {
+            this.failFirst = failFirst;
+            this.chunk = chunk;
+        }
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
+            calls.add(item.relPath);
+            resumeFroms.add(resumeFrom);
+            int index = calls.size();
+            try {
+                File part = new File(partPath);
+                indexMkdirs(part.getParentFile());
+                long offset = resumeFrom;
+                try (FileOutputStream out = new FileOutputStream(part, true)) {
+                    progress.accept(offset);
+                    if (failFirst && index == 2) {
+                        retryEntered.countDown();
+                        if (!releaseRetry.await(5, TimeUnit.SECONDS)) {
+                            return new Result(Kind.FAILED, "重试闸门超时");
+                        }
+                    }
+                    if (failFirst && failed.add(item.relPath)) {
+                        long end = Math.min(item.size, offset + 40L);
+                        out.write(new byte[(int) (end - offset)]);
+                        offset = end;
+                        progress.accept(offset);
+                        return new Result(Kind.FAILED, "伪首次失败");
+                    }
+                    while (offset < item.size) {
+                        long n = Math.min(chunk, item.size - offset);
+                        out.write(new byte[(int) n]);
+                        offset += n;
+                        progress.accept(offset);
+                    }
+                }
+                return Result.of(Kind.OK);
+            } catch (IOException e) {
+                return new Result(Kind.FAILED, e.toString());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new Result(Kind.FAILED, "被中断");
+            }
+        }
+    }
+
+    /**
      * 第一次调用先请求取消、再返回 FAILED：钉住「取消优先于失败」的分支（PD / issue #50）。
      * 若编排层把这条计成失败，`failed` 会变成 1，用例即红。
      */
@@ -1116,7 +1241,8 @@ public final class SelfTest {
         Runnable onFirstCall;
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             Runnable r = onFirstCall;
             if (r != null) {
@@ -1129,6 +1255,10 @@ public final class SelfTest {
 
     static final class FinishRecorder implements ImportListener {
         final CountDownLatch done = new CountDownLatch(1);
+        /** issue #70：每次 onProgress 时的 bytesDone() 快照，用来核对文件内进度与重试不双计。 */
+        final List<Long> progressBytes = new ArrayList<>();
+        /** issue #70：每个文件结束（onFileFinished）那一刻的 bytesDone()。 */
+        final List<Long> bytesAtFileFinish = new ArrayList<>();
         boolean cancelled;
         int ok;
         int skipped;
@@ -1139,6 +1269,12 @@ public final class SelfTest {
         @Override
         public void onProgress(TransferProgress progress, ImportPlan.Item current) {
             lastProgress = progress;
+            progressBytes.add(progress.bytesDone());
+        }
+
+        @Override
+        public void onFileFinished(ImportPlan.Item item, ResumableTransfer.Kind kind, String note) {
+            if (lastProgress != null) bytesAtFileFinish.add(lastProgress.bytesDone());
         }
 
         @Override
@@ -1279,7 +1415,8 @@ public final class SelfTest {
         }
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             try {
                 File part = new File(partPath);
@@ -1469,7 +1606,8 @@ public final class SelfTest {
         final CountDownLatch secondEntered = new CountDownLatch(1);
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             resumeFroms.add(resumeFrom);
             int n = calls.size();
@@ -1500,7 +1638,8 @@ public final class SelfTest {
         final CountDownLatch tokenCancelled = new CountDownLatch(1);
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             token.setOnCancel(tokenCancelled::countDown);
             entered.countDown();
@@ -1670,7 +1809,8 @@ public final class SelfTest {
         final CountDownLatch release = new CountDownLatch(1);
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             entered.countDown();
             try {
                 release.await(10, TimeUnit.SECONDS);
@@ -1941,7 +2081,8 @@ public final class SelfTest {
         final CountDownLatch releaseSecond = new CountDownLatch(1);
 
         @Override
-        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token) {
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
             calls.add(item.relPath);
             int n = calls.size();
             CountDownLatch entered = n == 1 ? firstEntered : secondEntered;
@@ -2135,6 +2276,88 @@ public final class SelfTest {
         deleteTree(staleOut);
     }
 
+    // ---------------- 文件内进度（issue #70） ----------------
+
+    /**
+     * issue #70 的两条集成用例，两条都有独立判别力：
+     *
+     * 1) **续传从非零 offset 开始**：首个进度事件必须是磁盘上的 40 字节，
+     *    且续传期间能看到文件内中间值——只有「文件结束才一次加满」或「bytesDone() 漏算当前文件」
+     *    都会让这条红。
+     * 2) **同一文件失败后重试不得双计**：重试刚上报 resumeFrom（40）时，总字节必须恰为 40；
+     *    `beginFile` 把已落盘字节再加一遍会变成 80，这条立刻红。
+     */
+    static void resumeProgressCases() throws Exception {
+        // 1) 续传从非零 offset 开始：单个 ARW 300 B，磁盘上已有 40 B 半成品。
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        s.setChecked(3, true);
+        ImportPlan resumePlan = ImportPlan.of(c, s, unitsWithArw(PhotoWall.of(c)),
+                PhotoWall.Export.RAW);
+        check("文件内进度：续传用例恰为 1 个文件", resumePlan.count() == 1,
+                "实际 " + resumePlan.count());
+
+        File out = Files.createTempDirectory("wiredraw-70-resume").toFile();
+        Journal j = new Journal();
+        writeSizedFile(new File(j.partPath(out.getAbsolutePath(),
+                "DCIM/100MSDCF/DSC02183.ARW", 300)), 40);
+
+        ResumeReportingTransfer t1 = new ResumeReportingTransfer(false, 60);
+        FinishRecorder r1 = new FinishRecorder();
+        new ImportService(Log.NOOP, t1, out).start(resumePlan, r1);
+        check("文件内进度：续传一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("文件内进度：续传的首个进度事件是磁盘上的 40 字节",
+                !r1.progressBytes.isEmpty() && r1.progressBytes.get(0) == 40L,
+                "实际 " + r1.progressBytes);
+        boolean sawMid = false;
+        for (long b : r1.progressBytes) {
+            if (b > 40L && b < 300L) sawMid = true;
+        }
+        check("文件内进度：续传期间能看到文件内中间值（40 < x < 300）", sawMid,
+                "实际 " + r1.progressBytes);
+        check("文件内进度：续传完成后总字节与文件计数正确",
+                r1.lastProgress != null && r1.lastProgress.bytesDone() == 300
+                        && r1.lastProgress.filesDone() == 1,
+                r1.lastProgress == null ? "无进度"
+                        : r1.lastProgress.bytesDone() + " / " + r1.lastProgress.filesDone());
+        deleteTree(out);
+
+        // 2) 同一文件失败后重试：重试起点不得把已落盘字节再计一遍。
+        Catalog c2 = sample();
+        Selection s2 = new Selection(c2);
+        s2.setChecked(1, true);
+        ImportPlan retryPlan = ImportPlan.of(c2, s2, PhotoWall.of(c2).units(),
+                PhotoWall.Export.JPG_FIRST);
+        check("文件内进度：重试用例恰为 2 个文件", retryPlan.count() == 2,
+                "实际 " + retryPlan.count());
+
+        File out2 = Files.createTempDirectory("wiredraw-70-retry").toFile();
+        ResumeReportingTransfer t2 = new ResumeReportingTransfer(true, 60);
+        FinishRecorder r2 = new FinishRecorder();
+        new ImportService(Log.NOOP, t2, out2).start(retryPlan, r2);
+        check("文件内进度：重试的文件刚进入第二次尝试",
+                t2.retryEntered.await(5, TimeUnit.SECONDS), "等待超时");
+        long atRetry = r2.lastProgress == null ? -1L : r2.lastProgress.bytesDone();
+        check("文件内进度：重试不得双计（第二次尝试刚上报 40 时总字节仍是 40）",
+                atRetry == 40L, "实际 " + atRetry);
+        t2.releaseRetry.countDown();
+        check("文件内进度：重试一轮在 5 秒内结束", r2.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("文件内进度：首次失败后重试仍算完成",
+                r2.ok == 2 && r2.failed == 0, "ok=" + r2.ok + " failed=" + r2.failed);
+        check("文件内进度：重试的第二次尝试按磁盘 40 字节续传",
+                t2.resumeFroms.size() >= 2 && t2.resumeFroms.get(1) == 40L,
+                "实际 " + t2.resumeFroms);
+        check("文件内进度：每个文件完成点的总字节等于累计大小（100、150）",
+                r2.bytesAtFileFinish.size() == 2
+                        && r2.bytesAtFileFinish.get(0) == 100L
+                        && r2.bytesAtFileFinish.get(1) == 150L,
+                "实际 " + r2.bytesAtFileFinish);
+        check("文件内进度：全部完成后总字节等于 plan 总量",
+                r2.lastProgress != null && r2.lastProgress.bytesDone() == 150,
+                r2.lastProgress == null ? "无进度" : "实际 " + r2.lastProgress.bytesDone());
+        deleteTree(out2);
+    }
+
     // ---------------- 无主半成品清理（issue #52） ----------------
 
     /**
@@ -2283,7 +2506,7 @@ public final class SelfTest {
 
         @Override
         public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
-                               CancelToken token) {
+                               CancelToken token, LongConsumer progress) {
             entered.countDown();
             try {
                 release.await(10, TimeUnit.SECONDS);
