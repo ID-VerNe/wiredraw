@@ -12,8 +12,9 @@
 只扫 `git ls-files` 里的文本文件，跳过二进制；Python 标准库，离线可跑。
 
 已知边界（不要指望它兜住这些）：
-- **不扫 commit message、PR 正文与 git 历史**。本门禁的起因就是 PR 正文里贴了换编码的值；
-  那一条由 issue #125 在 `support` 档补「读 PR 正文与评论」的门禁，不在本脚本范围。
+- **不扫 commit message、PR 正文与 git 历史**。PR 正文/评论由 `check_pr_body.py`（`support` 档，#125）
+  覆盖，commit message 由 `check_commit_messages.py`（`support` 档 + `.githooks/commit-msg`，#134）
+  覆盖；本脚本只扫 `git ls-files` 里的文本文件。
 - **跨行切断的 token 不保证命中**：逐行扫描，一段值被换行拆开就看不到完整形态。
 - `--fix` 只改工作区文件，不改 git 历史，也不自动 `git add` / `git commit`。
 

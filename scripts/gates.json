@@ -64,6 +64,11 @@
       "name": "check_pr_body.py",
       "cmd": ["python", "scripts/check_pr_body.py"],
       "why": "PR 正文与评论的敏感信息门禁：复用 check_sensitive.py 的规则与确定性占位符，命中原值不回显；正文优先读 GITHUB_EVENT_PATH，评论走 gh（CI 里需要 GH_TOKEN）。外部输入不认行内豁免，脚本内 ALLOWLIST 仍生效。无 PR 上下文 SKIP、取不全退出 2，所以不进 ci 档"
+    },
+    {
+      "name": "check_commit_messages.py",
+      "cmd": ["python", "scripts/check_commit_messages.py"],
+      "why": "commit message 的敏感信息门禁：从 PR 事件载荷取 base..head，用 git log --format 逐条复用 check_sensitive.scan_text，外部文本不认行内豁免；只查新增提交，不回溯已合并历史。无 PR 上下文 SKIP、取不全退出 2，所以不进 ci 档。本地 .githooks/commit-msg 调同一脚本 --message-file，在写入历史前先拦（#134）"
     }
   ]
 }
