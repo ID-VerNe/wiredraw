@@ -946,6 +946,8 @@ public final class Main extends ComponentActivity {
         lastProgress = null;
         // PD：失败明细属于「本轮」；新一轮开始时清空，避免上一轮的失败混进本次 Details。
         model.clearFailedLines();
+        // issue #53：跳过数同样属于「本轮」，新一轮开始时清空，避免上一轮的 `Skipped N existing` 留在抽屉里。
+        model.showSkipped(0);
         model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
         round.start(plan, new ImportListener() {
             @Override
@@ -990,6 +992,9 @@ public final class Main extends ComponentActivity {
                 if (service != round) return;   // 被放弃的卡死轮次收尾时不得动界面
                 log.line("Skipped " + skipped + " existing");
                 runOnUiThread(() -> {
+                    // issue #53 / P-07 / U-21：跳过数必须进 Details 抽屉（主视觉不出现）。
+                    // 先于 FinishOutcome 写入，DONE / ERROR / 取消 / 保持当前视图四种去向都能在抽屉里看到。
+                    model.showSkipped(skipped);
                     // 判定顺序收进纯 JDK 的 FinishOutcome（issue #64）：全失败优先于「视图已关闭」，
                     // 避免关闭视图后整轮全失败被 backToCatalog 静默吞掉。
                     FinishOutcome.Action action = FinishOutcome.of(

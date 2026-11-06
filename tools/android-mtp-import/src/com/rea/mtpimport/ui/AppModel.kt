@@ -113,6 +113,14 @@ class AppModel {
     var failedLines by mutableStateOf<List<String>>(emptyList())
         private set
 
+    /**
+     * 本轮续传跳过数（issue #53 / `P-07` / `U-21`）：只进 `Details` 抽屉，主视觉不出现
+     * （`U-47` 同样禁止 `DONE` 首屏出现 `Skipped N existing`）。由 `Main.onFinished` 按本轮
+     * `skipped` 写入；没有跳过时由 `UiText.skippedLine` 折成空串，不显示「跳过 0」。
+     */
+    var skippedLine by mutableStateOf("")
+        private set
+
     var demoActive by mutableStateOf(false)
         private set
 
@@ -444,6 +452,11 @@ class AppModel {
         failedLines = emptyList()
     }
 
+    /** 写入本轮续传跳过数（issue #53）；`count <= 0` 时清空，不显示假的「跳过 0」。 */
+    fun showSkipped(count: Int) {
+        skippedLine = com.rea.mtpimport.UiText.skippedLine(count)
+    }
+
     /** 追加一条逐文件失败（PD）；最多保留 20 条，供 Details 抽屉长期展示。 */
     fun addFailedLine(line: String) {
         failedLines = (failedLines + line).takeLast(20)
@@ -460,6 +473,7 @@ class AppModel {
         // 被误禁用、Details 里残留真实失败。
         setSpaceStatus(false, "")
         clearFailedLines()
+        showSkipped(0)
         transferViewClosed = false
         exitConfirmOpen = false
         if (p.catalog != null && catalog == null) {
