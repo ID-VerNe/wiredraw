@@ -269,7 +269,7 @@ private fun PhotoCell(model: AppModel, entry: Catalog.Entry) {
             // V-19 的降级形态：同尺寸灰块 + 文件名 12 sp（网格内唯一允许出现文件名的场景）。
             BasicText(
                 entry.name,
-                style = TextSmall.copy(color = if (checked) UiColors.ink else UiColors.secondary),
+                style = TextSmall.copy(color = if (checked) UiColors.onSurface else UiColors.secondary),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)

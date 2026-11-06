@@ -38,7 +38,7 @@ fun ImportApp(model: AppModel) {
         Modifier
             .fillMaxSize()
             .semantics { testTagsAsResourceId = true }
-            .background(UiColors.canvas)
+            .background(UiColors.surfaceWhite)
     ) {
         if (model.openedPhoto != null) {
             PhotoScreen(model)
@@ -73,7 +73,7 @@ private fun ExitConfirmDialog(model: AppModel) {
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(UiColors.canvas)
+                .background(UiColors.surfaceWhite)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

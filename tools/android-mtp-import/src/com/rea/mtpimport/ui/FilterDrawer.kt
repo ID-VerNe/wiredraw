@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 /**
  * 过滤抽屉（U-52）：`All` / `RAW` / 日期（组头原样）三类，每行热区 ≥48 dp。
  *
- * 三类都只是**过滤**，不改分母：徽标、`Import all N`、组头聚合始终按完整照片墙算
+ * 三类都只是**过滤**，不改分母：计数胶囊、`Import all N`、组头聚合始终按完整照片墙算
  * （U-53 的「同分母」要求）。
  */
 @Composable
@@ -35,7 +35,7 @@ fun FilterDrawer(model: AppModel) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(UiColors.canvas)
+                .background(UiColors.surfaceWhite)
                 .systemBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .heightIn(max = 480.dp)
@@ -78,7 +78,7 @@ private fun FilterRow(label: String, active: Boolean, onClick: () -> Unit) {
             .semantics { selected = active },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        BasicText(label, style = TextBody.copy(color = if (active) UiColors.ink else UiColors.secondary))
+        BasicText(label, style = TextBody.copy(color = if (active) UiColors.onSurface else UiColors.secondary))
         Spacer(Modifier.width(8.dp))
         if (active) {
             Box(Modifier.width(12.dp))

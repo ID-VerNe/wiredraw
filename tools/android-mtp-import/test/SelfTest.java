@@ -59,6 +59,7 @@ public final class SelfTest {
         uiStateCases();
         importGateCases();
         topBarSpecCases();
+        colorTokensCases();
         backNavCases();
         uiTextCases();
         photoWallCases();
@@ -1501,6 +1502,74 @@ public final class SelfTest {
                         .filter(s -> s != UiState.State.CATALOG_READY)
                         .noneMatch(s -> TopBarSpec.showsCountPill(s, 511)),
                 "非 READY 状态出现了计数胶囊");
+    }
+
+    // ---------------- 颜色 token 与对比度（PR-2 / issue #78） ----------------
+
+    /**
+     * 守住 `ColorTokens` 的数值与派生关系。UI-SPEC §3.3 / V-07 的实算值，
+     * 任何一条改坏都会让下面至少一个用例红（变异实验见 issue #78 的 plan）。
+     */
+    static void colorTokensCases() {
+        check("ColorTokens：白色页面底是 #ffffff（不再是 canvas）",
+                ColorTokens.SURFACE_WHITE == 0xFFFFFFFF, "实际 " + hex(ColorTokens.SURFACE_WHITE));
+        check("ColorTokens：canvas 专指画布黑 #1d1d1f",
+                ColorTokens.CANVAS == 0xFF1D1D1F, "实际 " + hex(ColorTokens.CANVAS));
+        check("ColorTokens：ink 是 #111111（只作主 CTA 底）",
+                ColorTokens.INK == 0xFF111111, "实际 " + hex(ColorTokens.INK));
+        checkContrast("#ffffff on ink（主 CTA 文字）", ColorTokens.SURFACE_WHITE, ColorTokens.INK, 18.88);
+        checkContrast("#ffffff on canvas（photo 页胶囊/浅色图标）", ColorTokens.SURFACE_WHITE, ColorTokens.CANVAS, 16.83);
+        checkContrast("on-surface on #ffffff（正文）", ColorTokens.ON_SURFACE, ColorTokens.SURFACE_WHITE, 17.12);
+        checkContrast("on-surface on surface-container（计数胶囊）",
+                ColorTokens.ON_SURFACE, ColorTokens.SURFACE_CONTAINER, 14.75);
+        checkContrast("on-surface-variant on #ffffff（次级文字）",
+                ColorTokens.ON_SURFACE_VARIANT, ColorTokens.SURFACE_WHITE, 9.37);
+        checkContrast("outline on #ffffff（图标/描边下限）", ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE, 4.47);
+        double inkOnCanvas = ColorTokens.contrastRatio(ColorTokens.INK, ColorTokens.CANVAS);
+        check("ink on canvas 实算 1.12:1", Math.abs(inkOnCanvas - 1.12) <= 0.05,
+                "实际 " + number(inkOnCanvas));
+        check("ink on canvas 低于 3:1（深色面禁用文字近黑）", inkOnCanvas < 3.0,
+                "实际 " + number(inkOnCanvas));
+
+        check("Pill 深色底 = canvas 实底（不再是白色 alpha）",
+                ColorTokens.pillBackground(true) == ColorTokens.CANVAS,
+                "实际 " + hex(ColorTokens.pillBackground(true)));
+        check("Pill 深色前景 = #ffffff",
+                ColorTokens.pillForeground(true) == ColorTokens.SURFACE_WHITE,
+                "实际 " + hex(ColorTokens.pillForeground(true)));
+        checkContrast("Pill 深色：白字压 canvas", ColorTokens.pillForeground(true), ColorTokens.pillBackground(true), 16.83);
+        check("Pill 浅色底 = surface-container #eeeeee",
+                ColorTokens.pillBackground(false) == ColorTokens.SURFACE_CONTAINER,
+                "实际 " + hex(ColorTokens.pillBackground(false)));
+        check("Pill 浅色前景 = on-surface #1a1c1c",
+                ColorTokens.pillForeground(false) == ColorTokens.ON_SURFACE,
+                "实际 " + hex(ColorTokens.pillForeground(false)));
+        checkContrast("Pill 浅色：on-surface 压 surface-container",
+                ColorTokens.pillForeground(false), ColorTokens.pillBackground(false), 14.75);
+
+        // alpha 面按当前 token 重算：遮罩 40% canvas 压白 = #a5a5a5（装饰，不承载正文）；
+        // 未选格灰块 60% surface-container 压白 = #f5f5f5（文件名 secondary 仍有 8.6:1）。
+        int scrimOnWhite = ColorTokens.compositeOver(ColorTokens.SCRIM, ColorTokens.SURFACE_WHITE);
+        check("遮罩 40% canvas 合成 = #a5a5a5（装饰面）", scrimOnWhite == 0xFFA5A5A5, "实际 " + hex(scrimOnWhite));
+        int cellOnWhite = ColorTokens.compositeOver(0x99EEEEEE, ColorTokens.SURFACE_WHITE);
+        check("未选格 60% surface-container 合成 = #f5f5f5", cellOnWhite == 0xFFF5F5F5, "实际 " + hex(cellOnWhite));
+        check("次级文字压未选格灰块 ≥4.5:1",
+                ColorTokens.contrastRatio(ColorTokens.ON_SURFACE_VARIANT, cellOnWhite) >= 4.5,
+                "实际 " + number(ColorTokens.contrastRatio(ColorTokens.ON_SURFACE_VARIANT, cellOnWhite)));
+    }
+
+    static void checkContrast(String name, int fg, int bg, double expected) {
+        double actual = ColorTokens.contrastRatio(fg, bg);
+        check(name + " 实算 " + number(expected) + ":1",
+                Math.abs(actual - expected) <= 0.05, "实际 " + number(actual));
+    }
+
+    static String number(double v) {
+        return String.format(java.util.Locale.ROOT, "%.2f", v);
+    }
+
+    static String hex(int argb) {
+        return String.format(java.util.Locale.ROOT, "#%08X", argb);
     }
 
     // ---------------- 系统返回键路由（BackNav，issue #48） ----------------

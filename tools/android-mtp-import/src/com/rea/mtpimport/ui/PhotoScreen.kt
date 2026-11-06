@@ -75,7 +75,7 @@ fun PhotoScreen(model: AppModel) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(UiColors.photoCanvas)) {
+    Box(Modifier.fillMaxSize().background(UiColors.canvas)) {
         val bitmap = preview
         if (bitmap != null) {
             Image(
@@ -91,11 +91,11 @@ fun PhotoScreen(model: AppModel) {
             if (TopBarSpec.hasBar(model.state)) {
                 TopBarRow(horizontalPadding = 8.dp) {
                     IconAction(desc = "Back", onClick = { model.callbacks?.onBack() }) {
-                        BackGlyph(20.dp, UiColors.canvas)
+                        BackGlyph(20.dp, UiColors.surfaceWhite)
                     }
                     Spacer(Modifier.weight(1f))
                     IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
-                        LocationGlyph(20.dp, UiColors.canvas)
+                        LocationGlyph(20.dp, UiColors.surfaceWhite)
                     }
                 }
             }

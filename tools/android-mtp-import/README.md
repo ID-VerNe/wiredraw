@@ -72,6 +72,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ Log               极小日志接口，免得纯逻辑类去 import android.util.Log  [纯 JDK]
 ├─ UiState           10 态 → 界面映射、短名解析（§1.2）                    [纯 JDK]
 ├─ UiText            用户可见数字与短文案的唯一入口（C-05 / C-08 / U-45）   [纯 JDK]
+├─ ColorTokens       UI-SPEC 颜色 token 数值 + 对比度/胶囊派生（issue #78）  [纯 JDK]
 ├─ PhotoWall         ARW → 日期组聚合（组内 count / bytes）                 [纯 JDK]
 ├─ DemoBridge        假数据载荷契约（实现只在 debug 源集）                  [纯 JDK]
 ├─ DemoPayload       一次假数据载荷（状态 + 假树 + 假进度）                 [纯 JDK]
@@ -85,7 +86,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-标 `[纯 JDK]` 的**二十四个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
+标 `[纯 JDK]` 的**二十七个**文件**不允许 import android.\***，这样它们能在普通 JVM 上跑
 `test/SelfTest.java`（其中 `DemoTree.java` / `DemoTransfer.java` 在 `src/debug`，用单独的清单核对）。
 
 这条边界是**编译期强制**的：Gradle 的 `compilePureJdkJava` 编译这批文件时**不给 android.jar**
@@ -149,7 +150,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；300 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；320 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -245,10 +246,10 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
       实测 2026-11-05 18:48：广播路径 `→ 开始扫描`，attach intent 路径 `→ 扫描已在进行中，忽略本次重复事件`，
       单次会话扫出 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`
 - [ ] 扫描完成，照片墙的日期组 / 照片数与卡内一致（探针对照值：1526 对象 / 503 文件夹 / 511 ARW）；
-      顶栏徽标 = 511，`Import all 511` 与徽标同分母（U-53）
+      顶栏计数胶囊 = 511，`Import all 511` 与计数胶囊同分母（U-53）
 - [ ] 渐进加载（#60）：插线后**首批 ARW 出现即**看到照片墙，不必等满 1526 个对象；
       顶栏下方 2 dp 细线推进、临时 `Cancel` 可点、主 CTA 禁用；补齐完成后细线与 `Cancel` 消失、
-      CTA 启用、徽标从中间值变为 511；点 `Cancel` 必须丢弃部分结果回 `COLD` —— **未验**
+      CTA 启用、计数胶囊从中间值变为 511；点 `Cancel` 必须丢弃部分结果回 `COLD` —— **未验**
       （2026-11-06 相机被另一会话探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
 - [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
       `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
@@ -265,7 +266,7 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
       —— **未验**（同上，相机被占用）
 - [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点），长按格子进 `photo` 页
       （有像素时全幅 `Fit`，否则单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、
-      不改徽标与 `Import all N` 分母
+      不改计数胶囊与 `Import all N` 分母
 - [ ] 日期组一键全选（#62）：组头整行长按 500 ms → 本组全部 ARW 进入 `V-11` 已选态，CTA 变为
       `Import <组内张数>`；再长按 → 全不选、CTA 回 `Import all 511`；部分选中时长按**补齐**（不反选）；
       折叠组长按后自动展开；`uiautomator dump` 里组头高度 ≥48 dp 且带 `long-clickable`，

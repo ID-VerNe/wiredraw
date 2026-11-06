@@ -11,7 +11,7 @@ import java.util.Locale;
  * 口径与真机一致（`RESEARCH-android-usb-raw-a7c.md` §12.3 / #17 的复验行）：
  * 1526 个对象 = 503 个文件夹 + 511 张 ARW + 512 张 JPEG，合计 12.75 GB，其中 ARW 11.89 GB。
  * 文件夹里只有 12 个日期目录挂了照片，其余是空的日期目录——这样照片墙正好 12 个日期组，
- * 顶栏徽标 `511` 与 `Import all 511` 同分母。
+ * 顶栏计数胶囊 `511` 与 `Import all 511` 同分母。
  *
  * 本类不 import android.*：它和 main 侧的纯逻辑类一起在**空 classpath**下编译，
  * 并进 selfTest 的 classpath（U-54 的四个总量由 JVM 断言守住）。
@@ -112,7 +112,7 @@ public final class DemoTree {
         if (state == null) return null;
         switch (state) {
             case SCANNING:
-                // 1526 只作扫描进度分母（U-43 / C-09）；顶栏此时不渲染徽标。
+                // 1526 只作扫描进度分母（U-43 / C-09）；顶栏此时不渲染计数胶囊。
                 return new DemoPayload(state, null, 320, OBJECT_COUNT,
                         0, 0, 0, 0, 0, "", 0, 0);
             case CATALOG_READY:

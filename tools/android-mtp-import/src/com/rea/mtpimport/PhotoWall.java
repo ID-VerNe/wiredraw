@@ -57,7 +57,7 @@ public final class PhotoWall {
         return groups;
     }
 
-    /** ARW 张数 —— 顶栏徽标与 `Import all N` 的唯一分母（C-08）。 */
+    /** ARW 张数 —— 顶栏计数胶囊与 `Import all N` 的唯一分母（C-08）。 */
     public int photoCount() {
         return photoCount;
     }

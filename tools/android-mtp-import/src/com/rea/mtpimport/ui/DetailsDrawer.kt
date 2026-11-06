@@ -38,7 +38,7 @@ fun DetailsDrawer(model: AppModel) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(UiColors.canvas)
+                .background(UiColors.surfaceWhite)
                 .systemBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
                 .heightIn(max = 480.dp)
