@@ -114,7 +114,7 @@
 | 能力 | 验证状态 | 若可得 | 若不可得（降级） |
 |---|---|---|---|
 | 缩略图（PTP `GetThumb` 或 ObjectInfo 附带预览） | **未验证，待真机确认**（#59 已按 `getThumbnail` 实现，ARW 句柄是否支持仍未知） | 网格缩略图（≥88 dp，点击进 `photo` 页） | **同尺寸灰块 + 文件名 12 sp**，可正常点选（这是网格内**唯一**允许出现文件名的场景，见 V-19）；不显示已导入标记（依赖 §0.11 第 1 行） |
-| ARW 内嵌 JPEG 预览 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只写了「`MediaMetadataRetriever` 取预览」的架构设想，不是实测结论） | `photo` 页按 `V-25` 异步取 `getThumbnail`（ARW → 同名 JPG，分辨率受 GetThumb 本身，非 1:1，**真机未验**） | 拿不到像素时 `photo` 页只显示 `ARW · 24.6 MB` 胶囊，不显示假图 |
+| ARW 内嵌 JPEG 预览 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只写了「`MediaMetadataRetriever` 取预览」的架构设想，不是实测结论） | `photo` 页按 `V-25` 异步取 `getThumbnail`（ARW → 同名 JPG）；与网格共用 512 px 长边解码上限（`MAX_EDGE`），故 ≤512 px（源分辨率**真机未验**） | 拿不到像素时 `photo` 页只显示 `ARW · 24.6 MB` 胶囊，不显示假图 |
 | EXIF 拍摄时间 | **未验证** | 按拍摄日期分组 | 按文件修改日期分组（见下一行），组头标「按文件时间」 |
 | 文件修改时间（ObjectInfo 的 `DateModified`） | **未验证**（`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name，无日期字段） | 按修改日期分组 | 按 MTP 目录分组（目录名即日期），组头标「按目录名」 |
 
@@ -176,7 +176,7 @@
 |---|---|---|---|---|---|
 | 1 | **已导入照片索引**（任务 A「新片」判定依据，也是「已导入标记」的唯一来源） | §0.2 的「新片」定义、§0.2.1「首屏『新片』数量」行、`T-CATALOG` 的降级写法、`T-01`；§0.7 降级块的已导入标记、V-16 的未导入过滤 | 无此索引：`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name/relPath，无「已导入」标记；`Journal.java` 类注释里「size + relPath」那句与 `public void markDone` 是按 handle 的续传日志，跨会话主键是 `size+relPath`，不是「哪些照片导入过」的记录 | 首屏不承诺「新片」数量；徽标仍按照片数；主 CTA 退化为 `Import all N`（`T-CATALOG` 唯一允许的降级写法，首次使用即如此）；**网格不显示已导入标记**（如需表达，只允许在 `Location details` 里写 `Import state unknown`）；过滤抽屉不出现未导入项 | 任务 A 首屏的「新片」语义、`T-01`；V-16 的未导入过滤 |
 | 2 | **缩略图**（PTP `GetThumb` 或 ObjectInfo 附带预览） | §0.3 任务 B 的网格、§0.5 挑图型首屏、§0.6 的缩略图载体、V-18/V-19、U-29、`T-04`、`T-CATALOG` 正文的选片提示 | **未真机验证**（§0.7 第 1 行） | 同尺寸灰块 + 文件名 12 sp（§0.7，可正常点选）；`T-CATALOG` 不再写「点缩略图选片」 | 任务 B 的缩略图载体、U-29 的缩略图/降级块形态、`T-04`、`T-CATALOG` 的选片提示 |
-| 3 | **ARW 内嵌 JPEG 预览** | §0.7 第 2 行 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只是 `MediaMetadataRetriever` 架构设想）；#61 已用 `getThumbnail` 异步取图，分辨率仍受 GetThumb | `photo` 页有像素时全幅 `Fit`；拿不到时只显示 `ARW · 24.6 MB`，不显示假图 | `T-04` / `V-25` |
+| 3 | **ARW 内嵌 JPEG 预览** | §0.7 第 2 行 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只是 `MediaMetadataRetriever` 架构设想）；#61 已用 `getThumbnail` 异步取图，与网格共用 512 px 长边上限（源分辨率仍真机未验） | `photo` 页有像素时全幅 `Fit`；拿不到时只显示 `ARW · 24.6 MB`，不显示假图 | `T-04` / `V-25` |
 | 4 | **EXIF 拍摄时间** | §0.2 的可选辅助字段、§0.6 日期分组一级依据、V-18、U-29 | **未验证**（ObjectInfo 是否含该字段未真机确认，§0.7 第 3 行） | 按文件修改日期分组（未验证，见第 5 行）；再降级按 MTP 目录分组，组头标「按目录名」 | 任务 B 的「按拍摄日期」分组、U-29 的日期分组、`T-03` |
 | 5 | **文件修改时间**（ObjectInfo `DateModified`） | §0.6 分组依据（EXIF 缺失时的回退）、§0.7 第 3 行降级 | **未验证**（`Catalog.java` 的 `public static final class Entry` 无日期字段，§0.7 第 4 行） | 按 MTP 目录分组（目录名即日期） | 任务 B 的日期分组、U-29 的日期分组、`T-03`（同第 4 行） |
 | 6 | **传输实现** | `IMPORTING`/`PAUSED`/`DONE` 状态、`T-02`、U-45～U-47 | `ImportService.java` 类注释里「只有真正搬字节那一步委托给 `ResumableTransfer`」那段，当前是 `ResumableTransfer.NotImplemented`；`Journal.java` 注释里「跨会话续传要先按 relPath」那句：跨会话续传的真实现未做 | 界面按状态机照常渲染；点主 CTA（`T-CATALOG`）会进入 `UNAVAILABLE`（见 `T-UNAVAILABLE`），不得伪装成传输中 | `T-02` 及一切真实传输验收 |

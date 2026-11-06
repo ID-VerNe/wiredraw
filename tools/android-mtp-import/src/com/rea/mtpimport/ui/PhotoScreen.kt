@@ -34,16 +34,17 @@ import kotlinx.coroutines.withContext
  * 像素来源（#61）：真实 MTP 路径在 IO 线程走 `ThumbnailStore.loadPreview`
  * （只读 `getThumbnail`：ARW → 同名同目录 JPG），**不在 composition / 主线程解码**。
  * 加载中或拿不到像素时保持单行 `ARW · <size> MB` 胶囊形态（U-51：不显示占位块、不放假图）。
- * demo 模式（issue #46）仍先取 `AppModel.previewSource` 的整图；没有素材时退回同一条异步链路。
+ * demo 模式（issue #46）由 `ThumbnailStore` 注入整图，仍走 `loadPreview` 的 IO 线程解码；
+ * 没有素材时与真实路径一样退回胶囊。
  */
 @Composable
 fun PhotoScreen(model: AppModel) {
     val entry = model.openedPhoto ?: return
     val store = model.thumbnails
-    // demo 素材是同步接口（#46 遗留），只在 debug 注入时命中；真实路径恒为 null。
-    val demoPreview = remember(entry.handle) { model.previewFor(entry) }
+    // 首帧只读缓存；demo 也走同一条异步链路（ThumbnailStore 的 demo 分支在 IO 线程解码），
+    // 不在 composition / 主线程同步解码（V-25）。
     var preview by remember(entry.handle, store) {
-        mutableStateOf(demoPreview ?: store?.cachedPreview(entry.handle))
+        mutableStateOf(store?.cachedPreview(entry.handle))
     }
 
     LaunchedEffect(entry.handle, store, model.backgroundScanning) {

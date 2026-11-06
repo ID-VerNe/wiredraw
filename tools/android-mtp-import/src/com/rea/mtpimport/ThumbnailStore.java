@@ -151,7 +151,8 @@ public final class ThumbnailStore {
      * 界面保持 {@code U-51} 的 `ARW · <size>` 胶囊形态。
      *
      * 像素来源与照片墙同一条只读链路（ARW `getThumbnail` → 同名 JPG），
-     * 分辨率上限受 `getThumbnail` 本身，属真机未验项；这里不下载整张 RAW。
+     * 分辨率上限为 min(`getThumbnail` 源分辨率, `MAX_EDGE`=512)，源分辨率属真机未验项；
+     * 这里不下载整张 RAW。
      */
     public Bitmap loadPreview(Catalog.Entry entry) {
         if (entry == null) return null;

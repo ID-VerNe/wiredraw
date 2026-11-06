@@ -520,7 +520,6 @@ public final class Main extends ComponentActivity {
             Class<?> cls = Class.forName("com.rea.mtpimport.DemoImages");
             Object preview = cls.getMethod("create", Context.class).invoke(null, this);
             if (preview instanceof PhotoPreview) {
-                model.setPreviewSource((PhotoPreview) preview);
                 // 照片墙与看图页共用同一来源（issue #59 / #61）。
                 thumbnails.setDemo((PhotoPreview) preview);
             }

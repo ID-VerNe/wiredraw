@@ -27,7 +27,7 @@
 | 全量扫描卡内对象 → 目录树（`Catalog`） | ✅ 实现（不用 format 过滤，见下） |
 | 渐进加载：首批 ARW 即出照片墙，其余后台补齐（#60） | ✅ 实现（`Catalog.snapshot()` 每 200 个对象发布一次；顶栏 2 dp 细线 + 临时 `Cancel`，主 CTA 在补齐期间禁用；真机时延**未验**） |
 | 照片墙缩略图（#59） | ✅ 实现（IO 线程 `getThumbnail`：先 ARW 句柄、再同名同目录 JPG；512 px 长边解码，24 MiB LruCache 兜底，格子移出组合即 `evict`（离屏位图不常驻）；`getThumbnail` 对 ARW 的支持**真机未验**，拿不到就退回 V-19 灰块） |
-| 看图页预览（#61） | ✅ 实现（`PhotoScreen` 异步走 `ThumbnailStore.loadPreview`，同一只读链路；加载/失败保持 U-51 胶囊；8 MiB 独立预览缓存，连续打开同一张不重复读相机；分辨率受 `getThumbnail` 本身，**真机未验**） |
+| 看图页预览（#61） | ✅ 实现（`PhotoScreen` 异步走 `ThumbnailStore.loadPreview`，同一只读链路；加载/失败保持 U-51 胶囊；8 MiB 独立预览缓存，连续打开同一张不重复读相机；与网格共用 512 px 长边解码上限（`MAX_EDGE`），故 ≤512 px；`getThumbnail` 源分辨率仍**真机未验**） |
 | 目录树打勾、勾目录连带子孙、全选/清空 | ⛔ 已被照片墙取代（选择模型仍在 `Selection`） |
 | 三屏（`library` / `transfer` / `photo`）+ 十个状态全部有界面 | ✅ 实现（Compose，`src/com/rea/mtpimport/ui/`） |
 | 照片墙：ARW 按日期分组、点选、过滤抽屉 | ✅ 实现（`PhotoWall` + `UiText` 纯逻辑，JVM 自检覆盖） |
