@@ -174,7 +174,7 @@
 
 | # | 依赖项 | 用在哪 | 现状证据（文件 + 可 grep 串） | 缺失时的降级 | 阻断 |
 |---|---|---|---|---|---|
-| 1 | **已导入照片索引**（任务 A「新片」判定依据，也是「已导入标记」的唯一来源） | §0.2 的「新片」定义、§0.2.1「首屏『新片』数量」行、`T-CATALOG` 的降级写法、`T-01`；§0.7 降级块的已导入标记、V-16 的未导入过滤 | 无此索引：`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name/relPath，无「已导入」标记；`Journal.java` 类注释里「size + relPath」那句与 `public void markDone` 是按 handle 的续传日志，跨会话主键是 `size+relPath`，不是「哪些照片导入过」的记录 | 首屏不承诺「新片」数量；顶栏不出现数字徽标（§2.2），总量只由 `Import all N` 承担；主 CTA 退化为 `Import all N`（`T-CATALOG` 唯一允许的降级写法，首次使用即如此）；**网格不显示已导入标记**（如需表达，只允许在 `Location details` 里写 `Import state unknown`）；过滤抽屉不出现未导入项 | 任务 A 首屏的「新片」语义、`T-01`；V-16 的未导入过滤 |
+| 1 | **已导入照片索引**（任务 A「新片」判定依据，也是「已导入标记」的唯一来源） | §0.2 的「新片」定义、§0.2.1「首屏『新片』数量」行、`T-CATALOG` 的降级写法、`T-01`；§0.7 降级块的已导入标记、V-16 的未导入过滤 | 无此索引：`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name/relPath，无「已导入」标记；`Journal.java` 类注释里「size + relPath」那句与 `public void markDone` 是按 handle 的续传日志，跨会话主键是 `size+relPath`，不是「哪些照片导入过」的记录 | 首屏不承诺「新片」数量；顶栏不出现数字徽标（§2.2），总量由 `Import all N` 承担（日期组头只承担组内数量）；主 CTA 退化为 `Import all N`（`T-CATALOG` 唯一允许的降级写法，首次使用即如此）；**网格不显示已导入标记**（如需表达，只允许在 `Location details` 里写 `Import state unknown`）；过滤抽屉不出现未导入项 | 任务 A 首屏的「新片」语义、`T-01`；V-16 的未导入过滤 |
 | 2 | **缩略图**（PTP `GetThumb` 或 ObjectInfo 附带预览） | §0.3 任务 B 的网格、§0.5 挑图型首屏、§0.6 的缩略图载体、V-18/V-19、U-29、`T-04`、`T-CATALOG` 正文的选片提示 | **未真机验证**（§0.7 第 1 行） | 同尺寸灰块 + 文件名 12 sp（§0.7，可正常点选）；`T-CATALOG` 不再写「点缩略图选片」 | 任务 B 的缩略图载体、U-29 的缩略图/降级块形态、`T-04`、`T-CATALOG` 的选片提示 |
 | 3 | **ARW 内嵌 JPEG 预览** | §0.7 第 2 行 | **未验证**（`RESEARCH-android-usb-raw-a7c.md` §6 只是 `MediaMetadataRetriever` 架构设想） | `photo` 页只显示 `ARW · 24.6 MB`，不显示假图 | `T-04` |
 | 4 | **EXIF 拍摄时间** | §0.2 的可选辅助字段、§0.6 日期分组一级依据、V-18、U-29 | **未验证**（ObjectInfo 是否含该字段未真机确认，§0.7 第 3 行） | 按文件修改日期分组（未验证，见第 5 行）；再降级按 MTP 目录分组，组头标「按目录名」 | 任务 B 的「按拍摄日期」分组、U-29 的日期分组、`T-03` |
@@ -191,9 +191,9 @@
 | 2026-11-06 / PR #39 第四轮评审 | 复选框热区 ≥44 dp（`V-11`、`V-15` 例外②、`A-01` 旧例外句） | **统一 ≥48 dp**（`A-01` / `U-09`），复选框无例外 | 两套口径会让 46 dp 的复选框同时满足 `V-11`、违反 `A-01` / `U-09`；48 dp 是 Android 平台推荐下限。**本条覆盖早先的 44 dp 口径** |
 | 2026-11-06 / PR #39 第四轮评审 | `ERROR` 的动作写成「循环箭头图标 + 应用内再试」 | `Connect camera`（USB 插头 / 重连语义，`contentDescription` 同名） | 会话结束后相机挂起 USB，应用内反复尝试唤不醒（`AGENTS.md` §4）；对最主要的一类 `ERROR` 该动作无效，`C-14` 要求提示拔插数据线；`ERROR` 进入条件已覆盖可恢复与不可恢复（§1.2） |
 | 2026-11-06 / PR #39 第四轮评审 | §0.10 禁用写法「任何地方都不得出现」 | 只在**用户可见文案**里禁止；文档叙述描述原型现状 / 控件形态时可引用 | 该类说法是描述定稿原型控件形态的必要术语（`V-15` 要写「网格不得显示该形态」），改掉反而说不清原型；判定见 §8 抬头 |
-| 2026-11-06 / #44 决策（P1-4 / P1-3 / P1-1） | 纯黑可作画布与主色；顶栏只在 `CATALOG_READY` 与 `transfer` 出现；进度环未完成段与照片格 1 px 边框按图形对比度判 | 画布黑 `#1d1d1f` 与文字近黑 `#111111` 是两个显式 token，**禁用纯黑**；顶栏在 12 个视图全常驻（方案 A，§2.2）；环轨道与照片格 1 px 边框判为装饰/分隔，**不进 `V-07`** | §3.3 / §2.2 / `V-07`；对应 finding P1-4 画布、P1-1 顶栏、P1-3 环轨道 |
+| 2026-11-06 / #44 决策（P1-4 / P1-3 / P1-1） | 纯黑可作画布与主色；顶栏只在 `CATALOG_READY` 与 `transfer` 出现；进度环未完成段与照片格 1 px 边框按图形对比度判 | 画布黑 `#1d1d1f` 与文字近黑 `#111111` 是两个显式 token，**禁用纯黑**；顶栏在 11 个视图全常驻（10 个状态 + `photo`；方案 A，§2.2）；环轨道与照片格 1 px 边框判为装饰/分隔，**不进 `V-07`** | §3.3 / §2.2 / `V-07`；对应 finding P1-4 画布、P1-1 顶栏、P1-3 环轨道 |
 | 2026-11-06 / #45 决策 | `photo` 胶囊用 `label-md` 13 sp；「网格单元最小尺寸 88 dp」含高 | 胶囊改 `mono-data` 12 sp（等宽数字）；88 dp = **最小宽度**，高按 3:2 由列宽推导 | §3.1 / §2.1 实测表；同时解决 **P2-4**（`photo` 页画布黑上的系统栏必须用浅色图标，`V-25`）与胶囊字号 |
-| 2026-11-06 / #42 | `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` 返回键直接退出，无浮层例外 | 模态浮层优先：`Filter` / `Details` / `Pause & exit` 确认框开着时，返回键只关当前浮层，全部关闭后才进入退出规则 | §1.3 |
+| 2026-11-06 / #42 | `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` 返回键直接退出，无浮层例外 | 模态浮层优先：`Filter` / `Details` / `Pause & exit` 确认框开着时，返回键只关当前浮层，全部关闭后才进入 §1.3 的退出/回退规则（`UNAVAILABLE` 按现行口径回照片墙，见 #48） | §1.3 |
 | 2026-11-06 / #43 | `photo` 页由 `CATALOG_READY` 的格子**点击**进入 | 由格子**长按**进入；点击保留为 `L-08` 的切换已选 | §1.2 |
 
 ---
@@ -218,7 +218,7 @@
   内容区焦点是状态的**主表达**（L-04）：`COLD` / `EMPTY_CATALOG` / `UNAVAILABLE` 用居中图标，
   `SCANNING` 用细环 + `320/1526`，`IMPORTING` / `PAUSED` 用 180 dp 传输环，`CATALOG_READY` 用照片墙；
   扫描环与传输环分属不同状态、互斥显示（见本节上一段）。
-  顶栏的设备短名（如 `a7C`）只作标识，不承担状态；连接状态只由相机图标形态承担（§2.2）；日志/详情入口默认不可见（L-05）。
+  顶栏的设备短名（如 `a7C`）只作标识，不承担状态；连接状态由相机图标形态 **+ 断开态短词 `Disconnected`** 共同表达（§2.2）；日志/详情入口默认不可见（L-05）。
 
 ### 1.2 状态表（首屏契约）
 
@@ -234,10 +234,10 @@
 | `CATALOG_READY` 日期分组 + 照片墙 | 扫描成功 | **有**（`library`，含 0 选 / ≥1 选 / 折叠三子态；CTA 切换需补齐） | 见 `T-CATALOG` | 折叠、过滤抽屉、点格选/取消、`Import all N` / `Import N` | **不得因未选**而禁用主 CTA（`P-09` 的空间预检除外；任务 A 要求 0 选择也能一键全导，§0.5）；同屏并置两个总量分母；网格内显示文件名/大小/徽标/勾选圈（仅两处例外：`V-19` 降级块的文件名、`V-11` 降级形态的复选框）；已选数写进正文句 |
 | `IMPORTING` 传输中 | 导入线程启动 | **有**（`transfer`，控件与无障碍不完整） | 见 `T-IMPORTING` | `Pause`、`Cancel`、顶部返回（关闭视图，见 §1.3） | 修改已选；返回键直接销毁任务；进度停在 0 不动；主视觉出现速率/剩余时间/协议 |
 | `PAUSED` 已暂停 | 用户暂停 | **缺**（本版按 `T-PAUSED` 补齐） | 见 `T-PAUSED` | `Resume`、`Cancel` | `Resume` 不可点；把暂停态显示成完成态；环数值继续变化 |
-| `DONE` 完成 | 全部结束且有成功项 | **缺**（本版按 `T-DONE` 补齐） | 见 `T-DONE` | `Open`、位置图标（进 `Location details`）、返回退出 | 四段统计（成功/跳过/失败/总数）；任务 ID、哈希、协议、内部编号；统计卡 |
+| `DONE` 完成 | 全部结束且有成功项 | **缺**（本版按 `T-DONE` 补齐） | 见 `T-DONE` | `Open`、位置图标（进 `Location details`）、返回（回照片墙，§1.3） | 四段统计（成功/跳过/失败/总数）；任务 ID、哈希、协议、内部编号；统计卡 |
 | `ERROR` 错误 | 相机相关失败：可恢复错误与 USB 挂起（**不可恢复**）都归此态 | **缺**（本版按 `T-ERROR` 补齐） | 见 `T-ERROR` | `Connect camera`、返回、`Details` 抽屉；**不可恢复（USB 挂起）时唯一恢复动作 = 拔插数据线后点 `Connect camera`**（`返回` 与 `Details` 仍是允许操作，见 §1.3） | 只写日志不改变界面；裸露异常类名与协议细节；把三段式塞进状态区主视觉；把 USB 挂起描述成应用内再点一次即可 |
 | `EMPTY_CATALOG` 相机内为空 | 扫描成功但 0 个照片 | **缺**（本版按 `T-EMPTY` 补齐） | 见 `T-EMPTY` | `Connect camera`（重新扫描）、返回退出 | 显示空网格或 `0 GB` 的占位；把空态显示成加载中 |
-| `UNAVAILABLE` 功能未实现（**内部标签**） | 传输层未就绪 | **缺**（本版按 `T-UNAVAILABLE` 补齐） | 见 `T-UNAVAILABLE` | `OK`、返回（按 §1.3 直接退出） | 显示 0% 进度；显示 `Imported 0 · Failed 0` 式统计；出现 `NOT_IMPLEMENTED` 等枚举；用户可见文案出现「未实现」（状态名只是内部标签，见 C-18） |
+| `UNAVAILABLE` 功能未实现（**内部标签**） | 传输层未就绪 | **缺**（本版按 `T-UNAVAILABLE` 补齐） | 见 `T-UNAVAILABLE` | `OK`、返回（按 §1.3 回退到照片墙） | 显示 0% 进度；显示 `Imported 0 · Failed 0` 式统计；出现 `NOT_IMPLEMENTED` 等枚举；用户可见文案出现「未实现」（状态名只是内部标签，见 C-18） |
 
 > 行文简写：`READY` = `CATALOG_READY`、`EMPTY` = `EMPTY_CATALOG`、`PERMISSION` = `PERMISSION_PENDING`。
 > 简写只用于叙述与验收标题；界面与代码一律用全名。
@@ -245,10 +245,10 @@
 ### 1.3 返回键
 
 - **必须**先关闭模态浮层：`Filter` / `Details` / `Pause & exit` 确认框开着时，返回键只关闭当前浮层，**不得**退出应用或丢失选择；浮层全部关闭后才按下列规则处理。
-- **必须**在 `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` 下按返回键直接退出应用，不得弹无意义确认。
+- **必须**在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` 下按返回键直接退出应用，不得弹无意义确认。
+- **必须**把 `PAUSED` / `DONE` / `ERROR` / `UNAVAILABLE` 回退到照片墙（不再退出应用）；`PAUSED` / `ERROR` 不得因此丢失当前选择。
 - **必须**在 `IMPORTING` 下拦截返回键并给 `Pause & exit` / `Resume` 二选一；退出后必须保留断点。
   `transfer` 页顶部的 close/back 图标只关闭视图（回 `CATALOG_READY`），不取消任务；任务取消由 `Cancel` 承担。
-- **不得**在 `ERROR` / `PAUSED` 下用返回键丢失当前选择。
 
 ---
 
@@ -274,7 +274,7 @@
   `setDecorFitsSystemWindows(false)` 的实现方式正是这样，**不得**把根容器 bounds 当作判红依据。实现二选一：
   (a) `WindowCompat.setDecorFitsSystemWindows(false)` + 对内容容器（或根容器的 padding 内边界）施加 `WindowInsets`；
   (b) 使用无 ActionBar 主题（`Theme.Material.NoActionBar` 或等价）并自绘顶栏，再按 insets 让位。
-  **全部视图（10 个状态页 + `transfer` + `photo`）**必须显式施加上下 inset：顶栏吃 `statusBars`，底部 CTA/内容吃 `navigationBars`；
+  **全部视图（10 个状态页 + `photo`；`IMPORTING` / `PAUSED` 的载体是 `transfer` 视图，不另计）**必须显式施加上下 inset：顶栏吃 `statusBars`，底部 CTA/内容吃 `navigationBars`；
   实现口径见本节抬头的 `WindowInsets.systemBars`（**不得**照抄原型 HTML 的 `pt-safe` / `pb-safe` 类名）。
 - **L-02** 可点击控件不得被系统栏与顶栏遮挡。任何 `clickable=true` 控件：
   (1) 与系统栏的矩形交集**必须**为空（交集高度 0）；
@@ -325,6 +325,10 @@
 | 396（本机默认 override） | 2.475 | 436.36 | 321×214 | 129.70 × 86.47 | 成立 | **不成立**（高差 1.53） |
 | 480 | 3.00 | 360.00 | 312×208 | 104.00 × 69.33 | 成立 | 不成立 |
 
+- 取整口径：`dp = 单元 px / (override / 160)`，`px` 取自 `uiautomator dump` 的 `bounds`（整数）。
+  396 档 `321 / 2.475 = 129.697… → 129.70`、`214 / 2.475 = 86.465… → 86.47`，高差 `88 − 86.47 = 1.53`；
+  早前草稿的 `129.45 × 86.30` / 高差 `1.70` 用未取整屏宽直接换算，数值不同但结论不变（高差 `1.53` 仍不成立）。
+
 - **三条结论**：① 屏宽 `360 dp` 时单元 `104.00 × 69.33 dp`（312×208 px），文件名已截断；
   ② 88 dp 作最小宽度，下限屏宽 `88 × 3 + 48 = 312 dp`，三档均成立；
   ③ 若改成「宽高都 ≥88 dp」，需屏宽 ≥ `132 × 3 + 48 = 444 dp`，本机默认 `396` 档（436.36 dp）不成立，**故不采用**该口径。
@@ -332,22 +336,25 @@
 
 ### 2.2 顶栏内容（方案 A，2026-11-06 拍板）
 
-> 顶栏在全部视图常驻（`#44` 决策 2）：10 个状态 + `transfer` + `photo`。容器口径见 §2 术语定义；
+> 顶栏在全部视图常驻（`#44` 决策 2）：10 个状态 + `photo`，共 11 个视图（`transfer` 是 `IMPORTING` / `PAUSED` 的载体，不另计）。容器口径见 §2 术语定义；
 > 高度 56 dp（不含状态栏），全宽，语义标签固定 `topBar`，**无填充底色块、无计数胶囊**。
-> 内容**只**允许「图标 + 短英文」：**不得**出现解释句、状态句，**不得**成为第二个焦点。
+> 内容**只**允许「图标 + 短英文」：**不得**出现解释句、状态句（断开态短词 `Disconnected` 除外），**不得**成为第二个焦点。
 
 | 视图 / 状态 | 左侧 | 右侧 | 说明 |
 |---|---|---|---|
 | `CATALOG_READY` | 相机线稿 + `a7C`（14 sp `body-md`） | `Filter` | 设备名长按进 `Details`（`L-05`） |
-| `COLD` / `ERROR` | 断开线稿（相机线稿 + 斜线）+ `Disconnected` | — | 连接状态只由图标形态承担；断开时不显示数量 |
+| `COLD` / `ERROR` | 断开线稿（相机线稿 + 斜线）+ `Disconnected` | — | 连接状态由相机图标形态 + `Disconnected` 短词共同表达；断开时不显示数量 |
 | `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` | 相机线稿 + `a7C` | — | 设备已物理连接；授权未完成也按在线画法 |
 | `IMPORTING` / `PAUSED` | `Back` | — | 任务视图只留关闭入口，设备身份让位给环 |
 | `photo` | `Back` | `Location` | 详情视图，与状态无关 |
 
 - **V-23** 顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线），**不得**声称是实时 USB 探测；
   断开态**必须**用同一条相机线稿加斜线，**不得**另造图标族。
-- **V-24** 顶栏在任何状态都**不得**出现数字徽标；总量只由 `Import all N`（`C-08`）与日期组头承担。
+  `ERROR` **一律**按断开画法，含可恢复错误与 USB 挂起：该态的唯一推进动作是 `Connect camera`，
+  图标形态不随「相机是否仍物理连接」摆动；是否可恢复只影响 `Details` 文案（§1.2 / `C-14`），不改变顶栏。
+- **V-24** 顶栏在任何状态都**不得**出现数字徽标；总量由 `Import all N`（`C-08`）承担，日期组头只承担组内数量。
 - `Filter` / `Back` / `Location` 均为既有图标动作，热区 ≥48 dp（`A-01`）。
+- `UNAVAILABLE` 的进入条件是扫描成功后点主 CTA（§0.11 第 6 行），此时相机在线，故与 `PERMISSION_PENDING` 同按「在线」画法，**不**按断开处理。
 
 ---
 
@@ -444,10 +451,10 @@
 
 | 项 | 漂移 | 本文口径 |
 |---|---|---|
-| 画布底色 | `surface` / `background` 是 `#f9f9f9`，正文说「Pure White」 | 页面底用 `surface-container-lowest` `#ffffff`；`#f9f9f9` 只用于需要与画布区分的面板 |
-| 底色 token 值 | `library` 把 `background` 覆盖为 `#ffffff`，`transfer` / `photo` 仍是 `#f9f9f9` | 三页统一按画布 `#ffffff`；`#f9f9f9` 降为次级面板底（结论同上一行，本条只记值差） |
+| 画布底色 | `surface` / `background` 是 `#f9f9f9`，正文说「Pure White」 | `library` / `transfer` 两页页面底用 `surface-container-lowest` `#ffffff`；`photo` 页按画布黑 `canvas` `#1d1d1f`（见本条与 `V-25`）；`#f9f9f9` 只用于需要与画布区分的面板 |
+| 底色 token 值 | `library` 把 `background` 覆盖为 `#ffffff`，`transfer` / `photo` 仍是 `#f9f9f9` | `library` / `transfer` 两页统一按画布 `#ffffff`；`photo` 页按 `canvas` `#1d1d1f`；`#f9f9f9` 降为次级面板底（结论同上一行，本条只记值差） |
 | 主墨 / 画布黑 | `primary` 定稿值为纯黑，正文说 `#111111` | **两个显式 token，不得互换**：**画布黑** `canvas` `#1d1d1f`（`photo` 页全幅画布、系统栏浅色图标底、一切需要「黑」的底色）与**文字近黑** `ink` `#111111`（正文/图标/主 CTA 底）；白字压 `#111111` 为 18.9:1，白压 `#1d1d1f` 为 16.8:1；`primary` / `tertiary` 的纯黑值一律落为 `#1d1d1f` |
-| 次级墨 | 页面用 `black/60`、`black/40`（纯黑的 alpha），正文写 `#707070` | 次级文字用 `on-surface-variant` `#444748`（9.4:1）；`#666666` 仅作下限示例；`black/40`、`black/45` **只许装饰**，不得承载正文 |
+| 次级墨 | 页面用 `canvas/60`、`canvas/40`（画布黑的 alpha），正文写 `#707070` | 次级文字用 `on-surface-variant` `#444748`（9.4:1）；`#666666` 仅作下限示例；`canvas/40`、`canvas/45` **只许装饰**，不得承载正文 |
 | 缩略图圆角 | DESIGN.md 写 `rounded-lg = 1rem`，页面 tailwind 覆盖为 `0.5rem`（8 px） | 以页面 8 dp 为准（`V-21`）；DESIGN 正文的 12–16 px **不采纳** |
 
 **禁用纯黑（#44 决策 1）**：本版**不得**在任何界面使用纯黑（RGB `0,0,0`；含画布、遮罩、胶囊底、系统栏底）；
@@ -463,7 +470,7 @@
   | `on-surface-variant` `#444748` on `#ffffff` | 9.4:1 | 次级文字 |
   | `#666666` on `#ffffff` | 5.7:1 | 次级的对比度下限示例 |
   | `error` `#ba1a1a` on `#ffffff` | 6.5:1 | 错误文字 |
-  | `on-primary` `#ffffff` on `#111111` | 18.9:1 | 主 CTA 文字 |
+  | `#ffffff` on `ink` `#111111`（主 CTA 文字） | 18.9:1 | 主 CTA 文字的实心底 |
   | `#ffffff` on `#1d1d1f` | 16.8:1 | 画布黑上的文字/图标、系统栏浅色图标 |
   | `#111111` on `#1d1d1f` | 1.12:1 | **禁用**（深色面不得用文字近黑） |
   | `outline` `#747878` on `#ffffff` | 4.47:1 | 图标/描边下限（≥3:1） |
@@ -475,8 +482,8 @@
   - 照片格的 1 px `outline-variant #c4c7c7` 边框是**分隔**：不按「描边 ≥3:1」判，**不得**改深。
   - 例外只覆盖这两处几何；环的**已完成段**与数值文字仍按本条与 `V-22` 判。
 
-  原型里约 2.85:1 的日期 chevron、白图标压 `black/30` 的白照片遮罩、白字压 `black/40` 的胶囊，**均不达标**：
-  分别改为 `on-surface-variant`、遮罩 ≥ `black/50`、胶囊底 ≥ `black/60`（或直接用 `#111111` 实底）。
+  原型里约 2.85:1 的日期 chevron、白图标压 `canvas/30` 的白照片遮罩、白字压 `canvas/40` 的胶囊，**均不达标**：
+  分别改为 `on-surface-variant`、遮罩 ≥ `canvas/50`、胶囊底 ≥ `canvas/60`（或直接用 `canvas` 实底）。
 - **V-25（P2-4）** `photo` 页是画布黑全幅底：系统栏（status bar + gesture bar）图标**必须**用浅色
   （关闭 `APPEARANCE_LIGHT_STATUS_BARS` / `APPEARANCE_LIGHT_NAVIGATION_BARS`），**不得**用深色图标压 `#1d1d1f`（1.12:1）；
   离开 `photo` 页**必须**恢复浅色系统栏与深色图标。
@@ -563,7 +570,7 @@
   定稿组头的 `11.9 GB` 是 1 位，**不得**照抄，落成 `11.89 GB`。
 - **C-06** 小于 0.1 GB **必须**自动降级为 MB（例：`1.2 MB`）；**不得**出现 `0.00 GB`（当前见 F15）。
 - **C-07** **不得**在用户区显示原始字节值、`double` 精度尾数或科学计数法。
-- **C-08（改写）** 总量在界面上**只**允许一个计数位：`CATALOG_READY` 的主 CTA（`Import all N` / `Import N`），口径 = **照片数（ARW 张数）**；
+- **C-08（改写）** 总量在界面上**只**由 `CATALOG_READY` 的主 CTA（`Import all N` / `Import N`）承担，口径 = **照片数（ARW 张数）**；日期组头只承担组内数量，**不**承担总量。
   **顶栏不出现数字徽标**（方案 A，§2.2）；**不得**写「已渲染/总数」这类句子，**不得**同屏并置对象总数与照片数。
 - **C-09（改写）** 若出现「还有 N 未显示」这类提示，N **必须** = 全树 catalog 总数 − 已渲染数；
   **不得**用截断集合的差值（当前恒 ≤200，实际缺口 726，见 F6 / #15）。
@@ -619,7 +626,7 @@ Next:    <一个可执行动作>
 | `T-DONE` | `DONE` | 环的位置换成完成标记 | `Done` | `36 · 871 MB` + 位置图标；`Open` 次按钮 | `Imported … Skipped … Failed …`、任务 ID、哈希、统计卡 |
 | `T-ERROR` | `ERROR` | 环的位置换成错误标记 | 一行短中文原因（≤20 字） | `Connect camera` 图标（USB 插头 / 重连语义）；三段式进 `Details` | `Error`、异常类名、opcode、路径 |
 | `T-EMPTY` | `EMPTY_CATALOG` | 居中相机图标 | `No photos` | `Connect camera` 图标 | 空网格、`0 GB`、`0%` |
-| `T-UNAVAILABLE` | `UNAVAILABLE` | 居中禁止图标 | `Not available` | `OK`，或返回直接退出 | `NOT_IMPLEMENTED`、`Unimplemented`、长句版本说明 |
+| `T-UNAVAILABLE` | `UNAVAILABLE` | 居中禁止图标 | `Not available` | `OK`，或返回（回退到照片墙） | `NOT_IMPLEMENTED`、`Unimplemented`、长句版本说明 |
 
 - **`CATALOG_READY` 主 CTA 文案（本文件唯一出处）**：已选 0 → `Import all N`；已选 ≥1 → `Import N`。
   `N` 一律取**模型内数量**（不是已渲染行数，见 C-08）。已导入索引缺失时（§0.11 第 1 行），
@@ -647,7 +654,7 @@ Next:    <一个可执行动作>
   | 过滤项 | `All` / `RAW` / 日期（组头原样） | `CATALOG_READY` 过滤抽屉（V-16）；**不得**出现未导入项 |
   | 位置详情内的单张标记 | `Imported` / `New` | `Location details` 展开后（§0.11 第 1 行缺失时统一写 `Import state unknown`）；网格内不出现（V-15 / V-20） |
   | 上一轮结果提示 | `Last import` | `SCANNING` 显示上一轮照片墙时的置灰标注（§1.2 `SCANNING` 行） |
-  | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` / `transfer` 顶部 |
+  | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` 顶部；`transfer` 顶部仅 `IMPORTING` / `PAUSED` |
   | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
   | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
   | 详情 / 日志 | 长按顶栏设备名，或 `Details` | 全页（默认不可见，L-05） |
