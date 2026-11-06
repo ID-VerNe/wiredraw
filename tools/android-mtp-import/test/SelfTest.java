@@ -1019,8 +1019,12 @@ public final class SelfTest {
                 !svc3.isCancelStuckAt(afterCancel), "实际 true");
         check("PB 卡死：超过宽限期判定为卡死（界面必须能给 ERROR 出路）",
                 svc3.isCancelStuckAt(afterCancel + grace), "实际 false");
+        // 三审 B-3：Main 判定卡死后会放弃该轮；旧轮迟到的 finally 不得覆写 journal。
+        svc3.abandon();
         st.release.countDown();
         check("PB 卡死：放行后本轮 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PB 放弃：被放弃的轮次跳过续传日志保存（不覆盖磁盘上的现有记录）",
+                !new File(out3, "import-journal.txt").exists(), "日志仍被写出");
         check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
         deleteTree(out3);
     }

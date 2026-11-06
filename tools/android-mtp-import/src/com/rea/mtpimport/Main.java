@@ -68,6 +68,13 @@ public final class Main extends ComponentActivity {
     private Catalog catalog;
     private Selection selection;
     private volatile ImportService service;
+
+    /**
+     * 被放弃的上一轮（三审 B-3）：`service` 已摘掉，但 worker 可能还阻塞在原生 `importFile` 上。
+     * worker 退出前不得重建会话（`scanWorker` 的 `session.close()` 会撞上那条原生调用）。
+     */
+    private volatile ImportService orphanService;
+
     private volatile TransferProgress lastProgress;
 
     /**
@@ -502,8 +509,9 @@ public final class Main extends ComponentActivity {
      */
     private void requestScan(String trigger, UsbDevice dev) {
         // 取消卡死的 worker 不能把重扫也永久拦住（二审 B-1）：先放弃该轮再走准入判定。
-        // 放弃只摘掉引用，不在 UI 线程 close 会话（原生调用可能还占着 MtpDevice）。
+        // 放弃只摘掉引用、不 close 会话；但 worker 未退出前也不重建会话（三审 B-3）。
         abandonStuckService();
+        if (orphanWorkerStillRunning()) return;
         AttachGate.Admit admit = attachGate.admit(dev != null, service != null && service.isRunning());
         switch (admit) {
             case GO: {
@@ -666,6 +674,20 @@ public final class Main extends ComponentActivity {
         }
         if (service != null && service.isRunning()) {
             if (service.isPaused()) {
+                // 三审 B-1：`Pause & exit` 后可在照片墙停任意久，相机可能已挂起/断开。
+                // 恢复前必须与新一轮一样做只读探活；失步时 resume 只会让整轮逐个 FAILED，
+                // 而 skipped > 0 时 onFinished 仍会落 DONE，把失败掩盖过去。
+                final ImportService pausedRound = service;
+                if (!probeSession(plan.items().get(0).handle, "恢复暂停轮次前探活")) {
+                    log.line("恢复前探活失败：取消该轮（不 resume，避免逐个 FAILED 被 DONE 掩盖）");
+                    pausedRound.cancel();
+                    // worker 还能自己退出（暂停不是卡死），但要挡掉它的 onFinished：置空引用后
+                    // 回调会因 `service != round` 被丢弃，ERROR 不会被 leaveTransferView 冲掉。
+                    orphanService = pausedRound;
+                    service = null;
+                    model.showError("相机连接可能已失步，请拔插数据线");
+                    return;
+                }
                 // Pause & exit 之后从照片墙回来：恢复同一轮，Journal 已记账的文件不会重传。
                 // 换选择要先把这一轮 Cancel 掉，避免把旧清单接着跑。
                 log.line("继续已暂停的一轮（要改选择请先 Cancel）");
@@ -683,6 +705,8 @@ public final class Main extends ComponentActivity {
             log.line("已有一轮在跑，先等它结束或取消");
             return;
         }
+        // 放弃过卡死轮次时，旧 worker 可能仍占着同一个 MtpDevice：不放行新导入（三审 B-3）。
+        if (orphanWorkerStillRunning()) return;
         MtpSession s = session;
         if (s == null || s.device() == null) {
             // 扫描成功后会话会保持常开；走到这里说明会话已经被取消/断开。
@@ -694,16 +718,7 @@ public final class Main extends ComponentActivity {
         // 会话探活（二审 B-1）：上一轮取消中断 importFile 后，MTP 会话可能失步。
         // 复用前先用一次**只读** getObjectInfo 试一下；失败立刻落现有 ERROR 路径，
         // 不要把失步会话带进新一轮（否则要整轮全失败才发现）。只读：不删、不改设置、不触发快门。
-        int probeHandle = plan.items().get(0).handle;
-        boolean sessionAlive;
-        try {
-            sessionAlive = s.device().getObjectInfo(probeHandle) != null;
-        } catch (Throwable t) {
-            log.line("会话探活异常：" + t);
-            sessionAlive = false;
-        }
-        if (!sessionAlive) {
-            log.line("会话探活失败：getObjectInfo(" + probeHandle + ") 无返回");
+        if (!probeSession(plan.items().get(0).handle, "新一轮导入前探活")) {
             model.showError("相机连接可能已失步，请拔插数据线");
             return;
         }
@@ -765,6 +780,14 @@ public final class Main extends ComponentActivity {
                         model.leaveTransferView();
                         return;
                     }
+                    if (model.getTransferViewClosed()) {
+                        // 三审顺带：`Pause & exit`（或顶部返回）后用户已回到照片墙；若暂停恰好落在
+                        // 最后一个文件，worker 会在文件边界正常结束。此时 DONE 会把界面从照片墙
+                        // 拽回传输页，与 §1.3「关视图后任务继续、不抢回界面」相冲突。
+                        log.line("本轮结束但传输视图已关闭：保持当前视图（不跳 DONE）");
+                        model.backToCatalog();
+                        return;
+                    }
                     if (ok == 0 && skipped == 0 && failed > 0) {
                         // 一个都没成：落 ERROR + `Connect camera`（不是 Retry，§1.2 / U-52）。
                         model.showError("导入失败，请拔插数据线");
@@ -794,15 +817,64 @@ public final class Main extends ComponentActivity {
      * 只在「已请求取消 + 仍 isRunning + 超过宽限期」时成立；正常取消窗口（毫秒级）不会触发，
      * 避免把还在收尾的轮次误判成失步。
      *
-     * 放弃只摘掉 `service` 引用，**不在这里 close 会话**：没能被打断的原生调用可能还占着
-     * `MtpDevice`，UI 线程 close 是未验证的原生竞态（与扫描取消同一条口径）。下一轮导入会被
-     * 只读探活挡回 `ERROR`；物理拔插后由扫描线程收尾并重建会话。
+     * 放弃只摘掉 `service` 引用到 {@link #orphanService}，**不在这里 close 会话**：没能被打断
+     * 的原生调用可能还占着 `MtpDevice`，UI 线程 close 是未验证的原生竞态（与扫描取消同一条口径）。
+     * 旧 worker 退出前 {@link #orphanWorkerStillRunning()} 会拦住扫描与新导入；退出后由扫描线程
+     * 收尾并重建会话。旧轮迟到的 `finally` 用 {@link ImportService#abandon()} 跳过日志保存，
+     * 不会冲掉新一轮的 `import-journal.txt`（三审 B-3）。
      */
     private boolean abandonStuckService() {
         if (service == null || !service.isRunning() || !service.isCancelStuck()) return false;
         log.line("本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）");
+        final ImportService dead = service;
+        // 旧轮 finally 的整文件覆写不得冲掉新一轮的记录（三审 B-3）。
+        dead.abandon();
+        // 保留引用：worker 未退出前不放行扫描/新导入，避免 session.close() 撞上原生调用。
+        orphanService = dead;
         service = null;
         return true;
+    }
+
+    /**
+     * 被放弃的上一轮 worker 是否还活着（三审 B-3）。
+     *
+     * `abandonStuckService()` 只摘 `service` 引用，旧 worker 可能仍阻塞在原生 `importFile`
+     * 上、占着同一个 `MtpDevice`。此时若 `scanWorker` 去 `session.close()` 并重建会话，正好
+     * 撞上那条原生调用（与「不在 UI 线程 close」同一理由）。拔线后旧调用会失败返回、worker
+     * 退出，这里自动放行；未拔线前一律保持 `ERROR`。
+     */
+    private boolean orphanWorkerStillRunning() {
+        final ImportService orphan = orphanService;
+        if (orphan == null) return false;
+        if (!orphan.isRunning()) {
+            orphanService = null;
+            return false;
+        }
+        log.line("上一轮传输线程仍未退出：暂不重建会话（请拔插数据线后重试）");
+        model.showError("相机连接可能已失步，请拔插数据线");
+        return true;
+    }
+
+    /**
+     * 复用会话前的只读探活（二审 B-1 / 三审 B-1）。
+     *
+     * `getObjectInfo(handle)` 是 GetObject，只读：不删除、不改设置、不触发快门。
+     * 返回 false 表示会话可能已失步，调用方必须落现有 `ERROR` 路径，不能带着失步会话继续传。
+     */
+    private boolean probeSession(int handle, String when) {
+        final MtpSession s = session;
+        if (s == null || s.device() == null) {
+            log.line(when + "：没有可用的 MTP 会话");
+            return false;
+        }
+        try {
+            final boolean alive = s.device().getObjectInfo(handle) != null;
+            if (!alive) log.line(when + "：getObjectInfo(" + handle + ") 无返回");
+            return alive;
+        } catch (Throwable t) {
+            log.line(when + "：会话探活异常：" + t);
+            return false;
+        }
     }
 
     /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */

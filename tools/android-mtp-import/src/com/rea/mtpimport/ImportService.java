@@ -16,9 +16,11 @@ import java.util.List;
  *
  * - **暂停落在文件边界**：正在传的那个文件会传完并落盘，然后停在下一个文件之前；
  *   已传完的文件立刻进 {@link Journal}，下次按 `relPath + size` 跳过。暂停本身不产生 `.part`。
- * - **取消是真的中断**：`cancel()` 把 {@link CancelToken} 置位，传输层随即关闭正在写的 fd，
- *   阻塞中的 `importFile` 会提前返回；返回 {@link ResumableTransfer.Kind#CANCELLED} 的文件
- *   不记完成、不计失败，本次半成品由传输层删掉（失败残留仍归 #52）。
+ * - **取消是真的中断**：`cancel()` 把 {@link CancelToken} 置位，传输层随即关闭正在写的 fd。
+ *   本次机型实测（2026-11-06，ILCE-7C 2.00 / Android 15 / USB MTP）原生写约 0.6 s 返回；
+ *   **能否打断原生调用没有跨机型的保证**，打不断时由 {@link #isCancelStuck()} 给界面出路。
+ *   返回 {@link ResumableTransfer.Kind#CANCELLED} 的文件不记完成、不计失败，
+ *   本次半成品由传输层删掉（失败残留仍归 #52）。
  * - **恢复只恢复本轮**：`resume()` 只清暂停标志，让活着的 worker 从下一个文件继续；
  *   `resumeFrom > 0` 仍被传输层拒绝，不做假续传。
  */
@@ -42,6 +44,15 @@ public final class ImportService {
 
     /** {@link #cancel()} 被调用的时刻；0 表示本轮还没请求过取消。 */
     private volatile long cancelRequestedAtNanos;
+
+    /**
+     * 本轮是否已被调用方放弃（三审 B-3）。
+     *
+     * 放弃发生在「取消打不断原生调用、worker 迟迟不退」时：调用方已经不再把这轮的进度当数，
+     * 而这一轮迟到的 `finally` 仍会整文件覆写 `import-journal.txt`。若此时新一轮已经在跑，
+     * 旧轮会把新轮刚记下的记录冲掉（下次重传，Journal 与磁盘自相矛盾）。置位后跳过保存。
+     */
+    private volatile boolean abandoned;
 
     /**
      * 本轮取消令牌。每次 {@link #start} 重建，取消时立即执行传输层注册的中断动作
@@ -105,10 +116,21 @@ public final class ImportService {
         paused = false;
         // 记录取消时刻：worker 迟迟不退出时，Main 用它判定「取消卡住」并给 UI 出路。
         cancelRequestedAtNanos = System.nanoTime();
-        // 先置位再触发令牌：传输层的中断动作（关 pfd）在调用者线程上同步执行，
-        // 阻塞在 importFile 里的 worker 随后返回，不会等整个文件传完。
+        // 先置位再触发令牌：传输层的中断动作（关 pfd）在调用者线程上同步执行。
+        // 本次机型实测 worker 约 0.6 s 返回（不会等整个文件传完）；打不断的情况没有保证，
+        // 由 isCancelStuck() + Main 的放弃/探活给界面出路。
         cancelToken.cancel();
         log.line("已请求取消（正在传的文件会被中断）");
+    }
+
+    /**
+     * 标记本轮已被调用方放弃：worker 之后退出时不再覆写续传日志（三审 B-3）。
+     *
+     * 只由调用方在「已放弃该轮」时调用；放弃前已完成文件的记录已在旧日志里，
+     * 这里不保存只会让下次重传，不会产生假完成。
+     */
+    public void abandon() {
+        abandoned = true;
     }
 
     public void start(final ImportPlan plan, final ImportListener listener) {
@@ -122,6 +144,7 @@ public final class ImportService {
         }
         paused = false;
         cancelled = false;
+        abandoned = false;
         cancelRequestedAtNanos = 0L;
         cancelToken = new CancelToken();
         worker = new Thread(() -> run(plan, listener), "import-worker");
@@ -207,7 +230,12 @@ public final class ImportService {
             l.onError("编排层异常", t);
             stop = "异常中断：" + t;
         } finally {
-            saveJournal(journal);
+            // 三审 B-3：被放弃的轮次不写日志，避免迟到的整文件覆写冲掉新一轮的记录。
+            if (abandoned) {
+                log.line("本轮已被放弃：跳过续传日志保存（不覆盖磁盘上的现有记录）");
+            } else {
+                saveJournal(journal);
+            }
             worker = null;
         }
 

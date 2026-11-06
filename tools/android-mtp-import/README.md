@@ -26,7 +26,7 @@
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
 | **暂停（文件边界）/ 取消（真正中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 中断并重传） |
-| **取消后复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1；探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
+| **取消后 / 暂停恢复前复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1 / 三审 B-1：取消后与 `Pause & exit` 恢复前都探活；卡死轮次放弃后拦住扫描/新导入且不覆写 journal。探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
 | **断点续传（`getPartialObject` offset 续读）** | ❌ 未实现（先探针验证，PC 分节；`resumeFrom > 0` 拒绝） |
 
@@ -105,7 +105,7 @@ PA 用的是 `MtpDevice.importFile()`（探针已在 ILCE-7C 上验证过：3 �
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；235 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；236 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -211,6 +211,9 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [x] `Pause & exit` 回照片墙后，已完成的文件不再重传，再点 `Import all N` 会继续被暂停的那轮；
       期间不得被迟到的进度回调拽回 `IMPORTING`（#48 / PB）
       —— 2026-11-06 实测：`Pause & exit` 后回照片墙，再点 `Import` 继续同一轮，未回跳 `IMPORTING`
+      —— 2026-11-06 三审 B-1 复核：`Pause & exit` 后停 **90 秒**再点 `Import`，恢复前只读探活通过
+      （日志无「恢复前探活失败」），`继续已暂停的一轮`，剩余 2 张继续落盘，`完成 3 / 跳过 0 / 失败 0`
+      （ILCE-7C 2.00 / MI 9 / Android 15 API 35 / USB MTP）
 - [x] 导入中点 `Cancel`：正在传的那个 `importFile` 被真正打断（不是等整张传完），
       回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）
       —— 2026-11-06 实测：`DSC02707.ARW` 取消后 `已取消（未传满，半成品已删除）`、
@@ -219,8 +222,14 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
       下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）
       —— 2026-11-06 实测：取消后立即再导入，探活通过、无 `ERROR`，继续落盘 7 张
 - [ ] 若 `pfd.close()` 打不断原生调用（`MtpTransfer` 未验项）：取消宽限 3 秒后必须判定「卡死」，
-      点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`），且 `Connect camera` 不再被旧 worker 拦住
-      —— **未验**（2026-11-06 实测 pfd 关闭约 0.6 s 就打断，没造出卡死条件；逻辑由 SelfTest 覆盖）
+      点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`）；旧 worker 未退出前
+      `Connect camera` / 新导入都必须保持 `ERROR`（不得 `session.close()` 撞上原生调用），
+      且旧轮迟到 `finally` 不得覆写 `import-journal.txt`
+      —— **未验**（2026-11-06 实测 pfd 关闭约 0.6 s 就打断，没造出卡死条件；放弃逻辑由 SelfTest 覆盖）
+- [ ] 暂停恰好落在最后一个文件、且用户已 `Pause & exit`：worker 在文件边界正常结束，
+      `onFinished(cancelled=false)` 不得把停在照片墙的界面拽回 `DONE` —— **未验**（时窗太短，三次尝试都没卡进这个边界；逻辑由 `model.getTransferViewClosed()` 分支覆盖）
+- [ ] 3 秒宽限是按「与扫描重试 3 秒口径一致」取的，不是实测推导：**慢取消**（原生调用超过 3 秒才返回）
+      会被误判成「取消卡死」，后果是落 `ERROR` 并要求拔插数据线（正常约 0.6 s，未造出慢取消）——**未验**
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
@@ -229,7 +238,7 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [ ] `onDestroy` 与扫描线程并发关会话的原生竞态：`onDestroy`（`Main.java:361`）仍在 UI 线程
       `session.close()` 且不 `cancel` `scanRun`，可能与扫描线程正在跑的 `getStorageIds` /
       `getObjectInfo` 相撞（`main` 既有行为，本轮不改）——**未验**
-- [ ] `awaitPermission`（`Main.java:600-609`）「判取消」与 `requestPermission` 非原子，
+- [ ] `Main.awaitPermission` 的「判取消」与 `Main.requestPermission` 非原子，
       取消后仍可能弹一次系统权限框——**未验**
 - [ ] 连续两次申请 USB 权限并在两次系统弹窗都点**拒绝**：第二次必须等回调/超时后落到 `ERROR`
       并提示 `未获得 USB 权限`，**不得**出现 `openDevice() 返回 null`
