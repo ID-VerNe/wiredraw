@@ -59,6 +59,67 @@ fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 相机未连接：同一台相机的线稿上压一道斜线（图形变化，不靠颜色）。
+ * 断口留在中间，避免斜线把镜头完全盖住。
+ */
+@Composable
+fun CameraOffGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val s = strokePx()
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.10f, h * 0.30f),
+            size = Size(w * 0.80f, h * 0.48f),
+            cornerRadius = CornerRadius(w * 0.08f),
+            style = Stroke(s)
+        )
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.34f, h * 0.22f),
+            size = Size(w * 0.28f, h * 0.12f),
+            cornerRadius = CornerRadius(w * 0.03f),
+            style = Stroke(s)
+        )
+        drawCircle(
+            color = tint,
+            radius = w * 0.15f,
+            center = Offset(w * 0.50f, h * 0.54f),
+            style = Stroke(s)
+        )
+        drawLine(tint, Offset(w * 0.14f, h * 0.14f), Offset(w * 0.42f, h * 0.42f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.58f, h * 0.58f), Offset(w * 0.86f, h * 0.86f), s, StrokeCap.Round)
+    }
+}
+
+/**
+ * `Connect camera` 的动作图标：USB 插头（机身 + 两根插针 + 线尾），
+ * 不用循环箭头（§4.5 按钮词表：重连语义不能表达成「再试一次」，见 issue #44 决策）。
+ */
+@Composable
+fun PlugGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val s = strokePx()
+        // 插头机身
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.24f, h * 0.34f),
+            size = Size(w * 0.34f, h * 0.32f),
+            cornerRadius = CornerRadius(w * 0.06f),
+            style = Stroke(s)
+        )
+        // 两根插针
+        drawLine(tint, Offset(w * 0.58f, h * 0.44f), Offset(w * 0.76f, h * 0.44f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.58f, h * 0.56f), Offset(w * 0.76f, h * 0.56f), s, StrokeCap.Round)
+        // 线尾
+        drawLine(tint, Offset(w * 0.10f, h * 0.50f), Offset(w * 0.24f, h * 0.50f), s, StrokeCap.Round)
+    }
+}
+
 @Composable
 fun BackGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size)) {

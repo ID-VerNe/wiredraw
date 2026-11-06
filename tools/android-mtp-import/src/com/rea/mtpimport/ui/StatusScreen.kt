@@ -35,22 +35,34 @@ fun StatusScreen(model: AppModel) {
 
     when (model.state) {
         UiState.State.COLD -> StatusLayout(
+            model = model,
             icon = { CameraGlyph(56.dp, UiColors.ink) },
             title = "No camera",
             actions = {
-                PrimaryButton("Connect camera", onClick = { cb?.onConnectCamera() })
+                // §2.1：主按钮水平 16 dp、底部 `inset + 8 dp`（inset 已由 `systemBarsPadding` 吃掉）。
+                PrimaryButton(
+                    "Connect camera",
+                    onClick = { cb?.onConnectCamera() },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
         )
 
         UiState.State.PERMISSION_PENDING -> StatusLayout(
+            model = model,
             icon = { CameraGlyph(56.dp, UiColors.ink) },
             actions = {
                 // 主文案与唯一动作都是 `Allow`（T-PERMISSION）。
-                PrimaryButton("Allow", onClick = { cb?.onAllow() })
+                PrimaryButton(
+                    "Allow",
+                    onClick = { cb?.onAllow() },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
         )
 
         UiState.State.SCANNING -> StatusLayout(
+            model = model,
             icon = {},
             actions = {
                 SecondaryButton("Cancel", onClick = { cb?.onCancel() })
@@ -74,19 +86,21 @@ fun StatusScreen(model: AppModel) {
         )
 
         UiState.State.EMPTY_CATALOG -> StatusLayout(
+            model = model,
             icon = { CameraGlyph(56.dp, UiColors.ink) },
             title = "No photos",
             actions = {
                 // V-09：`EMPTY_CATALOG` 没有实心主按钮，`Connect camera` 以图标按钮呈现（次按钮语义）。
                 Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center) {
                     IconAction(desc = "Connect camera", onClick = { cb?.onConnectCamera() }) {
-                        CameraGlyph(24.dp, UiColors.ink)
+                        PlugGlyph(24.dp, UiColors.ink)
                     }
                 }
             }
         )
 
         UiState.State.UNAVAILABLE -> StatusLayout(
+            model = model,
             icon = { BlockGlyph(56.dp, UiColors.outline) },
             title = "Not available",
             actions = {
@@ -97,6 +111,7 @@ fun StatusScreen(model: AppModel) {
         )
 
         UiState.State.DONE -> StatusLayout(
+            model = model,
             icon = { CheckGlyph(56.dp, UiColors.ink) },
             actions = {
                 Row(
@@ -123,6 +138,7 @@ fun StatusScreen(model: AppModel) {
         )
 
         UiState.State.ERROR -> StatusLayout(
+            model = model,
             icon = { WarningGlyph(56.dp, UiColors.ink) },
             actions = {
                 Row(
@@ -132,7 +148,7 @@ fun StatusScreen(model: AppModel) {
                 ) {
                     // V-09 / T-ERROR：错误态没有实心主按钮，`Connect camera` 是次按钮图标。
                     IconAction(desc = "Connect camera", onClick = { cb?.onConnectCamera() }) {
-                        CameraGlyph(24.dp, UiColors.ink)
+                        PlugGlyph(24.dp, UiColors.ink)
                     }
                     Spacer(Modifier.width(8.dp))
                     SecondaryButton("Details", onClick = { model.detailsOpen = true })
@@ -146,21 +162,27 @@ fun StatusScreen(model: AppModel) {
         )
 
         else -> StatusLayout(
+            model = model,
             icon = { CameraGlyph(56.dp, UiColors.ink) },
             title = "No camera",
             actions = {
-                PrimaryButton("Connect camera", onClick = { cb?.onConnectCamera() })
+                PrimaryButton(
+                    "Connect camera",
+                    onClick = { cb?.onConnectCamera() },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
         )
     }
 }
 
 /**
- * 状态屏骨架：图标 + 主文案在内容区居中，动作固定在底部（L-04）。
+ * 状态屏骨架：顶栏常驻（#44 决策 2），图标 + 主文案在内容区居中，动作固定在底部（L-04）。
  * 扫描态要走自己的居中内容，所以留 `customCenter`。
  */
 @Composable
 private fun StatusLayout(
+    model: AppModel,
     icon: @Composable () -> Unit,
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit = {},
@@ -168,6 +190,7 @@ private fun StatusLayout(
     customCenter: @Composable ColumnScope.() -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
+        StatusTopBar(model)
         Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 icon()

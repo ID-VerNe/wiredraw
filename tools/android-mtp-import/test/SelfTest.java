@@ -1064,11 +1064,9 @@ public final class SelfTest {
                 UiState.showsLibrary(UiState.State.CATALOG_READY)
                         && !UiState.showsLibrary(UiState.State.SCANNING),
                 "showsLibrary 判定不符");
-        check("扫描态不渲染顶栏（U-43：1526 只作分母）",
-                !UiState.hasTopBar(UiState.State.SCANNING)
-                        && !UiState.hasTopBar(UiState.State.DONE)
-                        && UiState.hasTopBar(UiState.State.CATALOG_READY),
-                "hasTopBar 判定不符");
+        check("顶栏在全部 10 态常驻（#44 决策 2）",
+                java.util.Arrays.stream(UiState.State.values()).allMatch(UiState::hasTopBar),
+                "任何状态都不得去掉顶栏；内容按 UI-SPEC §2.2 的方案 A 逐态表");
     }
 
     // ---------------- 系统返回键路由（BackNav，issue #48） ----------------
@@ -1277,7 +1275,7 @@ public final class SelfTest {
                 "实际 " + rawBytes);
 
         PhotoWall wall = PhotoWall.of(demo);
-        check("徽标 511 与 Import all 511 同分母",
+        check("假树 511 与 Import all 511 同分母",
                 wall.photoCount() == 511 && "Import all 511".equals(UiText.importCta(0, wall.photoCount())),
                 "实际 " + wall.photoCount());
         check("假树 12 个日期组", wall.groups().size() == 12, "实际 " + wall.groups().size());

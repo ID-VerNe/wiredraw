@@ -46,62 +46,19 @@ import com.rea.mtpimport.UiText
 /**
  * 照片墙（`CATALOG_READY`）。
  *
- * 顶栏：相机图标 + 设备短名 + 徽标（ARW 张数 = `Import all N` 的 N，U-53）+ 过滤入口。
+ * 顶栏：相机线稿 + 设备短名 + 过滤入口（方案 A，UI-SPEC §2.2；不出现计数徽标）。
  * 内容：按日期分组的缩略图网格；缩略图未落地，按 §0.7 / V-19 用**同尺寸灰块 + 文件名 12 sp**。
  * 底部：单一主 CTA，48 dp，文案唯一出处是 §4.5 `T-CATALOG`。
  */
 @Composable
 fun LibraryScreen(model: AppModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        TopBar(model)
+        // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 方案 A。
+        LibraryTopBar(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PhotoGrid(model)
         }
         ImportBar(model)
-    }
-}
-
-@Composable
-private fun TopBar(model: AppModel) {
-    Row(
-        // 顶栏容器的语义标签固定为 `topBar`、高度 56 dp（§2 顶栏定义 (a)，U-01 / U-02 靠它定位）。
-        // `testTagsAsResourceId(true)` 在 `ImportApp` 的根节点上，dump 里它以 resource-id 出现。
-        Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .testTag("topBar")
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        CameraGlyph(20.dp, UiColors.ink)
-        Spacer(Modifier.width(8.dp))
-        // 设备短名只作标识（§1.1）；长按它打开详情抽屉（L-05 的入口之一）。
-        // 热区挂在 ≥48×48 dp 的容器上（A-01 / U-09），外观是正文 14 sp（V-01 / U-09）；
-        // `onLongClick` 语义让 dump 能读到 `long-clickable`，TalkBack 也有动作可走（A-03）。
-        Box(
-            Modifier
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { model.detailsOpen = true })
-                }
-                .clearAndSetSemantics {
-                    contentDescription = model.deviceName
-                    role = Role.Button
-                    onLongClick("Details") {
-                        model.detailsOpen = true
-                        true
-                    }
-                },
-            contentAlignment = Alignment.CenterStart
-        ) {
-            BasicText(model.deviceName, style = TextBody)
-        }
-        Spacer(Modifier.weight(1f))
-        Pill(model.photoCount.toString())
-        Spacer(Modifier.width(4.dp))
-        IconAction(desc = "Filter", onClick = { model.filterOpen = true }) {
-            FilterGlyph(20.dp, UiColors.outline)
-        }
     }
 }
 

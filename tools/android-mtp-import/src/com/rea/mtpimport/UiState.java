@@ -85,11 +85,10 @@ public final class UiState {
     }
 
     /**
-     * 是否渲染顶栏。只有照片墙需要它（设备短名 + 徽标 + 过滤）；
-     * 其余状态的主表达是「图标 + 一行字 + 一个动作」，多一条顶栏只会多一个抢焦点的控件。
-     * 扫描态尤其不能有数字徽标（U-43：`1526` 只作进度分母）。
+     * 顶栏在全部 10 个状态下常驻（issue #44 决策 2），内容按 UI-SPEC §2.2 的方案 A
+     * 逐态表；`photo` / `transfer` 页复用同一个 `topBar` 容器。
      */
     public static boolean hasTopBar(State s) {
-        return s == State.CATALOG_READY;
+        return true;
     }
 }
