@@ -28,15 +28,15 @@
 | 下载与完整性（字节数 + MD5 + TIFF 文件头） | 通过 2026-11-04（[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06（[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)、`MtpTransfer.java:20-24`） | 未验证 |
 | 插线自动拉起（`ACTION_USB_DEVICE_ATTACHED` → 自动授权 → 扫描） | 通过 2026-11-05 18:48（[导片工具 README「真机待验清单」第 1 项](../tools/android-mtp-import/README.md)） | 未验证 | 未验证 |
 | 冷启动检测（`autoScanOnLaunch`）+ 同一次插拔去重 | 通过 2026-11-05 18:48（同上第 2 项：广播路径「→ 开始扫描」，attach 路径「→ 扫描已在进行中」，单次会话 1526 对象） | 未验证 | 未验证 |
-| 首次系统授权（勾一次「一律打开」，之后静默） | 通过 2026-11-05 18:48（同上第 1 项：`permissions_manager` 只有既有 `uids`，日志无「尚无 USB 权限，发起申请」） | 未验证 | 未验证 |
+| 首次系统授权（勾一次「一律打开」，之后静默） | 通过 2026-11-05 18:48（[导片工具 README「真机待验清单」第 1 项](../tools/android-mtp-import/README.md)：`permissions_manager` 只有既有 `uids`，日志无「尚无 USB 权限，发起申请」；「首次必须勾一次」这一系统约束见 [UI-SPEC §0.11 第 7 行](../tools/android-mtp-import/UI-SPEC.md)） | 未验证 | 未验证 |
 | 吞吐 | 通过 2026-11-04：21.43 MB/s（73.29 MB / 3.42 s，[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06：22.86 MB/s（`getPartialObject`，`importFile` 基本同速；[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)、`MtpTransfer.java:20-24`） | 未验证 |
 
 ## 二、Wi‑Fi PTP/IP 路线
 
 | 能力 | E3 | 其他环境 |
 |---|---|---|
-| 发现与配对握手（SSDP + HTTP 64321 → `Init`） | 通过 2026-11-04（[会话分析 §2.1–§2.3](research/a7c-ptpip-session.md)） | 未验证 |
-| `OpenSession`（事件通道先建） | 通过 2026-11-04（同上） | 未验证 |
+| 发现与配对握手（SSDP + HTTP 64321 → `Init`） | 通过 2026-11-04（顺序见[会话分析 §2.1–§2.3](research/a7c-ptpip-session.md)；**前提**是用当初配对成功的 GUID，随机 UUID 会 `Init_Fail reason=1`，见[会话分析 §5.1 第 1 条](research/a7c-ptpip-session.md)） | 未验证 |
+| `OpenSession`（事件通道先建） | 通过 2026-11-04（[会话分析 §5.1 第 2 条](research/a7c-ptpip-session.md)：少这步一个字节都不回；顺序实测见[主报告 §11.2](research/a7c-usb-raw-2026-11.md)） | 未验证 |
 | 存储枚举（`GetStorageIDs` / `GetNumObjects` / `GetObjectHandles` / `GetStorageInfo`） | 失败 `AccessDenied`（2026-11-04，[会话分析 §5.2 枚举失败矩阵](research/a7c-ptpip-session.md)） | 未验证 |
 | 取最新一张（`GetObjectInfo(0xFFFFC001)` + `GetPartialObject`） | 通过 2026-11-04（[会话分析 §2.5、§5.3.1](research/a7c-ptpip-session.md)） | 未验证 |
 | 取历史对象（任意旧句柄） | 失败 `AccessDenied`（同上：枚举被拒，拿不到历史句柄） | 未验证 |
