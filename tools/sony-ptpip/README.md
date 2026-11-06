@@ -63,7 +63,7 @@ MENU → 网络 → PC Remote Function
 
 ```bash
 python parse_ptpip.py sony_ptp.pcap          # 事务流水
-python parse_ptpip.py sony_ptp.pcap --hex    # 附带数据阶段前 16 字节
+python parse_ptpip.py sony_ptp.pcap --data   # 附带数据阶段摘要（ObjectInfo 等）
 ```
 
 输出形如：
@@ -101,3 +101,28 @@ USB 上跑的是裸 PTP（无 PTP/IP 头），对比两边的 opcode 序列即�
 - `Lja_PTP_IP.dll` 里的 `enum sony_lajiao::IDeviceConnection` 是适配器接口，
   导出的 `EnumCameraObjects` / `Connect` / `GetCameraObjectInfofromDetector`
   可以用来确认 IED 走的是哪条 transport（想看的话用 API Monitor 挂这三个符号）。
+
+## 6. `--replay` 的握手 payload 从哪来
+
+`probe.py --replay <文件>` 重放 IED 首次配对时的 `Init_Command_Request` 数据段。
+这段数据里含配对凭据，**不随仓库分发**，仓库里也没有默认文件——不传路径时探针会打印
+用法并以退出码 2 结束，不会去读一个不存在的文件。
+
+生成自己的本地副本：
+
+1. 用本机抓到的 pcap 取出 `Init_Command_Request`（C→H）的**完整 body**：
+
+   ```powershell
+   python tools/sony-ptpip/parse_ptpip.py <你的抓包路径> --stream <N> --dump-init
+   ```
+
+   仓库里没有 `captures/wlan.pcapng` 这类抓包文件（未入库），路径要换成你自己抓到的那个。
+   输出形如 `Init_Command_Request  body=<N> B  hex=<连续十六进制>`，`hex=` 后面那一整串
+   就是重放要的完整 body（典型 44 字节 = 16 字节 GUID 文本 + UTF-16LE 名称 + u32 版本）。
+   `--stream <N>` 先用不带该参数的调用列出流编号。
+2. 把 `hex=` 后面的字符串原样（无空格、无 `0x` 前缀）另存为本地文件，
+   例如 `captures/init_ied.txt`——`captures/` 已在 `.gitignore` 里，不会入库。
+3. 运行 `python probe.py <相机IP> --replay captures/init_ied.txt`。
+
+不传 `--replay` 时探针用内置的配对凭据按新报文构造握手；若相机已被 IED 的
+Remote / Viewer 进程占着，会被 `Init_Fail` 拒绝。

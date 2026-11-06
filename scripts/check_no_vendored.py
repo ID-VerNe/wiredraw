@@ -7,7 +7,8 @@
 这条门禁同时盯三件事：
 1. 15 个 vendored 目录名一个都不在 `git ls-files` 里；
 2. 每个名字都在 `.gitignore` 里有一条规则（防止有人删掉忽略项）；
-3. 没有被跟踪的大文件（> 5 MB）—— GitHub 单文件上限 100 MB，142 MB 的抓包就是这么挡在外面的。
+3. 没有被跟踪的大文件（> 5 MB）—— GitHub 单文件上限 100 MB，原始抓包就是靠这条挡在外面的
+   （实测体积见 docs/archive/INDEX.md）。
 """
 from __future__ import annotations
 
