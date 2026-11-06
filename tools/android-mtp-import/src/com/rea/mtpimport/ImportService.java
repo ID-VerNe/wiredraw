@@ -25,7 +25,8 @@ import java.util.List;
  * - **真续传（PC / issue #50）**：上一轮失败/断线残留的 `.part` 会按它的实际长度
  *   （{@link Journal#resumeFrom}）作为 `resumeFrom` 传给传输层，由传输层用
  *   `getPartialObject` 从该偏移续读；成功后才 rename 并记完成，失败继续保留 `.part`。
- *   取消仍删本次 `.part`（用户取消 = 不续传），与 PB 口径一致。
+ *   半成品名带 `size`（`<relPath 压平>.<size>.part`），与跳过判定同口径，异 size 的旧残留
+ *   不会把旧前缀续进同路径的新对象。取消会删除整个半成品（用户取消 = 从 0 重来），与 PB 一致。
  */
 public final class ImportService {
 
@@ -197,7 +198,7 @@ public final class ImportService {
                 // PC（issue #50）：续传起点以磁盘上的 `.part` 实际长度为准。Journal 只在成功时
                 // 写 `done = size`，失败轮次从不记部分进度；拿 journal 的 doneBytes 会让
                 // resumeFrom 恒为 0，真续传永远不生效。
-                String part = journal.partPath(outDir.getAbsolutePath(), item.relPath);
+                String part = journal.partPath(outDir.getAbsolutePath(), item.relPath, item.size);
                 File partFile = new File(part);
                 long resumeFrom = Journal.resumeFrom(
                         partFile.isFile() ? partFile.length() : 0L, item.size);

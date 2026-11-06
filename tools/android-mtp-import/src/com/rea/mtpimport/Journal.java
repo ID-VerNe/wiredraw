@@ -103,16 +103,21 @@ public final class Journal {
     }
 
     /**
-     * 半成品文件路径：同一目录下按 `relPath` 稳定命名，避免与最终文件名抢位。
+     * 半成品文件路径：`<relPath 压平>.<size>.part`，与完成判定 {@link #isComplete(String, long)}
+     * 的 `relPath + size` 口径完全一致。
      *
-     * 为什么不再用句柄命名（PC / issue #50）：MTP handle 不跨会话稳定，重连后同一个句柄
-     * 可能指向另一个文件；按句柄命名的 `.part` 在续传时会接错文件。`relPath` 才是跨会话
-     * 稳定的身份（与完成判定同源）。
+     * 为什么不用句柄命名（PC / issue #50）：MTP handle 不跨会话稳定，重连后同一个句柄
+     * 可能指向另一个文件；按句柄命名的 `.part` 在续传时会接错文件。
+     *
+     * 为什么必须带 `size`（B-1）：只按 `relPath` 命名时，换卡 / 格式化后编号复用 / 卡上文件被
+     * 替换都会让「同路径、不同内容」的新对象认领旧半成品。旧前缀长度 `L < 新 size S` 时会被
+     * 当成自己的前缀续写，长度恰好 `== S` 就 rename 并记完成，字节数对账通过但内容是两段拼接。
+     * size 进文件名后，异 size 的残留不会被本对象看见（旧文件清理由 #52 负责）。
      */
-    public String partPath(String outDir, String relPath) {
+    public String partPath(String outDir, String relPath, long size) {
         String dir = outDir == null ? "" : outDir.replace('\\', '/');
         while (dir.endsWith("/")) dir = dir.substring(0, dir.length() - 1);
-        return dir + "/" + partName(relPath) + ".part";
+        return dir + "/" + partName(relPath) + "." + size + ".part";
     }
 
     /** 半成品文件名：路径分隔符换成下划线，跨会话稳定且不会把文件写到子目录外。 */

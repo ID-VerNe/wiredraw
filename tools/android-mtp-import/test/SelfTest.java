@@ -600,14 +600,20 @@ public final class SelfTest {
                 j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632) == 7340032
                         && j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 1) == 0,
                 "实际 " + j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632));
-        check("partPath 按 relPath 稳定命名、跨会话不变（PC / #50）",
-                j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW").replace('\\', '/')
-                        .equals("/sdcard/out/DCIM_100MSDCF_DSC02183.ARW.part"),
-                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW"));
-        check("partPath 同名文件两次生成同一个半成品名",
-                j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW")
-                        .equals(j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW")),
-                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW"));
+        check("partPath 按 relPath + size 稳定命名、跨会话不变（PC / #50）",
+                j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 24389632)
+                        .replace('\\', '/')
+                        .equals("/sdcard/out/DCIM_100MSDCF_DSC02183.ARW.24389632.part"),
+                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 24389632));
+        check("partPath 同名同大小两次生成同一个半成品名",
+                j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 24389632)
+                        .equals(j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 24389632)),
+                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 24389632));
+        check("partPath 同名不同大小 → 不同半成品名（B-1：旧前缀不能续进新对象）",
+                !j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 300)
+                        .equals(j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 301)),
+                "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 300)
+                        + " vs " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 301));
 
         check("resumeFrom：没有半成品 → 0", Journal.resumeFrom(0, 300) == 0,
                 "实际 " + Journal.resumeFrom(0, 300));
@@ -773,10 +779,10 @@ public final class SelfTest {
                 r1.lastProgress == null ? "无进度"
                         : r1.lastProgress.bytesDone() + " / " + r1.lastProgress.filesDone());
         Journal j = new Journal();
-        check("ImportService：写出的 .part 落在 outDir 且按 relPath 命名（PC / #50）",
-                new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW")).isFile()
-                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG")).isFile()
-                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/DSC02999.ARW")).isFile(),
+        check("ImportService：写出的 .part 落在 outDir 且按 relPath + size 命名（PC / #50）",
+                new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300)).isFile()
+                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG", 100)).isFile()
+                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/DSC02999.ARW", 50)).isFile(),
                 "实际 " + Arrays.toString(out.list()));
         check("ImportService：日志文件写出 import-journal.txt",
                 new File(out, "import-journal.txt").isFile(),
@@ -1067,7 +1073,7 @@ public final class SelfTest {
         // 1) 上一轮失败留下 40 字节半成品 → 本轮应从 40 续传，且半成品名按 relPath 稳定生成
         File out = Files.createTempDirectory("wiredraw-pc-resume").toFile();
         Journal j = new Journal();
-        String expectedPart = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW");
+        String expectedPart = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
         try (FileOutputStream o = new FileOutputStream(expectedPart)) {
             o.write(new byte[40]);
         }
@@ -1078,7 +1084,7 @@ public final class SelfTest {
         check("PC 续传：resumeFrom 取半成品实际长度 40（不再恒为 0）",
                 t1.resumeFroms.size() == 1 && t1.resumeFroms.get(0) == 40L,
                 "实际 " + t1.resumeFroms);
-        check("PC 续传：传给传输层的是按 relPath 命名的半成品",
+        check("PC 续传：传给传输层的是按 relPath + size 命名的半成品",
                 t1.parts.size() == 1
                         && t1.parts.get(0).replace('\\', '/').equals(expectedPart.replace('\\', '/')),
                 "实际 " + t1.parts);
@@ -1096,7 +1102,7 @@ public final class SelfTest {
 
         // 2) 半成品已满（== size）→ resumeFrom = size，由传输层直接落盘
         File fullOut = Files.createTempDirectory("wiredraw-pc-full").toFile();
-        String fullPart = j.partPath(fullOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW");
+        String fullPart = j.partPath(fullOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
         try (FileOutputStream o = new FileOutputStream(fullPart)) {
             o.write(new byte[300]);
         }
@@ -1111,7 +1117,7 @@ public final class SelfTest {
 
         // 3) 半成品比目标大（换了文件 / 写坏）→ 视为损坏，从 0 重传
         File badOut = Files.createTempDirectory("wiredraw-pc-bad").toFile();
-        String badPart = j.partPath(badOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW");
+        String badPart = j.partPath(badOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
         try (FileOutputStream o = new FileOutputStream(badPart)) {
             o.write(new byte[301]);
         }
@@ -1123,6 +1129,22 @@ public final class SelfTest {
                         && t4.resumeFroms.size() == 1 && t4.resumeFroms.get(0) == 0L,
                 "实际 " + t4.resumeFroms);
         deleteTree(badOut);
+
+        // 4) 同一 relPath、不同 size 的旧半成品（B-1）：不能被当成本对象的前缀。
+        //    旧前缀 L < 新 size S 时若不区分大小，会续写成「旧前缀 + 新尾部」且长度恰好对账通过。
+        File staleOut = Files.createTempDirectory("wiredraw-pc-stale").toFile();
+        String stalePart = j.partPath(staleOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 299);
+        try (FileOutputStream o = new FileOutputStream(stalePart)) {
+            o.write(new byte[40]);
+        }
+        RecordingTransfer t5 = new RecordingTransfer();
+        FinishRecorder r5 = new FinishRecorder();
+        new ImportService(Log.NOOP, t5, staleOut).start(plan, r5);
+        check("PC 续传：异 size 的旧半成品不被认作本对象前缀（resumeFrom 仍为 0）",
+                r5.done.await(5, TimeUnit.SECONDS)
+                        && t5.resumeFroms.size() == 1 && t5.resumeFroms.get(0) == 0L,
+                "实际 " + t5.resumeFroms);
+        deleteTree(staleOut);
     }
 
     static void deleteTree(File f) {

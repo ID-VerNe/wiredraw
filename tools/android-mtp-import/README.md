@@ -10,9 +10,10 @@
 > 当前 `importFile`：本次机型实测约 0.6 s 返回；能否打断没有跨机型保证，打不断时由
 > `isCancelStuck()` 给界面出路。
 >
-> PC（#50）用探针 #67 钉死的 `getPartialObject` 语义做真续传：失败/断线保留按 `relPath`
-> 命名的 `.part`，下一轮按它的实际长度从绝对偏移续读（1 MiB 块，永不越界），成功后才 rename
-> 并记账；取消仍删本次 `.part`。见「断点续传（PC）」与 issue #50 的 PD 分节（仍未做）。
+> PC（#50）用探针 #67 钉死的 `getPartialObject` 语义做真续传：失败/断线保留按
+> `relPath + size` 命名的 `.part`，下一轮按它的实际长度从绝对偏移续读（1 MiB 块，永不越界），
+> 成功后才 rename 并记账；取消会删除整个半成品（从 0 重来）。
+> 见「断点续传（PC）」与 issue #50 的 PD 分节（仍未做）。
 
 ## 它现在能做什么
 
@@ -93,9 +94,11 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 - `0 < resumeFrom < size` 走 `getPartialObject(handle, offset, min(1 MiB, size - offset), buf)`
   循环 append 到 `.part`，**永不请求 `offset > size`**；
 - `resumeFrom == size` 直接把半成品 rename 落盘；
-- 半成品按 `relPath` 命名（`Journal.partPath`），跨会话稳定；续传起点取自 `.part`
-  实际长度（`Journal.resumeFrom`），超过目标大小视为损坏、从 0 重传；
-- 失败 / 断线保留 `.part`，取消删除本次 `.part`（取消 = 不续传，与 PB 一致）；
+- 半成品按 `<relPath 压平>.<size>.part` 命名（`Journal.partPath`），与跳过判定的
+  `relPath + size` 同口径、跨会话稳定；同路径异 size 的旧残留不会被当成本对象的前缀
+  （旧文件清理由 #52 负责）；续传起点取自 `.part` 实际长度（`Journal.resumeFrom`），
+  超过目标大小视为损坏、从 0 重传；
+- 失败 / 断线保留 `.part`，取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）；
 - 结束时字节数必须等于相机侧 `ImportPlan.Item.size`，否则 FAILED 且保留 `.part`。
 
 PD（错误与重试、空间预检、`onDestroy` 竞态）仍未做。
@@ -112,7 +115,7 @@ PD（错误与重试、空间预检、`onDestroy` 竞态）仍未做。
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
 ```
 
-只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；250 项断言）：
+只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验；252 项断言）：
 
 ```bash
 bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest
@@ -228,7 +231,8 @@ EXIF Orientation 会归一化。**个人照片不入库，产物 gitignore**；�
 - [x] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
       下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）
       —— 2026-11-06 实测：取消后立即再导入，探活通过、无 `ERROR`，继续落盘 7 张
-- [ ] 真续传端到端（PC / issue #50）：导入中断线 / 杀进程，`files/imported/` 留下 `<relPath>.part`；
+- [ ] 真续传端到端（PC / issue #50）：导入中断线 / 杀进程，`files/imported/` 留下
+      `<relPath 压平>.<size>.part`；
       重新插线再点 `Import N`，日志必须出现「发现半成品：… 已有 N 字节，从断点续传」，
       最终字节数 == 相机侧 `size`、文件头 `49 49 2A 00`、MD5 与整文件结果一致；不得重传已落盘前缀
       —— **未验**（分块语义由 #67 探针实测，App 内编排与恢复窗口待真机）

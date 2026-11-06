@@ -16,9 +16,9 @@ package com.rea.mtpimport;
  *
  * 实现契约：
  *
- * - **跨会话身份**：MTP 的 object handle 不跨会话稳定；半成品 `.part` 按 `relPath` 命名
- *   （{@link Journal#partPath}），续传起点按磁盘实际长度（{@link Journal#resumeFrom}），
- *   不依赖 handle 的持久性。
+ * - **跨会话身份**：MTP 的 object handle 不跨会话稳定；半成品 `.part` 按 `relPath + size`
+ *   命名（{@link Journal#partPath}），续传起点按磁盘实际长度（{@link Journal#resumeFrom}），
+ *   不依赖 handle 的持久性。`size` 进文件名后，同路径异 size 的旧残留不会被误认。
  * - **从 resumeFrom 续读**：`getPartialObject(handle, resumeFrom, min(1 MiB, size - resumeFrom), buf)`
  *   循环，每块 append 到 `.part`，成功后 rename 成最终文件名。
  * - **对账**：落盘字节必须等于 `ImportPlan.Item.size`；不等就判 FAILED 并保留
@@ -64,7 +64,8 @@ public interface ResumableTransfer {
      * 传一个文件。实现方负责写 `partPath`，成功后再改名到最终路径。
      *
      * @param item       待传项（句柄、相对路径、期望大小）
-     * @param partPath   半成品落盘路径（已由 {@link Journal#partPath} 按 relPath 算好，跨会话稳定）
+     * @param partPath   半成品落盘路径（已由 {@link Journal#partPath} 按 relPath + size 算好，
+ *                   跨会话稳定）
      * @param resumeFrom 已落盘字节数（由 {@link Journal#resumeFrom} 按磁盘实际长度判定），
      *                   0 表示从头开始；等于 item.size 表示半成品已满，只需落盘
      * @param token      取消令牌；实现方必须在文件内注册中断动作（见 {@link CancelToken}）

@@ -23,8 +23,9 @@ import java.util.concurrent.atomic.AtomicReference;
  *   所以这里永不请求越界偏移，且每块长度都不超过 `size - offset`。
  * - `resumeFrom == size`：半成品已满，直接 rename 落盘，不再向相机发读请求。
  *
- * `.part` 的命名由 {@link Journal#partPath} 按 `relPath` 生成（跨会话稳定），续传起点由
- * {@link Journal#resumeFrom} 按磁盘实际长度判定；失败/断线保留 `.part`，取消删除本次 `.part`。
+ * `.part` 的命名由 {@link Journal#partPath} 按 `relPath + size` 生成（跨会话稳定，且异 size 的
+ * 旧残留不会被误认），续传起点由 {@link Journal#resumeFrom} 按磁盘实际长度判定；
+ * 失败/断线保留 `.part`，取消删除整个半成品（用户取消 = 从 0 重来）。
  *
  * PB 的取消（`importFile` 路径）：`importFile` 本身没有取消参数，唯一的手段是关掉 pfd、尝试让
  * 原生写失败。这里用 `importFile(int, ParcelFileDescriptor)`（android-31 起的公共 API），把 pfd 的
@@ -89,6 +90,10 @@ public final class MtpTransfer implements ResumableTransfer {
 
         // 续传起点以磁盘为准：调用方说的 resumeFrom 比磁盘多时（日志与文件不一致），
         // 以实际落盘长度为准；超过 size 的半成品一律判损坏、从 0 重传。
+        //
+        // 反方向（resumeFrom < onDisk）当前不可达：ImportService 就是用 part.length() 算的
+        // resumeFrom，两者恒等。若未来出现，append 模式会从文件末尾写，必须先截断到 from，
+        // 不能直接续——这里保留现状并注明，不引入当前用不到的截断逻辑。
         long onDisk = part.isFile() ? part.length() : 0L;
         long from = Journal.resumeFrom(resumeFrom, item.size);
         if (from > 0 && from > onDisk) {
@@ -133,7 +138,7 @@ public final class MtpTransfer implements ResumableTransfer {
                     closeQuietly(pfd);
                     pfd = null;
                     discardPart(part);
-                    return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+                    return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
                 }
             }
 
@@ -149,8 +154,8 @@ public final class MtpTransfer implements ResumableTransfer {
 
             if (token != null && token.isCancelled()) {
                 discardPart(part);
-                log.line("已取消：" + item.relPath + "（未传满，半成品已删除）");
-                return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+                log.line("已取消：" + item.relPath + "（未传满，整个半成品已删除）");
+                return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
             }
 
             if (!imported) {
@@ -166,7 +171,7 @@ public final class MtpTransfer implements ResumableTransfer {
             pfd = null;
             if (token != null && token.isCancelled()) {
                 discardPart(part);
-                return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+                return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
             }
             return new Result(Kind.FAILED, "传输异常：" + t);
         }
@@ -192,7 +197,7 @@ public final class MtpTransfer implements ResumableTransfer {
                     out = null;
                     ref.set(null);
                     discardPart(part);
-                    return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+                    return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
                 }
             }
 
@@ -204,8 +209,8 @@ public final class MtpTransfer implements ResumableTransfer {
                     out = null;
                     ref.set(null);
                     discardPart(part);
-                    log.line("已取消：" + item.relPath + "（续传未完成，半成品已删除）");
-                    return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+                    log.line("已取消：" + item.relPath + "（续传未完成，整个半成品已删除）");
+                    return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
                 }
                 int want = (int) Math.min((long) CHUNK, item.size - offset);
                 long n = device.getPartialObject(item.handle, offset, want, buf);
@@ -234,7 +239,7 @@ public final class MtpTransfer implements ResumableTransfer {
             ref.set(null);
             if (token != null && token.isCancelled()) {
                 discardPart(part);
-                return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
+                return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
             }
             return new Result(Kind.FAILED, "续传异常：" + t + "（半成品已保留）");
         }
@@ -262,7 +267,10 @@ public final class MtpTransfer implements ResumableTransfer {
         return Result.of(Kind.OK);
     }
 
-    /** 删掉本次取消产生的半成品；删不掉只记日志，不能让它变成「已完成」。 */
+    /**
+     * 删掉整个半成品（含上一轮已续的字节，取消 = 从 0 重来）；
+     * 删不掉只记日志，不能让它变成「已完成」。
+     */
     private void discardPart(File part) {
         if (part.exists() && !part.delete()) {
             log.line("半成品删除失败（不会记完成）：" + part);
