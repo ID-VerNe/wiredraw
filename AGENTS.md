@@ -72,7 +72,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 2 | `static` | `check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
 | 3 | `static` | `check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
 | 4 | `static` | `py_compile` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
-| 5 | `static` | `check_sensitive.py` | 敏感信息门禁：相机 GUID 及其 hex/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。首版用 --warn 只报基线（转 block 由 #110 在 #100 清洗完成后单独做）；--fix 才改写，行内豁免必须带理由 |
+| 5 | `static` | `check_sensitive.py` | 敏感信息门禁：相机 GUID 及其 hex/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。基线已由 #100 清洗到 0 命中，故直接阻断；需要只报不拦时手动加 --warn，--fix 才改写，行内豁免必须带理由；转 block 后若要放行公开示例地址或调试口令，须先建 allowlist（#110 承接） |
 
 共 5 个 CI 门禁，分 1 个分片（static 5）；manual 2、support 1 见 `scripts/gates.json`。
 <!-- gates:ci:end -->

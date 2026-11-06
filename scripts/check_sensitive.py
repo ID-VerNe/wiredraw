@@ -5,7 +5,7 @@
 
 - Apache Magpie：确定性占位符（同值同符、可重复执行）、豁免必须显式带理由；
 - gitleaks：集中式规则表 + allowlist、默认只读报告、`--redact` 式打码预览；
-- detect-secrets：行内 allowlist、只盯「新增」的思路（首版用 `--warn` 输出基线）；
+- detect-secrets：行内 allowlist、只盯「新增」的思路（首版先用 `--warn` 输出基线）；
 - ggshield / gitleaks：挂在 pre-push；本仓库只走 `scripts/gates.json` 的 static 分片，
   `.githooks/pre-push` 不再写第二份命令。
 
@@ -13,14 +13,13 @@
 
 已知边界（不要指望它兜住这些）：
 - **不扫 commit message、PR 正文与 git 历史**。本门禁的起因就是 PR 正文里贴了换编码的值；
-  那一条由 issue #125 在 `support` 档补「读 PR 正文与评论」的门禁，不在本脚本范围
-  （#110 只负责把 `--warn` 转 `--check`）。
+  那一条由 issue #125 在 `support` 档补「读 PR 正文与评论」的门禁，不在本脚本范围。
 - **跨行切断的 token 不保证命中**：逐行扫描，一段值被换行拆开就看不到完整形态。
 - `--fix` 只改工作区文件，不改 git 历史，也不自动 `git add` / `git commit`。
 
 用法：
     python scripts/check_sensitive.py --check      # 门禁模式：命中即非零退出
-    python scripts/check_sensitive.py --warn       # 首版落地：只报告、退出 0
+    python scripts/check_sensitive.py --warn       # 只报告、退出 0（演练或排查基线用）
     python scripts/check_sensitive.py --fix        # 真正改写，改完自动复扫自证
     python scripts/check_sensitive.py --self-test  # 自检（含编码形态与豁免用例）
 
@@ -897,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = _summary(hits, scanned, skipped)
     if args.warn:
         print(f"[WARN] {summary}")
-        print("[WARN] 当前为 warn 模式，不阻断；转 block 见 #110（依赖 #100 清洗完成）")
+        print("[WARN] 当前为 warn 模式，只报告不阻断")
         return 0
     if hits:
         print(f"[红] {summary}", file=sys.stderr)
