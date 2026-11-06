@@ -13,6 +13,12 @@ on:
     types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
+# check_pr_body.py 用 gh 读 PR 评论；GITHUB_TOKEN 默认没有 pull-requests 读权限，
+# 不显式声明会报 "Resource not accessible by integration"。
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   gates:
     runs-on: ubuntu-latest
