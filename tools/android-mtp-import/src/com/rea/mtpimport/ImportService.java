@@ -42,6 +42,19 @@ public final class ImportService {
     static final long CANCEL_STUCK_GRACE_NANOS = 3_000_000_000L;
 
     /**
+     * 「传输长时间无进展」的判定宽限期（60 秒，issue #63）。
+     *
+     * 与 {@link #CANCEL_STUCK_GRACE_NANOS} 解决的不是同一件事：那条只管「用户点了取消、
+     * worker 却退不掉」；这条管「用户没点取消、worker 卡在原生 `importFile` 里」
+     * （相机休眠 / USB 掉线），此时取消路径根本不会被调用。
+     *
+     * 取 60 秒的依据：本链路实测 USB MTP 21.43 MB/s（见主报告第 11 节），单张 24 MP RAW
+     * 约 1.1 s；60 s 已是 50 倍余量，足以覆盖相机降速，同时用户点 `Import` 时能等到一次判定。
+     * 只按**文件边界**计时，不做字节级回调（见 README「无进展挂起（#63）」）。
+     */
+    static final long NO_ACTIVITY_GRACE_NANOS = 60_000_000_000L;
+
+    /**
      * 单个文件的最多尝试次数（首次 + 1 次同步重试，PD / issue #50）。
      *
      * 有上限，绝不无限循环：MTP 断线/失步不会靠重试自愈，重试一次足够覆盖偶发失败；
@@ -72,6 +85,15 @@ public final class ImportService {
 
     /** {@link #cancel()} 被调用的时刻；0 表示本轮还没请求过取消。 */
     private volatile long cancelRequestedAtNanos;
+
+    /**
+     * 最后一次「进入文件传输」的时刻（issue #63）；0 表示本轮还没进入过任何文件。
+     *
+     * 只按文件边界刷新：`transfer.transfer(...)` 调用前记一次，返回后不记——
+     * 于是一次 importFile 调用持续多久就能被 {@link #isStalledAt(long)} 看出。
+     * 不做字节级回调（要改 {@link ResumableTransfer} 契约，见 README「无进展挂起（#63）」）。
+     */
+    private volatile long lastActivityNanos;
 
     /**
      * 本轮是否已被调用方放弃（三审 B-3）。
@@ -155,6 +177,37 @@ public final class ImportService {
         return nowNanos - cancelAtNanos >= graceNanos;
     }
 
+    /**
+     * 本轮是否「长时间没有传输进展」（issue #63）。
+     *
+     * 与 {@link #isCancelStuck()} 互补：那条要求 `cancelled=true`，而相机休眠/USB 掉线导致
+     * 原生 `importFile` 不返回时，用户根本不会去点取消（`CATALOG_READY` 也没有 Cancel 入口，
+     * UI-SPEC §1.3）。没有这条判定，`Import` 就是死键，只能杀进程。
+     */
+    public boolean isStalled() {
+        return isStalledAt(System.nanoTime());
+    }
+
+    /** 用指定时刻判定，便于 JVM 自检（不依赖真实等待）。 */
+    boolean isStalledAt(long nowNanos) {
+        return stalled(isRunning(), cancelled, paused, lastActivityNanos, nowNanos,
+                NO_ACTIVITY_GRACE_NANOS);
+    }
+
+    /**
+     * 纯判定：worker 还活着 + 没取消 + 没暂停 + 进过文件 + 距最后一次文件边界已超过宽限期。
+     *
+     * 排除 `cancelled`：取消路径交给 {@link #cancelStuck}（3 s 口径），两条判定不重叠，
+     * 否则取消后会被两边同时认领，日志与出路重叠。
+     * 排除 `paused`：`Pause & exit` 后可以停任意久，暂停本身不是挂起；恢复前有独立的
+     * 会话探活（`Main.doStart()` 的暂停分支）。
+     */
+    static boolean stalled(boolean running, boolean cancelled, boolean paused,
+                           long lastActivityNanos, long nowNanos, long graceNanos) {
+        if (!running || cancelled || paused || lastActivityNanos == 0L) return false;
+        return nowNanos - lastActivityNanos >= graceNanos;
+    }
+
     public void pause() {
         paused = true;
         log.line("已请求暂停（当前文件传完后停在下一个文件之前）");
@@ -202,6 +255,8 @@ public final class ImportService {
         cancelled = false;
         abandoned = false;
         cancelRequestedAtNanos = 0L;
+        // 新一轮从「还没进过文件」开始：不在这里读钟，避免与暂停记账的时钟调用次序耦合。
+        lastActivityNanos = 0L;
         cancelToken = new CancelToken();
         worker = new Thread(() -> run(plan, listener), "import-worker");
         worker.start();
@@ -274,6 +329,9 @@ public final class ImportService {
                         log.line("发现半成品：" + item.relPath + " 已有 " + resumeFrom
                                 + " 字节，从断点续传");
                     }
+                    // issue #63：进入本次 importFile 前刷新「最后活动时刻」。
+                    // 放在 transfer 之前、返回后不刷新，这样一次原生调用卡住多久就能被看出。
+                    lastActivityNanos = clock.nanoTime();
                     r = transfer.transfer(item, part, resumeFrom, token);
                     if (r.kind != ResumableTransfer.Kind.FAILED) break;
                     if (cancelled || attempts >= MAX_FILE_ATTEMPTS) break;
