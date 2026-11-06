@@ -1410,7 +1410,9 @@ public final class SelfTest {
         File out2 = Files.createTempDirectory("wiredraw-pb-cancel").toFile();
         CancellingTransfer ct = new CancellingTransfer();
         FinishRecorder r3 = new FinishRecorder();
-        ImportService svc2 = new ImportService(Log.NOOP, ct, out2);
+        // #65：取消日志必须能核对，不能再用 Log.NOOP 把文案放过去。
+        List<String> cancelLogs = Collections.synchronizedList(new ArrayList<>());
+        ImportService svc2 = new ImportService(cancelLogs::add, ct, out2);
         svc2.start(plan, r3);
         check("PB 取消：第一个文件已进入传输",
                 ct.entered.await(5, TimeUnit.SECONDS), "等待超时");
@@ -1418,6 +1420,14 @@ public final class SelfTest {
         check("PB 取消：取消动作在传输中被触发（不是只停界面）",
                 ct.tokenCancelled.await(5, TimeUnit.SECONDS), "取消动作未触发");
         check("PB 取消：本轮 5 秒内结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
+        // #65：关闭 fd 只是「尝试」中断原生调用；本机型实测约 0.6 s 返回，能否打断没有
+        // 跨机型保证（见 ImportService 类注释与 README）。日志串不得写成已经打断。
+        // 负向断言用 noneMatch 扫全部行，不能只对 anyMatch 命中的那一行生效。
+        check("PB 取消：日志不把「打断」写成保证（#65）",
+                cancelLogs.stream().noneMatch(l -> l.contains("会被中断"))
+                        && cancelLogs.stream().anyMatch(l -> l.contains("已请求取消")
+                                && l.contains("无跨机型保证")),
+                "实际 " + cancelLogs);
         check("PB 取消：cancelled=true 且取消的文件不计失败",
                 r3.cancelled && r3.ok == 0 && r3.skipped == 0 && r3.failed == 0,
                 "cancelled=" + r3.cancelled + " ok=" + r3.ok + " failed=" + r3.failed);
@@ -1479,6 +1489,32 @@ public final class SelfTest {
         check("PD onDestroy：worker 退出后 awaitWorker 返回 true",
                 svc3.awaitWorker(5000), "实际返回 false");
         deleteTree(out3);
+
+        // 5) #65：PAUSED 稳态取消时没有在传的文件，取消动作槽也已空（上一个文件返回时
+        //    走 clearOnCancel），日志必须用条件句，不能声称「正在传的文件」在被打断。
+        File out4 = Files.createTempDirectory("wiredraw-pb-cancel-paused").toFile();
+        GatedTransfer g2 = new GatedTransfer();
+        FinishRecorder r6 = new FinishRecorder();
+        List<String> pausedCancelLogs = Collections.synchronizedList(new ArrayList<>());
+        ImportService svc4 = new ImportService(pausedCancelLogs::add, g2, out4);
+        svc4.start(plan, r6);
+        check("PAUSED 取消：第一个文件已进入传输",
+                g2.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+        svc4.pause();
+        g2.releaseFirst.countDown();
+        check("PAUSED 取消：暂停期间第二个文件不启动",
+                !g2.secondEntered.await(400, TimeUnit.MILLISECONDS), "第二个文件启动了");
+        check("PAUSED 取消：worker 停在暂停边界（活着但没有文件在传）",
+                svc4.isPaused() && svc4.isRunning(),
+                "paused=" + svc4.isPaused() + " running=" + svc4.isRunning());
+        svc4.cancel();
+        check("PAUSED 取消：本轮 5 秒内结束", r6.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("PAUSED 取消：日志不声称正在传文件（#65）",
+                pausedCancelLogs.stream().noneMatch(l -> l.contains("会被中断"))
+                        && pausedCancelLogs.stream().anyMatch(l -> l.contains("已请求取消")
+                                && l.contains("若正在传文件") && l.contains("无跨机型保证")),
+                "实际 " + pausedCancelLogs);
+        deleteTree(out4);
     }
 
     // ---------------- 恢复前比较暂停轮次的清单（issue #57） ----------------
