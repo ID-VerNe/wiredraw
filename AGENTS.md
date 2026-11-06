@@ -197,6 +197,11 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 文件 | 内容 |
 |---|---|
 | `README.md` | 对外门面：结论速览、实测数据、三个坑、仓库结构 |
+| `docs/known-limitations.md` | 已知限制：会话挂起、format 过滤、PTP 会话边界、首次授权、未验证项 |
+| `docs/safety-and-privacy.md` | 安全与隐私边界：只读 opcode、设备身份占位、调试密钥 |
+| `docs/building.md` | 构建：SDK / JDK 要求、`manual` 档前置环境变量、两种 APK 的产物与安装 |
+| `docs/testing.md` | 测试：三档门禁、钩子与绕过审计、无单测框架下的回归口径 |
+| `docs/architecture.md` | 架构：三条链路的模块边界、导片工具分层与门禁层 |
 | `docs/research/a7c-usb-raw-2026-11.md` | **主报告**，12 节，全部实测与踩坑记录 |
 | `docs/contributing/ISSUE_GUIDE.md` | 怎么发 issue：正文四要素、复现命令与 `needs-repro`、关闭方式、模板 |
 | `docs/contributing/PR_GUIDE.md` | 怎么开 PR：拆分命名、正文分段、基线验证、门禁改动、合并条件、对账与回签 |
