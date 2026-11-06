@@ -825,6 +825,24 @@ public final class Main extends ComponentActivity {
         }
     }
 
+    /**
+     * 点主 CTA 前的空间预检（PD / P-09 / issue #124）。
+     *
+     * 两处共用：清单变化时、取消旧暂停轮**之前**（空间不足就不取消，保留暂停轮次），
+     * 以及新建一轮之前（防「预检之后、点击之前」空间被别的应用吃掉）。
+     * 不足时落 `Low space` 并返回 false，调用方直接 return。
+     */
+    private boolean precheckSpace(ImportPlan plan) {
+        long free = freeBytes();
+        if (!SpaceCheck.enough(free, plan.totalBytes())) {
+            model.setSpaceStatus(true, SpaceCheck.describe(free, plan.totalBytes()));
+            log.line("空间不足：计划 " + plan.totalBytes() + " 字节，可用 " + free + " 字节");
+            return false;
+        }
+        model.setSpaceStatus(false, "");
+        return true;
+    }
+
     private void doStart() {
         // issue #127：跳过数属于「本轮」，在入口就清空。清零必须早于下面所有早退分支：
         // 探活失败 / 无会话 / 建目录失败 / 空间不足等落 ERROR 时，Details 抽屉只判
@@ -854,7 +872,13 @@ public final class Main extends ComponentActivity {
                     // issue #57：用户可能在照片墙改了勾选 / filter / 档位，这里算出的 plan 与暂停
                     // 轮次已不是同一批文件。旧清单继续跑违背用户意图，而 CATALOG_READY 按 UI-SPEC
                     // §1.3 / U-17 没有 Cancel 入口，不能把「先 Cancel」当提示；所以直接取消旧轮次、
-                    // 按新计划重开一轮。暂停落在文件边界，本轮没有写了一半的 .part，已完成文件由
+                    // 按新计划重开一轮。
+                    // issue #124：取消前先做空间预检。否则用户改选到更大的集合、空间却不够时，
+                    // 旧暂停轮已经被取消，剩余待传列表白丢（Journal 只能保住已落盘的文件）。
+                    // 空间不足时保留暂停轮次并落 Low space，补足空间后再点 Import 才取消旧轮。
+                    if (!precheckSpace(plan)) return;
+                    // 暂停本身落在文件边界，但暂停时刻可能仍有文件在传（`.part` 尚未落定）；
+                    // 取消若落在传输中，半成品由传输层整体删除（从 0 重来）。已完成文件由
                     // Journal 按 `relPath + size` 跳过，不会丢。
                     final ImportService pausedRound = service;
                     final ImportPlan pausedPlan = pausedRound.plan();
@@ -933,14 +957,9 @@ public final class Main extends ComponentActivity {
         }
 
         // PD / P-09：点主 CTA 前必须做一次空间预检。照片墙上的禁用只是提前告知；
-        // 这里再判一次，防止「预检之后、点击之前」空间被别的应用吃掉。
-        long free = freeBytes();
-        if (!SpaceCheck.enough(free, plan.totalBytes())) {
-            model.setSpaceStatus(true, SpaceCheck.describe(free, plan.totalBytes()));
-            log.line("空间不足：计划 " + plan.totalBytes() + " 字节，可用 " + free + " 字节");
-            return;
-        }
-        model.setSpaceStatus(false, "");
+        // 这里再判一次，防止「预检之后、点击之前」空间被别的应用吃掉（issue #124 后与
+        // 清单变化分支共用 `precheckSpace(ImportPlan)`）。
+        if (!precheckSpace(plan)) return;
 
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
         // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
