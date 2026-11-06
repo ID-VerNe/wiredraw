@@ -73,6 +73,7 @@ public final class SelfTest {
         demoTransferCases();
         commentRefCases();
         skippedSourceCases();
+        pausePrecheckCases();
 
         System.out.println();
         if (failed == 0) {
@@ -2602,6 +2603,41 @@ public final class SelfTest {
         check("doStart 入口先清 skippedLine，早退不留过期值（issue #127）",
                 clearAt >= 0 && firstReturn >= 0 && clearAt < firstReturn,
                 "clearAt=" + clearAt + " firstReturn=" + firstReturn);
+    }
+
+    // ---------------- 清单变化时的预检顺序（issue #124） ----------------
+
+    /**
+     * issue #124（源自 #57 评审）的两条：
+     *
+     * 1. `Main` 的注释不得再声称「暂停时本轮没有写了一半的 `.part`」——`ImportService.pause()`
+     *    只置位 `paused`，暂停时刻可能仍有文件在传；半成品由传输层在取消时删除。
+     * 2. 清单变化分支必须先做空间预检再取消旧暂停轮：空间不足时保留暂停轮次，
+     *    否则用户改选更大集合后，旧轮的剩余待传列表会被白丢。
+     */
+    static void pausePrecheckCases() {
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src = null;
+        try {
+            src = String.join("\n", Files.readAllLines(main.toPath()));
+        } catch (IOException e) {
+            src = null;
+        }
+        check("暂停注释不再声称没有半成品（issue #124）",
+                src != null && !src.contains("没有写了一半"),
+                src == null ? "读不到 " + main : "不实表述仍在");
+
+        String doStart = null;
+        try {
+            doStart = methodBody(main, "private void doStart() {");
+        } catch (IOException e) {
+            doStart = null;
+        }
+        int precheckAt = doStart == null ? -1 : doStart.indexOf("precheckSpace(plan)");
+        int cancelAt = doStart == null ? -1 : doStart.indexOf("pausedRound.cancel()");
+        check("清单变化时空间预检先于取消旧暂停轮（issue #124）",
+                precheckAt >= 0 && cancelAt >= 0 && precheckAt < cancelAt,
+                "precheckAt=" + precheckAt + " cancelAt=" + cancelAt);
     }
 
     static void check(String name, boolean ok, String detail) {
