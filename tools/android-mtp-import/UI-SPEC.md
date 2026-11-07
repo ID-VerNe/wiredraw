@@ -41,7 +41,7 @@
 
 **目标**：总点击 **2 次**（系统授权 1 + 应用内 1）、**0 次目录理解**、**0 次手动全选**。
 按实测速率 21.43 MB/s 推算（21.43 是 1024 进制 MB/s，即 2^20；`docs/research/a7c-usb-raw-2026-11.md` §12.3；ILCE-7C fw2.00 / Android 15 / USB MTP）：
-默认 `All`（JPG 优先）511 个文件 / 约 753 MB（折算 0.73 GB；单位分界按 `UiText.capacity` 的「1 GB 以下一律 MB」；由总量 12.75 GB 减 ARW 11.89 GB 与 MP4 128.01 MB 推得，三项输入均为两位小数、误差约 ±10 MB，**JPEG 合计未单独实测**）≈ **35 秒**；切 `RAW` 档 511 个 ARW / 12,766,800,000 字节 ≈ 11.89 GB ≈ **9.5 分钟**
+默认 `All`（JPG 优先）511 个文件 / 约 753 MB（折算 0.73 GB；单位分界按 `UiText.capacity` 的「1 GB 以下一律 MB」；由总量 12.75 GB 减 ARW 11.89 GB 与 MP4 128.01 MB 推得，三项输入均为两位小数、误差约 ±10 MB，**JPEG 合计未单独实测**）≈ **35 秒**；切 `RAW` 档 511 个 ARW / 11.89 GB ≈ **9.5 分钟**
 （只计传输，含文件系统写入，不含枚举）。
 
 - 「自动开始扫描」**已落地（#17）**：`Main.java` 的 `onNewIntent` 接前台插线、`receiver` 的
@@ -412,7 +412,7 @@
 | 角色 | 字号 | 行高 | 字重 | 字距 | 用途 |
 |---|---|---|---|---|---|
 | `display` | 36 sp | 42 | 600 | -0.03em | 未使用（留给终态大数字） |
-| `display-sm` | 24 sp | 28 | 600 | -0.02em | **状态主文案**（`No camera` / `No photos` / `Done` / `Not available` / `ERROR` 一行原因）、环内 `33%`、`DONE` 的 `36 · 858 MB`（假树 36 张 ARW 合计 = `DemoTree.arwSize() × 36` = 899,422,308 字节 ≈ 857.8 MB，≥100 MB 按整数展示）。**本文新增，非定稿 token**（定稿十个 typography token 无 24 px 一级）；状态主文案的 24 sp 由本条登记，`PR-2` 只按登记值对齐，不再另立字号 |
+| `display-sm` | 24 sp | 28 | 600 | -0.02em | **状态主文案**（`No camera` / `No photos` / `Done` / `Not available` / `ERROR` 一行原因）、环内 `33%`、`DONE` 的 `36 · 858 MB`（假树值，来源见 §8.3 `U-54` 与 §4.2）。**本文新增，非定稿 token**（定稿十个 typography token 无 24 px 一级）；状态主文案的 24 sp 由本条登记，`PR-2` 只按登记值对齐，不再另立字号 |
 | `headline-lg` | 28 sp | 34 | 600 | -0.025em | 未使用 |
 | `headline-md` | 22 sp | 28 | 500 | -0.02em | 未使用 |
 | `headline-sm` | 18 sp | 24 | 500 | -0.015em | 未使用 |
@@ -709,7 +709,7 @@ Next:    <一个可执行动作>
 | `T-CATALOG` | `CATALOG_READY` | 照片墙 | CTA `Import all 512` / `Import 12`（`512` 为假树值；真机 `All` 为 511。可见已选数为 0 时 N = 当前 filter 可见集合的导出文件数，可见已选数 ≥1 时 N = 可见已选数；顶栏计数胶囊始终显示可见集合的导出文件数（可见总量分母，不随已选变化；可见已选 0 时与 `Import all N` 同值，可见已选 ≥1 时 CTA 为可见已选子集），见 §2.2 / `V-27`；非 `All` 档顶栏另有 `RAW` / `JPG` / 日期芯片，`V-31`） | 组头 `Jun 7 · 43 · 74.0 MB`（假树示意值；按真机单张 JPG 均值折算 43 张约 63.3 MB，推算非实测） | 「获得文件…」、已选正文句、同屏两个**不同口径**的分母 |
 | `T-IMPORTING` | `IMPORTING` | 大环（180 dp） | 环内 `33%` | 环下 `12/36`；`Pause` / `Cancel` 图标 | 速率卡、`~58 min`（示意值，非真机实测）、协议、第二个百分比 |
 | `T-PAUSED` | `PAUSED` | 同一环，数值冻结 | 环内 `33%`（不变） | `Resume` / `Cancel` 图标 | 「已暂停」长句、把暂停显示成完成 |
-| `T-DONE` | `DONE` | 环的位置换成完成标记 | `Done` | `36 · 858 MB`（假树 36 张 ARW 合计 = `DemoTree.arwSize() × 36` = 899,422,308 字节 ≈ 857.8 MB，≥100 MB 按整数）+ 位置图标；`Open` 次按钮 | `Imported … Skipped … Failed …`、任务 ID、哈希、统计卡 |
+| `T-DONE` | `DONE` | 环的位置换成完成标记 | `Done` | `36 · 858 MB`（假树值，常量与口径见 §8.3 `U-54` 与 §4.2）+ 位置图标；`Open` 次按钮 | `Imported … Skipped … Failed …`、任务 ID、哈希、统计卡 |
 | `T-ERROR` | `ERROR` | 环的位置换成错误标记 | 一行短中文原因（≤20 字） | `Reconnect` 图标（USB 插头 / 重连语义，`contentDescription` = `Reconnect`）；顶栏另有 12 sp `Reconnect` 可点标签（`V-29`）；三段式进 `Details`（内容 `Details` 按钮与顶栏左簇长按，`L-05`） | `Error`、异常类名、opcode、路径、`Retry` |
 | `T-EMPTY` | `EMPTY_CATALOG` | 居中相机图标 | `No photos` | `Connect camera` 图标 | 空网格、`0 GB`、`0%` |
 | `T-UNAVAILABLE` | `UNAVAILABLE` | 居中禁止图标 | `Not available` | `OK`，或返回（回退到照片墙） | `NOT_IMPLEMENTED`、`Unimplemented`、长句版本说明 |

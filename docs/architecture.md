@@ -69,7 +69,8 @@ PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 - 分档：`static`、`manual`（Android 构建）、`support`（需要 PR 上下文）；条数与执行顺序以
   [`scripts/gates.json`](../scripts/gates.json) 为准，本文不重复计数。
 - 元门禁 `check_gates_manifest.py` 校验「清单 ↔ `AGENTS.md` 生成段 ↔ 磁盘脚本」零漂移，
-  并禁止门禁命令带 `--warn` / `--fix` / `--write` / `--self-test` 这类会降级或改写工作区的参数。
+  并禁止门禁命令带会降级或改写工作区的参数——完整清单以 `scripts/check_gates_manifest.py`
+  的 `FORBIDDEN_FLAGS` 与 `flags.require` 为准，本文不再枚举。
 
 ## 五、单一归属
 
