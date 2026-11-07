@@ -28,6 +28,10 @@ INIT_REQ, INIT_ACK, INIT_EVT_REQ, INIT_EVT_ACK, INIT_FAIL = 1, 2, 3, 4, 5
 OP_REQ, OP_RSP, EVENT = 6, 7, 8
 START_DATA, DATA, CANCEL, END_DATA = 9, 10, 11, 12
 
+# ObjectInfo 至少要能读到偏移 52 的文件名长度字节（53 字节），
+# 与 parse_ptpip.py 的同一常量同值（#225）。
+MIN_OBJINFO_LEN = 53
+
 # 只保留本探针实际下发的只读 opcode。`GetObject` / `GetThumb` /
 # `GetPartialObject`(0x101B) / `GetDevicePropValue2`(0x920E) 均无调用，已删。
 # `SetDevicePropValueEx`(0x9209) 是写 opcode，探针从不调用，但
@@ -55,6 +59,15 @@ RC = {0x2001: "OK", 0x2002: "GeneralError", 0x2003: "SessionNotOpen",
 
 def frame(ptype, body=b""):
     return struct.pack("<II", len(body) + 8, ptype) + body
+
+
+def _guid_ok(s):
+    """`--guid` 的合法形态：握手 body 前 16 字节就是 GUID 的 ASCII 文本，
+    索尼把它截断成 `xxxxxxxx-xxxx-xx`（8-4-2，含短横共 16 字符）；
+    名称必须从第 16 字节开始（见 PtpIp.init 注释），所以这里按原始字符串判长度，
+    不能去横线后数六进制位数（去横线只有 14 位）。
+    """
+    return bool(s) and len(s) == 16 and re.fullmatch(r"[0-9A-Fa-f-]+", s) is not None
 
 
 class Chan:
@@ -112,10 +125,12 @@ class PtpIp:
         else:
             if not guid:
                 raise ValueError("缺少配对 GUID：请用 --guid 传入，获取方法见 README §6")
-            g = guid[:16]
-            g = g.ljust(16, "0").encode("ascii")
+            if not _guid_ok(guid):
+                raise ValueError(
+                    f"配对 GUID 必须是 16 字节 ASCII（形如 xxxxxxxx-xxxx-xx），"
+                    f"实际 {len(guid)} 字节：{guid!r}")
             nm = name.encode("utf-16-le") + b"\x00\x00"
-            self.cmd.send(INIT_REQ, g + nm + struct.pack("<I", 0x00010000))
+            self.cmd.send(INIT_REQ, guid.encode("ascii") + nm + struct.pack("<I", 0x00010000))
         ptype, body = self.cmd.recv_frame()
         if ptype != INIT_ACK:
             reason = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else -1
@@ -255,23 +270,47 @@ def object_info(buf):
     验证：抓包 tid=299 的 ARW 记录中 d[52]=0x0d、53 起为 "DSC00001.ARW"；
     实时探针 0xFFFFC002 同样 d[52]=0x0d、"DSC09999.JPG"。
     """
-    if len(buf) < 53:
+    if len(buf) < MIN_OBJINFO_LEN:
         return None
     storage = struct.unpack_from("<I", buf, 0)[0]
     fmt = struct.unpack_from("<H", buf, 4)[0]
     size = struct.unpack_from("<I", buf, 8)[0]
     w, h = struct.unpack_from("<II", buf, 26)
     n = buf[52]
+    # 名字要占 n 个 UTF-16LE 字符的字节，不够就是短包；不能截半个名字当成功。
+    if MIN_OBJINFO_LEN + n * 2 > len(buf):
+        return None
     name = buf[53:53 + n * 2].decode("utf-16-le", "replace").split("\x00")[0]
+    # 空名字（含恰好 53 字节只剩长度字节的短包）不是可用的 ObjectInfo。
+    if not name:
+        return None
     return dict(storage=storage, format=fmt, size=size, w=w, h=h, name=name)
 
 
 FMT = {0x3000: "Undef", 0x3801: "JPEG", 0xB101: "ARW", 0xB982: "HEIF", 0x300A: "MP4"}
 
 
+VALUE_FLAGS = ("--guid", "--limit", "--replay")
+
+
+def _positionals(argv):
+    """取位置参数：跳过取值 flag 与它后面的那个值，其余非 `-` 开头的都算。"""
+    out, i = [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a in VALUE_FLAGS:
+            i += 2
+            continue
+        if not a.startswith("-"):
+            out.append(a)
+        i += 1
+    return out
+
+
 def main():
     argv = sys.argv[1:]
-    host = next((a for a in argv if not a.startswith("-") and a.count(".") == 3), None)
+    positional = _positionals(argv)
+    host = positional[0] if positional else None
     if host is None:
         print("缺相机 IP。用法：python probe.py <相机IP> --guid <已配对GUID> [--limit N] [--replay <文件>]")
         print("配对 GUID 与 replay 文件的获取方法见 README §6。")
@@ -321,9 +360,9 @@ def main():
             print("--guid 必须显式给值：它就是你本机 IED 首次配对时用过的 GUID，获取方法见 README §6。")
             return 2
         guid = argv[i + 1]
-        body = guid.replace("-", "")
-        if not (12 <= len(body) <= 32 and re.fullmatch(r"[0-9A-Fa-f]+", body)):
-            print(f"--guid 形态不对：{guid!r}。去掉短横后应为 12–32 位十六进制。")
+        if not _guid_ok(guid):
+            print(f"--guid 形态不对：{guid!r}。必须是 16 字节 ASCII（形如 xxxxxxxx-xxxx-xx，"
+                  f"实际 {len(guid)} 字节）。")
             print("获取方法见 README §6；真实值不要写进仓库。")
             return 2
 
