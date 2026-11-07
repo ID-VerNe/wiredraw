@@ -8,12 +8,6 @@ package com.rea.mtpimport;
  */
 public interface ImportListener {
 
-    default void onScanProgress(int scanned, int total) {
-    }
-
-    default void onCatalogReady(Catalog catalog) {
-    }
-
     default void onPlanReady(ImportPlan plan) {
     }
 
