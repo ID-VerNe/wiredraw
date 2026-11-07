@@ -139,6 +139,16 @@ def main() -> int:
 
     entries = data.get(args.tier, [])
     if args.shard:
+        # 分片名先对清单校验（issue #205）：未知名字若按「过滤后为空」处理，只会得到
+        # 「没有要跑的门禁」这种误导性提示——`.githooks/pre-push` 写死 `--shard static`
+        # 时，分片一旦改名就没人看得出是名字错了还是清单空了。
+        shards = [s["name"] for s in data.get("shards", [])]
+        if args.shard not in shards:
+            print(
+                f"未知分片：{args.shard!r}；已声明：{', '.join(shards)}",
+                file=sys.stderr,
+            )
+            return 2
         entries = [e for e in entries if e.get("shard") == args.shard]
 
     if not entries:

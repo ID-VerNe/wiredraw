@@ -115,7 +115,7 @@ ALLOWLIST: tuple[AllowEntry, ...] = (
     AllowEntry(
         "secret",
         "android",
-        "Android debug keystore 的公开默认口令（AOSP 通用值）；tools/android-mtp-probe/build.sh:167 用 --ks-pass pass:android 签同一把 rea-debug.keystore",
+        "Android debug keystore 的公开默认口令（AOSP 通用值）；tools/android-mtp-probe/build.sh 的 `--ks-pass pass:` 参数用它签同一把 rea-debug.keystore",
     ),
 )
 
