@@ -580,9 +580,10 @@ def _read_text_ex(path: Path) -> tuple[str | None, tuple[str, bytes]]:
         return None, ("", b"")
     try:
         data = path.read_bytes()
-    except OSError as e:
+    except OSError:
         # 读盘失败不是「二进制」：静默归入跳过统计会让门禁假绿（#203）。
-        raise OSError(f"读不到 {path}（{e}）") from e
+        # 只留给调用方加相对路径，异常文本里不带本机绝对路径。
+        raise
     if data[:2] == b"\xff\xfe":
         return data[2:].decode("utf-16-le", errors="replace"), ("utf-16-le", b"\xff\xfe")
     if data[:2] == b"\xfe\xff":
@@ -635,7 +636,9 @@ def scan_repo(repo_slug: str | None) -> tuple[list[Hit], int, int]:
         try:
             text = _read_text(ROOT / rel)
         except OSError as e:
-            raise SystemExit(f"[红] {e}") from e
+            raise SystemExit(
+                f"[红] 被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）"
+            ) from e
         if text is None:
             skipped += 1
             continue

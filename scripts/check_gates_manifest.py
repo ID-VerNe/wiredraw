@@ -8,10 +8,12 @@
 它会用清单重写 AGENTS.md 里 `<!-- gates:ci:begin -->` 与 `<!-- gates:ci:end -->` 之间那一段。
 
 顺带校验：条目引用的脚本确实在磁盘上、没有重复的门禁名、以及 `cmd` 的参数没有被
-静默降级（#131）：门禁命令里不许出现只报告不阻断、会改写工作区、只跑用例或只打印用法的参数
-（`--warn` / `--soft` / `--dry-run` / `--fix` / `--write` / `--self-test` / `--help` / `-h`）；条目可用 `flags.require` 声明必须在命令里原样
+静默降级（#131）：门禁命令里不许出现只报告不阻断、会改写工作区、只跑用例或只打印用法的参数；
+禁用参数表的唯一来源是本模块的 `FORBIDDEN_FLAGS`（不在本段与 `gates.json` 里重复枚举）。
+条目可用 `flags.require` 声明必须在命令里原样
 出现的参数；脚本自己声明了降级开关时，必须用 `flags.require` 显式选阻断模式；
 命令里跟在仓库内 `.py` 脚本后的参数（含短别名）必须被该脚本的 `--help` 声明过（拼错即红）。
+探测失败（读不到脚本 / `--help` 非 0 / 超时）一律报红，不再退化成「没有 argparse」的静默分支（#203）。
 
 形状层（#139）：`cmd` 必须是非空字符串数组、门禁名必须等于主体脚本的文件名，
 否则明确报红——不认识/不合规的形状一律不许静默跳过。脚本给降级开关配了短别名时，
@@ -26,6 +28,7 @@ import json
 import re
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -427,6 +430,30 @@ def self_test() -> int:
         )
     finally:
         globals()["_script_flags"] = real_script_flags
+
+    # ---- #203：探测失败必须报红，不能退化成「没有 argparse」的绿分支 ----
+    def probe_failure() -> None:
+        nonlocal passed
+        data = copy.deepcopy(base)
+        original = subprocess.run
+
+        def fake_run(*_args, **_kwargs):
+            return types.SimpleNamespace(returncode=3, stdout="", stderr="")
+
+        try:
+            subprocess.run = fake_run
+            problems = check_cmd_contract(data)
+        finally:
+            subprocess.run = original
+        label = "脚本 --help 非 0 必须报红"
+        if problems and "无法自证参数" in "\n".join(problems):
+            passed += 1
+            print(f"[绿] 自检：{label}")
+        else:
+            failures.append(label)
+            print(f"[红] 自检：{label}（实际：{problems}）", file=sys.stderr)
+
+    probe_failure()
 
     if "python scripts/check_sensitive.py --check" not in render(base):
         failures.append("生成段没有渲染 cmd")

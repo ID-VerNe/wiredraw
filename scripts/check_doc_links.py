@@ -262,9 +262,11 @@ def main() -> int:
     md_files = tracked_markdown()
 
     for md in md_files:
-        if not md.is_file():
-            continue
         rel = md.relative_to(ROOT).as_posix()
+        if not md.is_file():
+            # 被跟踪的 md 却不在磁盘上，是索引与工作区脱节；静默跳过会打印假绿（#203）。
+            problems.append(f"被跟踪 md 读不到：{rel}")
+            continue
         p, n = scan_text(rel, md.read_text(encoding="utf-8", errors="replace"),
                          disk_exists, disk_read)
         problems.extend(p)

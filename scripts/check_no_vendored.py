@@ -74,7 +74,7 @@ def main() -> int:
             size = p.stat().st_size
         except OSError as e:
             # 被跟踪文件却读不到，说明索引与磁盘已经脱节；静默跳过会让门禁假绿（#203）。
-            problems.append(f"被跟踪文件读不到：{rel}（{e}）")
+            problems.append(f"被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）")
             continue
         if size > MAX_BYTES:
             problems.append(f"被跟踪的大文件：{rel}（{size / 1048576:.1f} MB，上限 5 MB）")
