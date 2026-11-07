@@ -376,7 +376,7 @@
 
 | 视图 / 状态 | 左侧 | 右侧 | 说明 |
 |---|---|---|---|
-| `CATALOG_READY` | 相机线稿 + `a7C`（14 sp `body-md`） | filter 芯片（仅非 `All` 档，`V-31`）+ 计数胶囊（12 sp `mono-data` 等宽数字，如 `512`）+ `Filter`；渐进扫描时另有 `Cancel`（48 dp） | 方案 B：胶囊 = 可见集合的导出文件数（可见总量分母）；可见已选为 0 时与 `Import all N` 同值，可见已选 ≥1 时 CTA 转 `Import N`、胶囊不变（`V-27`）；设备名长按进 `Details`（`L-05`）；渐进态见 §1.2 与 `V-23` |
+| `CATALOG_READY` | 相机线稿 + `a7C`（14 sp `body-md`） | filter 芯片（仅非 `All` 档，`V-31`）+ 计数胶囊（12 sp `mono-data` 等宽数字，如 `512`（假树值；真机 `All` 为 511））+ `Filter`；渐进扫描时另有 `Cancel`（48 dp） | 方案 B：胶囊 = 可见集合的导出文件数（可见总量分母）；可见已选为 0 时与 `Import all N` 同值，可见已选 ≥1 时 CTA 转 `Import N`、胶囊不变（`V-27`）；设备名长按进 `Details`（`L-05`）；渐进态见 §1.2 与 `V-23` |
 | `COLD` | 相机线稿 + `a7C`（14 sp `body-md`） | `Disconnected`（12 sp `body-sm`） | 方案 A：相机线稿本身不变化；断开只由短词承担，**不**显示数量 |
 | `ERROR` | 断线图标（`V-28`：插头与插座分离）+ `Disconnected`（12 sp `body-sm`） | `Reconnect`（12 sp `body-sm` 可点标签，`V-29`） | 新图标要一眼读出「线没插上」；左侧「图标 + `Disconnected`」**整簇长按**进 `Details`（`L-05`），长按区与右侧 `Reconnect` 的 48 dp 点击区不重叠；`Reconnect` 复用内容区插头图标的同一重连入口（该图标无障碍名同为 `Reconnect`），是顶栏**唯一**的可点文字 |
 | `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` | 相机线稿 + `a7C` | — | 设备已物理连接；授权未完成也按在线画法 |
@@ -421,7 +421,7 @@
 | `body-sm` | 12 sp | 16 | 400 | 0 | 日期组头；顶栏 `Disconnected` / `Reconnect` 标签（12 sp） |
 | `label-md` | 13 sp | 16 | 500 | 0.01em | 环下 `12/36`（`photo` 胶囊与顶栏**不用**本档） |
 | `label-sm` | 11 sp | 14 | 500 | 0.02em | 未使用（不得用于数字/状态） |
-| `mono-data` | 12 sp | 16 | 400 | 0 | `photo` 页「格式 · 容量」胶囊（按当前档位与单元取：`JPG · 1.7 MB` / `ARW · 23.8 MB`）与 `CATALOG_READY` 顶栏计数胶囊（`512`）；字体族仍是 Geist，靠 `tabular-nums` 对齐 |
+| `mono-data` | 12 sp | 16 | 400 | 0 | `photo` 页「格式 · 容量」胶囊（按当前档位与单元取：`JPG · 1.7 MB` / `ARW · 23.8 MB`）与 `CATALOG_READY` 顶栏计数胶囊（`512`，假树值）；字体族仍是 Geist，靠 `tabular-nums` 对齐 |
 
 - **V-01** 正文**不得**小于 14 sp；辅助说明与数字**不得**小于 12 sp；**不得**用 <12 sp 承载状态、错误或数字。
 - **V-02** 单位**必须**用 sp（随系统字号缩放）；尺寸**必须**用 dp。
@@ -649,6 +649,8 @@
 
 ### 4.2 数字口径（本组是数字、单位与小数位的唯一权威）
 
+- **默认基线**：未标注「假数据 / 假树」的数值一律指真机基线（ILCE-7C fw2.00 / Android 15 / USB MTP 的实测值）；假树值**必须**显式标注，其常量以 §8.3 `U-54` 与 `DemoTree.java` 为准。
+
 - **C-05** 容量**必须**按 1024 进制换算（1 GB = 1024 MB），单位写 `GB` / `MB`；
   **GB 保留 2 位小数，MB 最多 1 位小数**（`23.8 MB` / `871 MB` 均合法；与实测/推算口径的四处数值 `0.73 GB`（真机 JPG 载荷，由总量减 ARW 与 MP4 推得）/ `0.86 GB`（假树 512 张 JPEG 载荷，`DemoTree.java` 常量）/ `11.89 GB`（ARW 载荷）/ `12.75 GB`（扫描文件总量）一致）。
   定稿组头的 `11.9 GB` 是 1 位，**不得**照抄，落成 `11.89 GB`。
@@ -704,7 +706,7 @@ Next:    <一个可执行动作>
 | `T-COLD` | `COLD` | 居中相机线性图标（56 dp） | `No camera` | 主按钮 `Connect camera` | `Waiting`、`No device`、`等待开始`、`无设备` |
 | `T-PERMISSION` | `PERMISSION_PENDING` | 同一相机图标，环的位置放主按钮 | `Allow` | 点 `Allow` 后由系统弹窗接管 | `Waiting…`（无动作）、`等待授权中…`、只给「去设置」 |
 | `T-SCANNING` | `SCANNING` | 居中细环（180 dp）+ 环下计数 | `320/1526` | `Cancel` 图标 | `Scanning 320/1526`、`扫描中…`、速率、剩余时间 |
-| `T-CATALOG` | `CATALOG_READY` | 照片墙 | CTA `Import all 512` / `Import 12`（可见已选数为 0 时 N = 当前 filter 可见集合的导出文件数，可见已选数 ≥1 时 N = 可见已选数；顶栏计数胶囊始终显示可见集合的导出文件数（可见总量分母，不随已选变化；可见已选 0 时与 `Import all N` 同值，可见已选 ≥1 时 CTA 为可见已选子集），见 §2.2 / `V-27`；非 `All` 档顶栏另有 `RAW` / `JPG` / 日期芯片，`V-31`） | 组头 `Jun 7 · 43 · 74.0 MB` | 「获得文件…」、已选正文句、同屏两个**不同口径**的分母 |
+| `T-CATALOG` | `CATALOG_READY` | 照片墙 | CTA `Import all 512` / `Import 12`（`512` 为假树值；真机 `All` 为 511。可见已选数为 0 时 N = 当前 filter 可见集合的导出文件数，可见已选数 ≥1 时 N = 可见已选数；顶栏计数胶囊始终显示可见集合的导出文件数（可见总量分母，不随已选变化；可见已选 0 时与 `Import all N` 同值，可见已选 ≥1 时 CTA 为可见已选子集），见 §2.2 / `V-27`；非 `All` 档顶栏另有 `RAW` / `JPG` / 日期芯片，`V-31`） | 组头 `Jun 7 · 43 · 74.0 MB` | 「获得文件…」、已选正文句、同屏两个**不同口径**的分母 |
 | `T-IMPORTING` | `IMPORTING` | 大环（180 dp） | 环内 `33%` | 环下 `12/36`；`Pause` / `Cancel` 图标 | 速率卡、`~58 min`、协议、第二个百分比 |
 | `T-PAUSED` | `PAUSED` | 同一环，数值冻结 | 环内 `33%`（不变） | `Resume` / `Cancel` 图标 | 「已暂停」长句、把暂停显示成完成 |
 | `T-DONE` | `DONE` | 环的位置换成完成标记 | `Done` | `36 · 871 MB` + 位置图标；`Open` 次按钮 | `Imported … Skipped … Failed …`、任务 ID、哈希、统计卡 |

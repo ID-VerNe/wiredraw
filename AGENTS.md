@@ -235,7 +235,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移；cmd 参数不许降级（`--self-test` 跑回归用例） |
 | `tools/android-mtp-probe/README.md` | MTP 探针的用法、实测结果与三个坑 |
 | `tools/android-mtp-import/README.md` | 导片工具骨架：类职责、实现状态表、为什么不做真续传、真机待验清单 |
-| `tools/android-mtp-import/UI-SPEC.md` | 导片工具界面规范（约束式）：两条主任务与任务流验收、状态机、布局安全区、视觉/文案基线、U-01–U-55 + T-01～T-06 |
+| `tools/android-mtp-import/UI-SPEC.md` | 导片工具界面规范（约束式）：两条主任务与任务流验收、状态机、布局安全区、视觉/文案基线、§8 全部 `U-xx` 断言 + `T-01`～`T-06` |
 | `tools/sony-ptpip/README.md` | PTP/IP 抓包与探针的操作手册 |
 | `tools/pe/README.md` | PE 检查器：只读边界、5 个子命令、输出形态与样本不入库 |
 | `docs/archive/INDEX.md` | 归档区索引：逐条时间线、环境、结论与本地证据文件名（原始证据不入库） |

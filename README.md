@@ -89,8 +89,8 @@ python scripts/run_gates.py manual
 
 ## 已知限制
 
-- **MTP 会话结束后约 1 分钟相机会挂起 USB**：`open()` 卡 10 秒、`getStorageIds()` 返回空，
-  重试 8 次（约 70 秒）唤不醒，必须拔插数据线（详见 [AGENTS.md](AGENTS.md) §4）。
+- **MTP 会话结束后相机会挂起 USB**：症状、重试次数与耗时以 [AGENTS.md](AGENTS.md) §4 为准；
+  应用内重试唤不醒，必须拔插数据线。
 - **别用 `getObjectHandles` 的 format 过滤**：传 `0xB101` 返回 754 个，逐个 `getObjectInfo`
   只有 511 个真是 `0xB101`；老实走全量枚举（39 ms/个）或按 `parent` 逐目录。
 - **PTP 握手有配对门**：随机 UUID 一律 `Init_Fail reason=1`，只认当初配对的 GUID；

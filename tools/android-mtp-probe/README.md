@@ -158,9 +158,8 @@ adb exec-out run-as com.rea.mtpprobe cat files/report.txt > <本机报告路径>
 
 ## 三个坑（都踩过）
 
-1. **相机会在会话结束后约 1 分钟挂起 USB。**
-   症状：`MtpDevice.open()` 卡 10 秒，`getStorageIds()` 一直返回空。
-   8 次重试仍唤不醒（口径与证据见 [`AGENTS.md`](../../AGENTS.md) §4），**必须拔插 USB 线**。
+1. **相机会在会话结束后挂起 USB**（症状、重试次数与耗时的实测口径见 [`AGENTS.md`](../../AGENTS.md) §4）。
+   应用内重试唤不醒，**必须拔插 USB 线**。
    正式 App 里要么保持会话常开，要么提示用户重插。
 
 2. **`getObjectHandles(storageId, 0xB101, 0)` 的 format 过滤不可信。**

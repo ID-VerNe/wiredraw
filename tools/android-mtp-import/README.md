@@ -437,8 +437,8 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
-- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
-      （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
+- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可能阻塞较久
+      （会话结束后相机会挂起 USB，口径见 `AGENTS.md` §4），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
 - [ ] `onDestroy` 的竞态（PD / issue #50）：先 `cancel` 传输与扫描，再 1 s 有界 join；
       全部退出才 `session.close()`，否则跳过并记日志（1 s 预算）——**未验**（逻辑由 `ImportService.awaitWorker`
       的 SelfTest 覆盖，真机尚未造出「取消打不断原生调用」窗口）
