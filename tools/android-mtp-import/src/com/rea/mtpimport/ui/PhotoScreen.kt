@@ -118,7 +118,7 @@ fun PhotoScreen(model: AppModel) {
                 // #83：胶囊描述**当前档位下的导出文件**，不写死 ARW（V-25 / C-05）。
                 val shown = unit.export(model.exportMode) ?: unit.preview()
                 val label = if (shown.isRaw()) "ARW" else "JPG"
-                Pill(label + " · " + UiText.capacity(shown.size), onDark = true)
+                Pill(label + " · " + UiText.capacity(shown.size), onCanvas = true)
             }
         }
     }

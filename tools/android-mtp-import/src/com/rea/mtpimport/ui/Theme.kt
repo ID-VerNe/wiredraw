@@ -4,8 +4,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.rea.mtpimport.ColorTokens
+import com.rea.mtpimport.TypeTokens
 
 /**
  * 视觉 token 的唯一出处（UI-SPEC §3 的 47 个 token 里界面实际用到的子集）。
@@ -58,12 +60,6 @@ object UiColors {
     /** 无缩略图时的同尺寸灰块（V-19）与计数胶囊底（`V-27` 的 `surface-container`）。 */
     val container = Color(ColorTokens.SURFACE_CONTAINER)
 
-    /** 照片页的降级块底色。 */
-    val containerLow = Color(ColorTokens.SURFACE_CONTAINER_LOW)
-
-    /** `ERROR` 的错误色。 */
-    val error = Color(ColorTokens.ERROR)
-
     /**
      * 抽屉遮罩。底子与画布黑同一个色相，只是带 40% 透明（issue #44 决策：全仓不许再用纯黑）。
      */
@@ -85,14 +81,41 @@ object UiColors {
  */
 private val Sans = FontFamily.SansSerif
 
-val TextBody = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 20.sp, color = UiColors.onSurface)
-val TextSmall = TextStyle(fontFamily = Sans, fontSize = 12.sp, lineHeight = 16.sp, color = UiColors.secondary)
-val TextLabel = TextStyle(fontFamily = Sans, fontSize = 13.sp, lineHeight = 16.sp, color = UiColors.onSurface)
+// 字号 / 行高 / 字重 / 字距全部取自纯 JDK 的 [TypeTokens]（issue #215 / F-11），
+// 值对齐 `UI-SPEC.md:422-434` 的 §3.1 表；`SelfTest.typeTokenCases` 逐档断言。
+val TextBody = TextStyle(
+    fontFamily = Sans,
+    fontSize = TypeTokens.BODY_MD_SIZE_SP.sp,
+    lineHeight = TypeTokens.BODY_MD_LINE_HEIGHT_SP.sp,
+    fontWeight = FontWeight(TypeTokens.BODY_MD_WEIGHT),
+    letterSpacing = TypeTokens.BODY_MD_TRACKING_EM.em,
+    color = UiColors.onSurface
+)
+
+val TextSmall = TextStyle(
+    fontFamily = Sans,
+    fontSize = TypeTokens.BODY_SM_SIZE_SP.sp,
+    lineHeight = TypeTokens.BODY_SM_LINE_HEIGHT_SP.sp,
+    fontWeight = FontWeight(TypeTokens.BODY_SM_WEIGHT),
+    letterSpacing = TypeTokens.BODY_SM_TRACKING_EM.em,
+    color = UiColors.secondary
+)
+
+val TextLabel = TextStyle(
+    fontFamily = Sans,
+    fontSize = TypeTokens.LABEL_MD_SIZE_SP.sp,
+    lineHeight = TypeTokens.LABEL_MD_LINE_HEIGHT_SP.sp,
+    fontWeight = FontWeight(TypeTokens.LABEL_MD_WEIGHT),
+    letterSpacing = TypeTokens.LABEL_MD_TRACKING_EM.em,
+    color = UiColors.onSurface
+)
+
 val TextDisplay = TextStyle(
     fontFamily = Sans,
-    fontSize = 24.sp,
-    lineHeight = 28.sp,
-    fontWeight = FontWeight.SemiBold,
+    fontSize = TypeTokens.DISPLAY_SM_SIZE_SP.sp,
+    lineHeight = TypeTokens.DISPLAY_SM_LINE_HEIGHT_SP.sp,
+    fontWeight = FontWeight(TypeTokens.DISPLAY_SM_WEIGHT),
+    letterSpacing = TypeTokens.DISPLAY_SM_TRACKING_EM.em,
     color = UiColors.onSurface,
     // display-sm 用在状态主文案、环内百分比与 DONE 的 `36 · 871 MB`，等宽数字避免进度跳动。
     fontFeatureSettings = "tnum"
@@ -102,8 +125,10 @@ val TextMonoData = TextStyle(
     // §3.1：字体族必须统一（含 `mono-data`），不得再引入第二套字形。
     // 数字对齐靠 `tabular-nums`（`tnum`），不靠等宽字体（PR #41 第四轮评审 B2）。
     fontFamily = Sans,
-    fontSize = 12.sp,
-    lineHeight = 16.sp,
+    fontSize = TypeTokens.MONO_DATA_SIZE_SP.sp,
+    lineHeight = TypeTokens.MONO_DATA_LINE_HEIGHT_SP.sp,
+    fontWeight = FontWeight(TypeTokens.MONO_DATA_WEIGHT),
+    letterSpacing = TypeTokens.MONO_DATA_TRACKING_EM.em,
     color = UiColors.secondary,
     fontFeatureSettings = "tnum"
 )

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.ColorTokens
+import com.rea.mtpimport.Dims
 
 /**
  * `Modifier.clickable` 在纯 Compose（不引 Material）时没有 `LocalIndication` 可拿，
@@ -145,8 +146,8 @@ fun ProgressRing(
     progress: Float,
     stateText: String?,
     modifier: Modifier = Modifier,
-    diameter: Dp = 180.dp,
-    stroke: Dp = 3.5.dp,
+    diameter: Dp = Dims.TRANSFER_RING_DIAMETER_DP.dp,
+    stroke: Dp = Dims.TRANSFER_RING_STROKE_DP.dp,
     // 参数名不能叫 `center`：Canvas 的 DrawScope 自带 `center` 属性，
     // 同名参数会把画布圆心遮住，`drawCircle` 就画不出来（编译期已报过）。
     inner: @Composable BoxScope.() -> Unit
@@ -200,19 +201,19 @@ fun Scrim(onDismiss: () -> Unit) {
  * 小圆角胶囊：`photo` 页的 `ARW · 24.6 MB` 与 `CATALOG_READY` 顶栏计数胶囊（`V-27`），
  * 统一 `mono-data` 12 sp、等宽数字。顶栏只在 `CATALOG_READY` 复用本组件，其它状态不出现数字。
  *
- * 底色/前景走 `ColorTokens` 的单一事实源：
- * - `onDark = true`（`photo` 页）：`canvas` **实底** + `#ffffff` 字 = 16.83:1（§3.3:525，
+ * 底色/前景走 `ColorTokens` 的单一事实源（参数名与 `ColorTokens.pillBackground(onCanvas)` 同名，F-16）：
+ * - `onCanvas = true`（`photo` 页）：`canvas` **实底** + `#ffffff` 字 = 16.83:1（§3.3:525，
  *   不再用白色 12% alpha，也不再有 `canvas/60` 档）；
- * - `onDark = false`（顶栏）：`surface-container #eeeeee` + `on-surface #1a1c1c` = 14.75:1（`V-27`）。
+ * - `onCanvas = false`（顶栏）：`surface-container #eeeeee` + `on-surface #1a1c1c` = 14.75:1（`V-27`）。
  */
 @Composable
 fun Pill(
     text: String,
     modifier: Modifier = Modifier,
-    onDark: Boolean = false
+    onCanvas: Boolean = false
 ) {
-    val bg = Color(ColorTokens.pillBackground(onDark))
-    val fg = Color(ColorTokens.pillForeground(onDark))
+    val bg = Color(ColorTokens.pillBackground(onCanvas))
+    val fg = Color(ColorTokens.pillForeground(onCanvas))
     Box(
         modifier
             .clip(CircleShape)

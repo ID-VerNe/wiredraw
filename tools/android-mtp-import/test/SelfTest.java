@@ -82,6 +82,9 @@ public final class SelfTest {
         photoWallCases();
         derivedValueCases();
         derivedSourceCases();
+        typeTokenCases();
+        dimsCases();
+        typeSourceCases();
         demoTreesCases();
         demoTransferCases();
         commentRefCases();
@@ -3265,6 +3268,100 @@ public final class SelfTest {
         hits.clear();
         scanned = scanSourceText(srcRoot, "selectionVersion", "src/com/rea/mtpimport/ui/AppModel.kt", hits);
         check("勾选订阅只在 AppModel：页面不得裸读 selectionVersion", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+    }
+
+    // ---------------- 设计基线常量（G7a / issue #215） ----------------
+
+    /**
+     * F-11：五档排版的字号 / 行高 / 字重 / 字距必须与 UI-SPEC §3.1 表逐项一致
+     * （表见 `UI-SPEC.md:422-434`）；V-01 给字号下界。
+     */
+    static void typeTokenCases() {
+        check("body-md = 14/20/400/-0.005em",
+                TypeTokens.BODY_MD_SIZE_SP == 14f
+                        && TypeTokens.BODY_MD_LINE_HEIGHT_SP == 20f
+                        && TypeTokens.BODY_MD_WEIGHT == 400
+                        && Math.abs(TypeTokens.BODY_MD_TRACKING_EM + 0.005f) < 1e-6f,
+                "实际 " + TypeTokens.BODY_MD_SIZE_SP + "/" + TypeTokens.BODY_MD_LINE_HEIGHT_SP
+                        + "/" + TypeTokens.BODY_MD_WEIGHT + "/" + TypeTokens.BODY_MD_TRACKING_EM);
+        check("body-sm = 12/16/400/0",
+                TypeTokens.BODY_SM_SIZE_SP == 12f
+                        && TypeTokens.BODY_SM_LINE_HEIGHT_SP == 16f
+                        && TypeTokens.BODY_SM_WEIGHT == 400
+                        && TypeTokens.BODY_SM_TRACKING_EM == 0f,
+                "实际 " + TypeTokens.BODY_SM_SIZE_SP + "/" + TypeTokens.BODY_SM_LINE_HEIGHT_SP
+                        + "/" + TypeTokens.BODY_SM_WEIGHT + "/" + TypeTokens.BODY_SM_TRACKING_EM);
+        check("label-md = 13/16/500/0.01em",
+                TypeTokens.LABEL_MD_SIZE_SP == 13f
+                        && TypeTokens.LABEL_MD_LINE_HEIGHT_SP == 16f
+                        && TypeTokens.LABEL_MD_WEIGHT == 500
+                        && Math.abs(TypeTokens.LABEL_MD_TRACKING_EM - 0.01f) < 1e-6f,
+                "实际 " + TypeTokens.LABEL_MD_SIZE_SP + "/" + TypeTokens.LABEL_MD_LINE_HEIGHT_SP
+                        + "/" + TypeTokens.LABEL_MD_WEIGHT + "/" + TypeTokens.LABEL_MD_TRACKING_EM);
+        check("display-sm = 24/28/600/-0.02em",
+                TypeTokens.DISPLAY_SM_SIZE_SP == 24f
+                        && TypeTokens.DISPLAY_SM_LINE_HEIGHT_SP == 28f
+                        && TypeTokens.DISPLAY_SM_WEIGHT == 600
+                        && Math.abs(TypeTokens.DISPLAY_SM_TRACKING_EM + 0.02f) < 1e-6f,
+                "实际 " + TypeTokens.DISPLAY_SM_SIZE_SP + "/" + TypeTokens.DISPLAY_SM_LINE_HEIGHT_SP
+                        + "/" + TypeTokens.DISPLAY_SM_WEIGHT + "/" + TypeTokens.DISPLAY_SM_TRACKING_EM);
+        check("mono-data = 12/16/400/0",
+                TypeTokens.MONO_DATA_SIZE_SP == 12f
+                        && TypeTokens.MONO_DATA_LINE_HEIGHT_SP == 16f
+                        && TypeTokens.MONO_DATA_WEIGHT == 400
+                        && TypeTokens.MONO_DATA_TRACKING_EM == 0f,
+                "实际 " + TypeTokens.MONO_DATA_SIZE_SP + "/" + TypeTokens.MONO_DATA_LINE_HEIGHT_SP
+                        + "/" + TypeTokens.MONO_DATA_WEIGHT + "/" + TypeTokens.MONO_DATA_TRACKING_EM);
+
+        // V-01：正文 ≥14 sp、辅助/数字 ≥12 sp；V-02 口径下一档行高不得小于字号。
+        float[] sizes = {
+            TypeTokens.BODY_MD_SIZE_SP, TypeTokens.BODY_SM_SIZE_SP, TypeTokens.LABEL_MD_SIZE_SP,
+            TypeTokens.DISPLAY_SM_SIZE_SP, TypeTokens.MONO_DATA_SIZE_SP
+        };
+        float[] lineHeights = {
+            TypeTokens.BODY_MD_LINE_HEIGHT_SP, TypeTokens.BODY_SM_LINE_HEIGHT_SP,
+            TypeTokens.LABEL_MD_LINE_HEIGHT_SP, TypeTokens.DISPLAY_SM_LINE_HEIGHT_SP,
+            TypeTokens.MONO_DATA_LINE_HEIGHT_SP
+        };
+        boolean floorOk = sizes[0] >= 14f;
+        boolean linesOk = true;
+        for (int i = 0; i < sizes.length; i++) {
+            if (sizes[i] < 12f) floorOk = false;
+            if (lineHeights[i] < sizes[i]) linesOk = false;
+        }
+        check("V-01：正文 ≥14 sp、其余 ≥12 sp", floorOk, "body-md=" + sizes[0]);
+        check("行高不小于字号（五档）", linesOk, "存在行高 < 字号");
+    }
+
+    /** F-12 / F-21：环与抽屉尺寸的唯一定义（V-22 有据；扫描环与 480 dp 为现状口径）。 */
+    static void dimsCases() {
+        check("V-22：传输环外径 180 dp", Dims.TRANSFER_RING_DIAMETER_DP == 180f,
+                "实际 " + Dims.TRANSFER_RING_DIAMETER_DP);
+        check("V-22：传输环描边 3.5 dp", Dims.TRANSFER_RING_STROKE_DP == 3.5f,
+                "实际 " + Dims.TRANSFER_RING_STROKE_DP);
+        check("扫描环沿用 180 / 2 dp", Dims.SCAN_RING_DIAMETER_DP == 180f && Dims.SCAN_RING_STROKE_DP == 2f,
+                "实际 " + Dims.SCAN_RING_DIAMETER_DP + " / " + Dims.SCAN_RING_STROKE_DP);
+        check("两个环同径（180）", Dims.SCAN_RING_DIAMETER_DP == Dims.TRANSFER_RING_DIAMETER_DP,
+                "扫描 " + Dims.SCAN_RING_DIAMETER_DP + " vs 传输 " + Dims.TRANSFER_RING_DIAMETER_DP);
+        check("抽屉最大高度 480 dp", Dims.DRAWER_MAX_HEIGHT_DP == 480f,
+                "实际 " + Dims.DRAWER_MAX_HEIGHT_DP);
+    }
+
+    /** F-11 / F-16 / F-21 的结构守卫：排版与尺寸不得在页面里各写一份。 */
+    static void typeSourceCases() {
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> hits = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "480.dp", null, hits);
+        check("抽屉高度只在 Dims：src 里 480.dp 0 命中", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "letterSpacing", "src/com/rea/mtpimport/ui/Theme.kt", hits);
+        check("字距只在 Theme.kt 落一次", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "onDark", null, hits);
+        check("Pill 参数统一叫 onCanvas：src 里 onDark 0 命中", scanned > 0 && hits.isEmpty(),
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
     }
 
