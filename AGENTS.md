@@ -160,6 +160,24 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | pcap 解析 | `tools/sony-ptpip/parse_ptpip.py` |
 | 全部实测数据与历史 | `docs/research/a7c-usb-raw-2026-11.md` |
 
+### 事实类型 → 唯一权威（冲突时先看这张表）
+
+「单一归属」回答「新代码往哪儿写」，下表回答「同一件事的**说法**听谁的」。别处复述时只给摘要 + 链接；
+单说「唯一事实源」时必须带作用域（如「协作规则的唯一事实源」「门禁清单的唯一事实源」），
+**不许无限定地指代整份 `AGENTS.md`**。
+
+| 事实类型 | 唯一权威 | 别处怎么引 |
+|---|---|---|
+| 协作规则、红线、五步流程入口 | `AGENTS.md` §0 / §2 | `CONTRIBUTING.md` 只给对外最小版 |
+| 流程细则（issue / PR / 评审 / 本地目录） | `docs/contributing/ISSUE_GUIDE.md`、`PR_GUIDE.md`、`REVIEW_DISPATCH.md`、`LOCAL_WORKSPACE.md` | `AGENTS.md` 只给入口与硬规则 |
+| 门禁清单、档位与条数 | `scripts/gates.json`（§0.1 生成段由它渲染） | 文档里**不写条数**，只给指针 |
+| 钩子安装、绕过与审计 | `AGENTS.md` §0.1 | `docs/testing.md` 只讲回归口径 |
+| 实测数据与历史结论 | `docs/research/*`（归档在 `docs/archive/*`） | 只加口径标注，不改当时判断 |
+| 容量与耗时数字口径 | `tools/android-mtp-import/UI-SPEC.md` §4.2 | 假树值必须显式标注 |
+| 验证环境与待验清单 | `docs/verification-matrix.md`（矩阵）+ `docs/known-limitations.md`（快照） | 单点快照只留一处 |
+| 合并评审的派发与检查项 | `docs/contributing/REVIEW_DISPATCH.md`（文案由 `scripts/review_prompt.py` 生成） | 不要手写派发文案 |
+| 自动关单事故的完整叙述 | `docs/contributing/PR_GUIDE.md` 的「硬规则」节 | `REVIEW_DISPATCH` 只留检查项 + 指针 |
+
 ## 4. 环境坑（每个都真实踩过）
 
 - **相机会在 MTP 会话结束后约 1 分钟挂起 USB**（2026-11-04 实测）：
