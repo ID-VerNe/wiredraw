@@ -86,6 +86,7 @@ public final class SelfTest {
         duplicateTextCases();
         importEntryCases();
         importRoundListenerCases();
+        spaceGateCases();
         orphanRoundsCases();
         pauseSwitchCases();
         stuckErrorCases();
@@ -3654,6 +3655,72 @@ public final class SelfTest {
         check("OrphanRounds：adopt 的轮次正常收尾仍保存日志",
                 adopted.awaitWorker(5000) && new File(adoptedOut, "import-journal.txt").isFile(),
                 "日志未保存");
+    }
+
+    /**
+     * 空间预检（G9a，从 `Main.refreshSpaceCheck` / `precheckSpace` 抽出）。
+     *
+     * 两段共用 `SpaceCheck` 的判据，但语义不同：`refresh` 只刷禁用态，计划为空时清态且
+     * **不取磁盘数字**（原实现在 `plan.isEmpty()` 早退之后才 `StatFs`）；`precheck` 不足时
+     * 返回 false 并落一行日志，调用方据此早退。
+     */
+    static void spaceGateCases() {
+        List<String> statuses = new ArrayList<>();
+        List<String> logs = new ArrayList<>();
+        SpaceGate.Sink sink = new SpaceGate.Sink() {
+            @Override
+            public void setSpaceStatus(boolean low, String detail) {
+                statuses.add(low + "/" + detail);
+            }
+
+            @Override
+            public void logLine(String line) {
+                logs.add(line);
+            }
+        };
+
+        Catalog c = sample();
+        Selection s = new Selection(c);
+        // 空勾选会兜底成「当前可见集合」（issue #80），所以空计划只能用可见集合为空来构造：
+        // 例如筛选后一个可导出文件都不剩（issue #83）。
+        ImportPlan emptyPlan = ImportPlan.of(c, s, Collections.emptyList(), PhotoWall.Export.JPG_FIRST);
+        check("SpaceGate：可见集合为空时计划为空", emptyPlan.isEmpty(), "实际非空");
+
+        boolean[] asked = {false};
+        SpaceGate.refresh(sink, emptyPlan, () -> {
+            asked[0] = true;
+            return 0L;
+        });
+        check("SpaceGate.refresh：空计划清禁用态，且不取磁盘数字",
+                statuses.equals(Collections.singletonList("false/")) && !asked[0],
+                "statuses=" + statuses + " asked=" + asked[0]);
+
+        s.setChecked(1, true);
+        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(), PhotoWall.Export.JPG_FIRST);
+        statuses.clear();
+        SpaceGate.refresh(sink, plan, () -> 10_000_000L);
+        check("SpaceGate.refresh：空间足够时不留 Low space",
+                statuses.size() == 1 && statuses.get(0).equals("false/"),
+                "实际 " + statuses);
+
+        statuses.clear();
+        SpaceGate.refresh(sink, plan, () -> 0L);
+        check("SpaceGate.refresh：空间不足时落同口径差额",
+                statuses.size() == 1 && statuses.get(0).equals("true/" + SpaceCheck.describe(0, plan.totalBytes())),
+                "实际 " + statuses);
+
+        statuses.clear();
+        check("SpaceGate.precheck：空间足够返回 true 并清禁用态",
+                SpaceGate.precheck(sink, plan, 10_000_000L) && statuses.equals(Collections.singletonList("false/")),
+                "实际 " + statuses);
+
+        statuses.clear();
+        logs.clear();
+        check("SpaceGate.precheck：空间不足返回 false，落 Low space 并记一行日志",
+                !SpaceGate.precheck(sink, plan, 0L)
+                        && statuses.equals(Collections.singletonList("true/" + SpaceCheck.describe(0, plan.totalBytes())))
+                        && logs.equals(Collections.singletonList("空间不足：计划 " + plan.totalBytes() + " 字节，可用 0 字节")),
+                "statuses=" + statuses + " logs=" + logs);
     }
 
     /** 断言 `needle` 只在 `allow` 一个文件里出现；其它文件命中即红。 */

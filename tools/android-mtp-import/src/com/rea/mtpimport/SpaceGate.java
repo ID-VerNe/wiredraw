@@ -1,5 +1,7 @@
 package com.rea.mtpimport;
 
+import java.util.function.LongSupplier;
+
 /**
  * 空间预检（G9a，从 `Main.refreshSpaceCheck` / `precheckSpace` 抽出，纯 JDK）。
  *
@@ -20,16 +22,20 @@ public final class SpaceGate {
     /**
      * 照片墙出现 / 勾选变化时刷新：计划为空（可见集合里没有可导出文件）时不做拦截。
      *
+     * `freeBytes` 用 supplier 而不是现值：原实现在 `plan.isEmpty()` 早退之后才 `StatFs`，
+     * 空计划不该空转一次磁盘统计（失败时还会多一条日志）。
+     *
      * @param plan 当前可见集合算出的清单；null 等价于空
      */
-    public static void refresh(Sink sink, ImportPlan plan, long freeBytes) {
+    public static void refresh(Sink sink, ImportPlan plan, LongSupplier freeBytes) {
         if (plan == null || plan.isEmpty()) {
             sink.setSpaceStatus(false, "");
             return;
         }
+        long free = freeBytes.getAsLong();
         long planned = plan.totalBytes();
-        boolean enough = SpaceCheck.enough(freeBytes, planned);
-        sink.setSpaceStatus(!enough, enough ? "" : SpaceCheck.describe(freeBytes, planned));
+        boolean enough = SpaceCheck.enough(free, planned);
+        sink.setSpaceStatus(!enough, enough ? "" : SpaceCheck.describe(free, planned));
     }
 
     /** @return false = 空间不足，已落 `Low space` 并记日志；调用方直接 return。 */

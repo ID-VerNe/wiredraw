@@ -78,11 +78,14 @@ final class ScanTask implements Runnable {
             // 句柄只在当前会话里有效；重开前把旧缩略图整块释放。
             host.thumbnails().clear();
             MtpSession opened = MtpSession.open(um, dev, host.log());
+            // 先写回字段再判空（评审 #235）：原实现是 `session = MtpSession.open(...)` 后判 null，
+            // 打开失败时字段必须归 null。改成「判空后再赋值」会把一个已 close 的旧会话留在
+            // Main.session，绕过「没有会话」守卫，让探活打到已关闭的设备上。
+            host.session(opened);
             if (opened == null) {
                 host.showError(run, "相机未就绪，请拔插数据线");
                 return;
             }
-            host.session(opened);
             host.thumbnails().setSession(opened);
             if (run.isCancelled()) {
                 // 取消可能发生在 open() 返回之前：会话不在 UI 线程关，交给 finally 收尾

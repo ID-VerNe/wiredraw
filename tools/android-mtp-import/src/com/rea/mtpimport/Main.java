@@ -860,7 +860,7 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         }
         ImportPlan plan = ImportPlan.of(catalog, selection,
                 model.getVisibleUnits(), model.getExportMode());
-        SpaceGate.refresh(spaceSink, plan, freeBytes());
+        SpaceGate.refresh(spaceSink, plan, this::freeBytes);
     }
 
     /**
