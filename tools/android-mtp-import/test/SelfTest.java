@@ -70,6 +70,7 @@ public final class SelfTest {
         resumeProgressCases();
         partResidueCases();
         uiStateCases();
+        uiTransitionCases();
         finishOutcomeCases();
         stalledDetectionCases();
         stalledServiceCases();
@@ -2724,6 +2725,88 @@ public final class SelfTest {
                 "showsLibrary 判定不符");
         // 顶栏常驻由 TopBarSpec.hasBar 单点保证（K-06 / N-1 单一事实源）；
         // 这里不再用 UiState.hasTopBar 的恒真包装重复断言（issue #212 / A13）。
+    }
+
+    // ---------------- 界面状态迁移表（UiTransition，#213） ----------------
+
+    /**
+     * 墓碑：#213 —— 跨状态字段（backgroundScanning / transferViewClosed / exitConfirmOpen）
+     * 曾经散在 AppModel 的十个方法里，改一个状态容易漏复位另一个。迁移表把「进入某动作时
+     * 三个字段该变成什么」集中到一处，这里逐条钉住；AppModel 只按表赋值。
+     *
+     * 注意 DONE 这条：`showDone` 历史上不写 backgroundScanning，`DONE` 是否应复位它
+     * 规格未定（#213「待裁决」），本表按现状保留，不在这里顺手拍。
+     */
+    static void uiTransitionCases() {
+        UiTransition.Result cold = UiTransition.resolve(UiTransition.Action.COLD, true, true, true);
+        UiTransition.Result permission = UiTransition.resolve(UiTransition.Action.PERMISSION, true, true, true);
+        UiTransition.Result empty = UiTransition.resolve(UiTransition.Action.EMPTY, true, true, true);
+        UiTransition.Result unavailable = UiTransition.resolve(UiTransition.Action.UNAVAILABLE, true, true, true);
+        UiTransition.Result error = UiTransition.resolve(UiTransition.Action.ERROR, true, true, true);
+        check("迁移 COLD/PERMISSION/EMPTY/UNAVAILABLE/ERROR：状态正确、复位扫描标志、覆盖层保持",
+                cold.state == UiState.State.COLD && permission.state == UiState.State.PERMISSION_PENDING
+                        && empty.state == UiState.State.EMPTY_CATALOG
+                        && unavailable.state == UiState.State.UNAVAILABLE
+                        && error.state == UiState.State.ERROR
+                        && !cold.backgroundScanning && !permission.backgroundScanning
+                        && !empty.backgroundScanning && !unavailable.backgroundScanning
+                        && !error.backgroundScanning
+                        && cold.transferViewClosed && cold.exitConfirmOpen,
+                "初始/错误态迁移口径不符");
+
+        UiTransition.Result full = UiTransition.resolve(UiTransition.Action.CATALOG_FULL, true, false, false);
+        check("迁移 CATALOG_FULL：换目录态且复位扫描标志",
+                full.state == UiState.State.CATALOG_READY && !full.backgroundScanning,
+                "实际 " + full.state);
+
+        UiTransition.Result partial = UiTransition.resolve(UiTransition.Action.CATALOG_PARTIAL, false, true, true);
+        check("迁移 CATALOG_PARTIAL：置渐进标志、覆盖层保持",
+                partial.state == UiState.State.CATALOG_READY && partial.backgroundScanning
+                        && partial.transferViewClosed && partial.exitConfirmOpen,
+                "渐进迁移口径不符");
+
+        UiTransition.Result scanning = UiTransition.resolve(UiTransition.Action.SCANNING, true, true, true);
+        check("迁移 SCANNING：只换状态、不动扫描标志（渐进态早退由调用方保证）",
+                scanning.state == UiState.State.SCANNING && scanning.backgroundScanning
+                        && scanning.transferViewClosed && scanning.exitConfirmOpen,
+                "扫描态迁移口径不符");
+
+        UiTransition.Result importing = UiTransition.resolve(UiTransition.Action.IMPORT_START, true, true, true);
+        check("迁移 IMPORT_START：复位视图关闭与确认框、保留扫描标志",
+                importing.state == UiState.State.IMPORTING && !importing.transferViewClosed
+                        && !importing.exitConfirmOpen && importing.backgroundScanning,
+                "导入迁移口径不符");
+
+        UiTransition.Result done = UiTransition.resolve(UiTransition.Action.DONE, true, true, true);
+        check("迁移 DONE：复位覆盖层、保留扫描标志（#213 待裁决，未定不拍）",
+                done.state == UiState.State.DONE && !done.transferViewClosed
+                        && !done.exitConfirmOpen && done.backgroundScanning,
+                "完成态迁移口径不符");
+
+        UiTransition.Result progress = UiTransition.resolve(UiTransition.Action.PROGRESS, true, true, true);
+        UiTransition.Result paused = UiTransition.resolve(UiTransition.Action.PAUSED, true, true, true);
+        UiTransition.Result backReady = UiTransition.resolve(UiTransition.Action.BACK_READY, true, true, true);
+        UiTransition.Result backCold = UiTransition.resolve(UiTransition.Action.BACK_COLD, true, true, true);
+        check("迁移 PROGRESS/PAUSED/BACK_*：只换状态、三个字段全保持",
+                progress.state == UiState.State.IMPORTING && paused.state == UiState.State.PAUSED
+                        && backReady.state == UiState.State.CATALOG_READY && backCold.state == UiState.State.COLD
+                        && progress.backgroundScanning && progress.transferViewClosed && progress.exitConfirmOpen
+                        && paused.backgroundScanning && paused.transferViewClosed && paused.exitConfirmOpen
+                        && backReady.backgroundScanning && backReady.transferViewClosed && backReady.exitConfirmOpen
+                        && backCold.backgroundScanning && backCold.transferViewClosed && backCold.exitConfirmOpen,
+                "保持型迁移口径不符");
+
+        UiTransition.Result discard = UiTransition.resolve(UiTransition.Action.DISCARD_PARTIAL, true, true, true);
+        UiTransition.Result demoReset = UiTransition.resolve(UiTransition.Action.DEMO_RESET, true, true, true);
+        UiTransition.Result leave = UiTransition.resolve(UiTransition.Action.LEAVE_VIEW, true, false, true);
+        check("迁移 DISCARD_PARTIAL/DEMO_RESET/LEAVE_VIEW：state 不变、各自字段终值正确",
+                discard.state == null && !discard.backgroundScanning
+                        && discard.transferViewClosed && discard.exitConfirmOpen
+                        && demoReset.state == null && demoReset.backgroundScanning
+                        && !demoReset.transferViewClosed && !demoReset.exitConfirmOpen
+                        && leave.state == null && leave.backgroundScanning && leave.transferViewClosed
+                        && !leave.exitConfirmOpen,
+                "非状态迁移的字段处置不符");
     }
 
     // ---------------- 整轮结束去向（FinishOutcome，issue #64） ----------------

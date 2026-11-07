@@ -13,6 +13,7 @@ import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.Selection
 import com.rea.mtpimport.ThumbnailStore
 import com.rea.mtpimport.UiState
+import com.rea.mtpimport.UiTransition
 
 /** 界面 → 业务层的动作出口；由 Main 实现（Java 侧实现 Kotlin 接口最省事）。 */
 interface AppCallbacks {
@@ -229,14 +230,28 @@ class AppModel {
         locationPath = path
     }
 
+    /**
+     * 状态迁移的唯一入口（#213）：三个跨状态字段（[backgroundScanning] / [transferViewClosed] /
+     * [exitConfirmOpen]）只在这里赋值，常规状态切换也统一走这里；该复位什么由纯 JDK 的
+     * [UiTransition] 表决定（`SelfTest` 直接驱动那张表，不依赖 Compose）。
+     *
+     * `applyDemo` 的 `when` 分支例外：它按 demo 载荷直接落状态，没有对应的跨状态语义；
+     * [setExitConfirm] 是用户开关覆盖层，也不是状态迁移。
+     */
+    private fun transition(action: UiTransition.Action) {
+        val r = UiTransition.resolve(action, backgroundScanning, transferViewClosed, exitConfirmOpen)
+        r.state?.let { state = it }
+        backgroundScanning = r.backgroundScanning
+        transferViewClosed = r.transferViewClosed
+        exitConfirmOpen = r.exitConfirmOpen
+    }
+
     fun showCold() {
-        backgroundScanning = false
-        state = UiState.State.COLD
+        transition(UiTransition.Action.COLD)
     }
 
     fun showPermission() {
-        backgroundScanning = false
-        state = UiState.State.PERMISSION_PENDING
+        transition(UiTransition.Action.PERMISSION)
     }
 
     /**
@@ -247,7 +262,7 @@ class AppModel {
         scanDone = done
         scanTotal = total
         if (backgroundScanning) return
-        state = UiState.State.SCANNING
+        transition(UiTransition.Action.SCANNING)
     }
 
     /**
@@ -262,11 +277,10 @@ class AppModel {
         scanTotal = total
         selectionVersion++
         if ((wall?.photoCount() ?: 0) == 0) {
-            state = UiState.State.SCANNING
+            transition(UiTransition.Action.SCANNING)
             return
         }
-        backgroundScanning = true
-        state = UiState.State.CATALOG_READY
+        transition(UiTransition.Action.CATALOG_PARTIAL)
     }
 
     /** 取消扫描：已渐进发布的部分结果整批撤掉（issue #60 的取消语义）。 */
@@ -276,23 +290,20 @@ class AppModel {
         wall = null
         selection = null
         selectionVersion++
-        backgroundScanning = false
+        transition(UiTransition.Action.DISCARD_PARTIAL)
     }
 
     fun showEmpty() {
-        backgroundScanning = false
-        state = UiState.State.EMPTY_CATALOG
+        transition(UiTransition.Action.EMPTY)
     }
 
     fun showUnavailable() {
-        backgroundScanning = false
-        state = UiState.State.UNAVAILABLE
+        transition(UiTransition.Action.UNAVAILABLE)
     }
 
     fun showError(reason: String) {
         errorReason = reason
-        backgroundScanning = false
-        state = UiState.State.ERROR
+        transition(UiTransition.Action.ERROR)
     }
 
     fun showCatalog(c: Catalog, s: Selection) {
@@ -300,15 +311,15 @@ class AppModel {
         selection = s
         wall = PhotoWall.of(c)
         selectionVersion++
-        backgroundScanning = false
-        state = if (wall!!.photoCount() == 0) UiState.State.EMPTY_CATALOG else UiState.State.CATALOG_READY
+        transition(
+            if (wall!!.photoCount() == 0) UiTransition.Action.EMPTY
+            else UiTransition.Action.CATALOG_FULL
+        )
     }
 
     fun showImport(doneFiles: Int, totalFiles: Int) {
-        transferViewClosed = false
-        exitConfirmOpen = false
+        transition(UiTransition.Action.IMPORT_START)
         updateProgress(doneFiles, totalFiles)
-        state = UiState.State.IMPORTING
     }
 
     /**
@@ -320,7 +331,7 @@ class AppModel {
     fun updateProgress(doneFiles: Int, totalFiles: Int) {
         importDoneFiles = doneFiles
         importTotalFiles = totalFiles
-        if (!transferViewClosed && state != UiState.State.PAUSED) state = UiState.State.IMPORTING
+        if (!transferViewClosed && state != UiState.State.PAUSED) transition(UiTransition.Action.PROGRESS)
     }
 
     /**
@@ -331,8 +342,7 @@ class AppModel {
      * 进度才允许更新数值、而不是把界面切回 `IMPORTING`。
      */
     fun leaveTransferView() {
-        transferViewClosed = true
-        exitConfirmOpen = false
+        transition(UiTransition.Action.LEAVE_VIEW)
         backToCatalog()
     }
 
@@ -343,25 +353,27 @@ class AppModel {
 
     // 名字不能叫 `setExitConfirmOpen`：`exitConfirmOpen` 这个 property 的 setter 已经占用
     // `setExitConfirmOpen(Z)V`，再写同名方法会平台声明冲突。
+    // 用户开关覆盖层，不是状态迁移，所以不走 [transition]。
     fun setExitConfirm(open: Boolean) {
         exitConfirmOpen = open
     }
 
     fun showPaused() {
-        state = UiState.State.PAUSED
+        transition(UiTransition.Action.PAUSED)
     }
 
     fun showDone(photos: Int, bytes: Long) {
-        transferViewClosed = false
-        exitConfirmOpen = false
         donePhotos = photos
         doneBytes = bytes
-        state = UiState.State.DONE
+        transition(UiTransition.Action.DONE)
     }
 
     /** 取消传输/关闭传输视图：有照片墙就回到 `CATALOG_READY`，否则回 `COLD`。 */
     fun backToCatalog() {
-        state = if ((wall?.photoCount() ?: 0) > 0) UiState.State.CATALOG_READY else UiState.State.COLD
+        transition(
+            if ((wall?.photoCount() ?: 0) > 0) UiTransition.Action.BACK_READY
+            else UiTransition.Action.BACK_COLD
+        )
         // P-09：回到照片墙后必须重算空间预检，不能只依赖勾选变化。
         callbacks?.onBackToCatalog()
     }
@@ -476,8 +488,7 @@ class AppModel {
         setSpaceStatus(false, "")
         clearFailedLines()
         showSkipped(0)
-        transferViewClosed = false
-        exitConfirmOpen = false
+        transition(UiTransition.Action.DEMO_RESET)
         if (p.catalog != null && catalog == null) {
             // 只在还没有照片墙时才建树：从 READY 切 ERROR 等态必须保留已有 wall / selection，
             // 否则「ERROR 返回照片墙、选择还在」（§1.3）演不出来。
