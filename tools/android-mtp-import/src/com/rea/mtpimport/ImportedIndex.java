@@ -29,7 +29,9 @@ import java.util.Map;
  * 格式化后重拍同名文件）分辨不出来，会被当成已导入。这不是本类独有的问题——Journal 与
  * `.part` 命名同样靠 `relPath + size`；要真正区分内容得读出哈希，代价是整文件读一遍。
  *
- * 排除项：`import-journal.txt`（续传日志，不是成品）、本文件与它的 `.tmp`、所有 `*.part`。
+ * 排除项：`import-journal.txt`（续传日志，不是成品）、本文件与它的 `.tmp`、本工具命名的半成品
+ * （`<stem>.<十进制 size>.part`，口径见 {@link PartResidue#isPartName}）。用户自己的 `foo.part`
+ * 不算半成品，照常收录（#210）。
  * 只收普通文件且 `size > 0`。
  *
  * **消费方**：本期（#20）没有。跳过判定仍由 {@link Journal} 负责，索引不参与；后续 UI 单
@@ -81,12 +83,17 @@ public final class ImportedIndex {
         }
     }
 
-    /** 这些名字不是成品：续传日志、索引自身与临时文件、半成品。 */
+    /**
+     * 这些名字不是成品：续传日志、索引自身与临时文件、本工具命名的半成品。
+     *
+     * 半成品的口径见 {@link PartResidue#isPartName}（`<stem>.<十进制 size>.part`）：只有本工具
+     * 自己生成的名字才算，用户自己的 `foo.part` 是普通文件，照常收录（#210）。
+     */
     static boolean excluded(String name) {
         return name.equals(FILE_NAME)
                 || name.equals(TMP_NAME)
                 || name.equals(RoundFiles.JOURNAL_NAME)
-                || name.endsWith(".part");
+                || PartResidue.isPartName(name);
     }
 
     /**

@@ -1590,6 +1590,18 @@ public final class SelfTest {
                 n2 == 2 && indexLines(out).equals(expected),
                 "条数=" + n2 + " 行=" + indexLines(out));
 
+        // 口径裁决（#210）：只有本工具命名的 `<stem>.<size>.part` 是半成品；用户的 foo.part 是普通文件。
+        File judge = Files.createTempDirectory("wiredraw-index-part-naming").toFile();
+        writeSizedFile(new File(judge, "DCIM/A.ARW"), 10);
+        writeSizedFile(new File(judge, "DCIM/A.ARW.10.part"), 7);
+        writeSizedFile(new File(judge, "foo.part"), 3);
+        ImportedIndex.save(judge);
+        List<String> judgeLines = indexLines(judge);
+        check("已导入索引：命名半成品不收、用户的 foo.part 照收（#210）",
+                judgeLines.equals(Arrays.asList("10\tDCIM/A.ARW", "3\tfoo.part")),
+                "行=" + judgeLines);
+        deleteTree(judge);
+
         deleteTree(out);
 
         // 集成：假传输把 .part rename 成成品，轮末索引从磁盘重建。
@@ -2574,6 +2586,18 @@ public final class SelfTest {
                 "干扰项被删");
         check("无主半成品：子目录里的 .part 不被动（半成品只平铺在 outDir）",
                 new File(out, "DCIM/stray.300.part").isFile(), "子目录项被删");
+
+        // 命名口径（#210）：生成侧与识别侧必须同一口径；用户自己的 `.part` 不算半成品。
+        String generated = new File(j.partPath(out.getAbsolutePath(),
+                "DCIM/100MSDCF/DSC02183.ARW", 24389632)).getName();
+        check("半成品命名：partPath 生成的名字必被 isPartName 认出（#210）",
+                PartResidue.isPartName(generated), "生成=" + generated);
+        check("半成品命名：不是本工具命名的 .part 一律不算半成品（#210）",
+                !PartResidue.isPartName("plain.part")
+                        && !PartResidue.isPartName("x.12a.part")
+                        && !PartResidue.isPartName("x..part")
+                        && !PartResidue.isPartName("x.300.part.bak"),
+                "判据放宽了");
 
         deleteTree(out);
     }

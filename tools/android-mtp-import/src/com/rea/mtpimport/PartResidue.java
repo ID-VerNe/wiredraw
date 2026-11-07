@@ -35,7 +35,14 @@ public final class PartResidue {
         return new HashSet<>();
     }
 
-    /** 名字是否是 `<任意>.<十进制 size>.part` 的半成品。 */
+    /**
+     * 名字是否是本工具命名的半成品：`<stem>.<十进制 size>.part`。
+     *
+     * **裁决（#210）**：只有这一种形状算半成品。其它以 `.part` 结尾的名字（如用户自己的
+     * `foo.part`）视为普通文件——{@link ImportedIndex} 照常收录、本类清理不碰。本方法是
+     * `.part` 语义的唯一定义，{@link #orphans} 与 {@link ImportedIndex#excluded} 都委托它，
+     * 别处不要再写 `endsWith(".part")`。
+     */
     static boolean isPartName(String name) {
         if (name == null || !name.endsWith(".part")) return false;
         String stem = name.substring(0, name.length() - ".part".length());
