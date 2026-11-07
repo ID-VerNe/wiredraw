@@ -204,27 +204,28 @@ public class Main extends Activity {
         }
         out("MtpDevice.open() 成功");
 
-        try {
-            printDeviceInfo(mtp);
-            int[] sids = readStorageIds(mtp);
-            if (sids == null) {
-                out("始终拿不到存储。请把 USB 线拔掉重插一次再运行本探针。");
-                return;
-            }
-            ScanResult scan = scanObjects(mtp, sids);
-            reportDiff(mtp, scan);
-            if (scan.samples.length() > 0) out("样例：\n" + scan.samples);
-            if (scan.arwList.isEmpty()) {
-                out("卡里没有 ARW。若刚格式化过卡或卡里只有 JPG，这是正常的。");
-                return;
-            }
-            Downloaded dl = downloadBatch(mtp, scan.arwList);
-            if (dl.firstFull != null) runPartialProbe(mtp, scan, dl);
-            out("=== 探针结束 ===");
-        } finally {
+        printDeviceInfo(mtp);
+        int[] sids = readStorageIds(mtp);
+        if (sids == null) {
+            out("始终拿不到存储。请把 USB 线拔掉重插一次再运行本探针。");
             mtp.close();
             conn.close();
+            return;
         }
+        ScanResult scan = scanObjects(mtp, sids);
+        reportDiff(mtp, scan);
+        if (scan.samples.length() > 0) out("样例：\n" + scan.samples);
+        if (scan.arwList.isEmpty()) {
+            out("卡里没有 ARW。若刚格式化过卡或卡里只有 JPG，这是正常的。");
+            mtp.close();
+            conn.close();
+            return;
+        }
+        Downloaded dl = downloadBatch(mtp, scan.arwList);
+        if (dl.firstFull != null) runPartialProbe(mtp, scan, dl);
+        mtp.close();
+        conn.close();
+        out("=== 探针结束 ===");
     }
 
     private UsbDevice findSonyDevice(UsbManager um) {
@@ -271,14 +272,14 @@ public class Main extends Activity {
     }
 
     /** 相机空闲休眠时 open() 会拖到 10 秒且 getStorageIds() 返回空，等相机醒来就好，所以重试。 */
-    private int[] readStorageIds(ReadOnlyMtp mtp) throws InterruptedException {
+    private int[] readStorageIds(ReadOnlyMtp mtp) {
         int[] sids = null;
         for (int attempt = 1; attempt <= 8; attempt++) {
             sids = mtp.getStorageIds();
             if (sids != null && sids.length > 0) break;
             out("第 " + attempt + "/8 次 getStorageIds() 为空 —— 相机可能休眠了，"
                     + "请按一下相机按键或半按快门唤醒；3 秒后重试");
-            Thread.sleep(3000);
+            try { Thread.sleep(3000); } catch (InterruptedException ignored) { }
         }
         if (sids == null || sids.length == 0) return null;
         out("拿到 " + sids.length + " 个存储");
@@ -405,8 +406,8 @@ public class Main extends Activity {
         d.batch = Math.min(BATCH_MAX, arwList.size());
         File dir = getFilesDir();
 
-        out("---- 批量下载，测稳定吞吐（共 " + d.batch + " 张）----");
         long batchStart = System.nanoTime();
+        out("---- 批量下载，测稳定吞吐（共 " + d.batch + " 张）----");
         for (int i = 0; i < d.batch; i++) {
             ObjectRef e = arwList.get(i);
             File dst = new File(dir, "probe_" + e.name);
