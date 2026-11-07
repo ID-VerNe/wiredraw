@@ -13,8 +13,8 @@
 2. `UsbManager.openDevice()` → `MtpDevice.open()`
 3. 枚举存储、统计卡内文件（按 ARW / JPEG / MP4 / 文件夹分类）
 4. 挑最大的 3 张 ARW 下载，量吞吐、比大小、算 MD5、校验 TIFF 文件头
-5. 对第一张已下载的 ARW 做 `getPartialObject` 语义验证（offset / length 越界 / 普通对象支持面 /
-   分块拼接与整文件比 MD5），见下方「PC 探针」一节
+5. 对第一张已下载的 ARW 做 `getPartialObject` 语义验证（非零 offset 内容判别 / offset 与 length
+   越界 / 普通对象支持面 / 顺序拼接与整文件比 MD5），见下方「PC 探针」一节
 6. 全程日志到 logcat（tag `MTPPROBE`），同时写一份到 `getFilesDir()/report.txt`
 
 ## 构建（不需要 Gradle）
@@ -85,23 +85,60 @@ MD5 = 060f09ec9eb37139060a9f49c52c98a5   （与 PC 侧 pull 下来后一致）
 
 对比：Wi-Fi PTP/IP 走 IED 那套只有 **0.95 MB/s**，USB MTP 快约 **22 倍**。
 
-## PC 探针（`getPartialObject`，2026-11-06）
+## PC 探针（`getPartialObject`，2026-11-06；非零 offset 判别 2026-11-07 / issue #179）
 
-环境：小米 9 / Android 15 (API 35) / ILCE-7C 2.00 / USB MTP。
+环境：11-06 首轮为 E2 MI 9 / Android 15 (API 35) / ILCE-7C 2.00 / USB MTP。
 
-实测结论：
+> **11-06 的「`offset` 是绝对偏移」结论已撤回（#177 / #179）。** 那一轮的用例只覆盖
+> `offset=0` 连读与「从 0 逐块递增」，这两类读法对「忽略 offset、按游标顺序推进」和
+> 「每次从 0 返回」都没有判别力；#177 的真机续传产物（尺寸正确但尾部等于对象头）就是被这套
+> 用例放过去的。当前语义以本机新跑的 **R0–R3** 为准。
 
-- `offset` 是**绝对偏移**：`offset=0` 连读两次拿到相同字节，且与整文件头部一致。
+运行方式：照常构建、安装、启动探针（见上文），跑完取回 `report.txt`：
+
+```powershell
+adb exec-out run-as com.rea.mtpprobe cat files/report.txt > <本机报告路径>
+```
+
+在报告里搜 `非零 offset 内容判别`，能看到四条逐项结果与一行判定。
+
+### 判别用例（R0–R3，只读）
+
+真值是本轮 `importFile` 整文件下载的落盘产物（GetObject 路径，与 `getPartialObject` 不同，
+且 MD5 已与 PC 侧 pull 结果核对），不是被测实现自己拼出来的块。
+
+| 条目 | 请求 | 作用 |
+|---|---|---|
+| `R0 头部参照` | `offset=0`，1 MiB | 确认对象头与基准一致，建立后续位置参照 |
+| `R1 前向跳块` | `offset=2 MiB`，64 KiB | 遵守 offset 时位置必须是 2 MiB；只读到 1 MiB 无法区分「绝对偏移」与「游标顺序推进」 |
+| `R2 回跳` | `offset=8 KiB`，64 KiB | 明显小于游标；忽略 offset 的实现在这里必然拿不到 `[8 KiB, 8 KiB+64 KiB)` |
+| `R3 复位` | `offset=0`，64 KiB | 非零读之后再请求 0，看是否回到对象头 |
+
+每条都先在请求 offset 处逐字节比对；不命中则在基准文件里扫描该片段的首个出现位置，
+所以输出是「请求 offset → 实际内容位置」，而不是只有一个 pass/fail。
+这四条固定排在该对象的第一条 partial 读，避免其它读推进/扰动游标。
+
+### 怎么读判定行
+
+| 判定 | 含义 |
+|---|---|
+| `命中请求 offset（真绝对偏移）` | 四条内容都落在各自请求的 offset；只有这种情况才允许把 offset 当绝对偏移用 |
+| `按游标顺序推进（忽略 offset）` | 每次返回的字节从上一段末尾继续，请求 offset 被忽略 |
+| `每次从 0 返回（offset 被完全忽略）` | 每次都回到对象头 |
+| `混合/未识别` | 不成上述三种模式，按上面逐条位置定位 |
+| `无法判定：…` | 有请求异常 / 返回 0 / 返回字节在基准中找不到；先排除会话与基准问题 |
+
+其余既有结论（仍沿用 11-06 记录，未在 #179 复测）：
+
 - 抽样的 4 张 ARW + 1 张 JPEG 首块均成功（**不能推及所有普通对象**；`0xFFFFC001` 未测）。
-- 24 次 1 MiB + 末次 457,472 字节（共 25 次调用）拼满 24.4 MB 的 ARW，字节数与 MD5
-  和 `importFile` 结果完全一致，文件头是合法 TIFF；吞吐 22.86 MB/s，与 `importFile` 基本同速。
+- 顺序拼接（从 0 逐块递增，共 25 次调用）拼满 24.4 MB 的 ARW，字节数与 MD5 和 `importFile`
+  结果一致、文件头是合法 TIFF，吞吐 22.86 MB/s。**这只证明顺序拼接完整性，不构成 offset 语义证据。**
 - `length` 超过剩余字节会**截断到 EOF**（剩余 100 字节就返回 100），不抛异常。
 - `offset == size` 返回 0；`offset == size + 1` 抛 `IOException: Failed to read data.`。
   **越界后会话是否进入错误态只有首轮观察，本轮未复测 / 未验证**：越界测试固定排在最后，抛异常后
   没有任何后续读取，本轮也**未做会话探活**；该结论留到真机收尾批次复测。
   `offset = size + 1` 是探针有意为之的最后一步，正常续传实现绝不能发出这种请求。
-- 因此续传请求必须满足 `0 <= offset <= size`，且 `length <= size - offset`；
-  分块不要小于 1 MiB（64 KiB 小块单次只有 0.38–0.43 MB/s）。
+- 分块不要小于 1 MiB（64 KiB 小块单次只有 0.38–0.43 MB/s）。
 
 ## 三个坑（都踩过）
 
