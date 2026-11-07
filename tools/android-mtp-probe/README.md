@@ -139,7 +139,7 @@ adb exec-out run-as com.rea.mtpprobe cat files/report.txt > <本机报告路径>
   未验证）。
 - 实际后果：从 0 起逐块顺读**永远对**（此时每步 `offset` 恰好等于游标）；**跳读 / 续传一定错**；
   而且**续读不省带宽**——要让 `offset` 对上相机游标，得先把前一段从 0 读一遍。
-- 证据（环境与 HEAD 快照见[已知限制](../../docs/known-limitations.md) 第二节的验证快照）：
+- 证据（环境与 HEAD 快照见[已知限制](../../docs/known-limitations.md) 第二节末注的环境快照）：
   R1 @2 MiB、R2 @8 KiB 判定行 `实际内容位置=0`（#179）；25 次顺序拼接的字节数与 MD5 与整文件
   一致（#67）。
 
