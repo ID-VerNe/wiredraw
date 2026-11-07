@@ -46,6 +46,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
+from _common import EnvProblem, format_hit, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,10 +57,6 @@ RECORD_SEP = "\x1e"
 
 # `--message-file` 模式没有 hash，用这个固定标签代替。
 MESSAGE_LABEL = "commit message"
-
-
-class EnvProblem(Exception):
-    """取不到 commit message（事件缺 sha、git log 失败、文件读不了）——必须报红。"""
 
 
 def from_event() -> tuple[str, str] | None:
@@ -92,18 +89,10 @@ def fetch_range(rev_range: str, runner=None) -> list[tuple[str, str]]:
     if not isinstance(rev_range, str) or ".." not in rev_range:
         raise EnvProblem(f"range 形态不对：{rev_range!r}，应为 <base>..<head>")
 
-    runner = runner or subprocess.run
     try:
-        proc = runner(
-            ["git", "log", "--format=%H%x1f%B%x1e", rev_range],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except FileNotFoundError as exc:
-        raise EnvProblem("找不到 git 命令") from exc
+        proc = run(["git", "log", "--format=%H%x1f%B%x1e", rev_range], runner=runner)
+    except EnvProblem as exc:
+        raise EnvProblem(f"git log {rev_range} 失败：{exc}") from exc
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip().splitlines()
         raise EnvProblem(
@@ -141,10 +130,7 @@ def _report(source: str, records: list[tuple[str, str]], hits: list[Hit]) -> int
         print(f"[绿] {source}：{len(records)} 条提交 message，无敏感信息命中")
         return 0
     for hit in hits:
-        print(
-            f"[红] {hit.path}:{hit.line} [{hit.category}] "
-            f"{hit.masked()} → {hit.placeholder()}"
-        )
+        print(format_hit(hit))
     print(f"[红] {source}：{len(records)} 条提交、命中 {len(hits)} 处。只显示打码值，原值不落日志")
     return 1
 

@@ -32,16 +32,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from _common import ENV_FAIL, EnvProblem, gh_json, gate_hits, run
 
-# 命中任一前缀即视为「动了门禁链」，要求正文有 `## 门禁改动` 段。
-GATE_TRIGGERS = (
-    "scripts/check_",
-    "scripts/gates.json",
-    "scripts/run_gates.py",
-    ".github/workflows/ci.yml",
-    ".githooks/",
-)
+ROOT = Path(__file__).resolve().parent.parent
 
 # (显示名, 可接受的段名候选)；每行一个「必填段」。
 REQUIRED = [
@@ -231,10 +224,6 @@ def has_section(heads: list[str], names: tuple[str, ...]) -> bool:
     return False
 
 
-def gate_hits(files: list[str]) -> list[str]:
-    return [f for f in files if any(f.startswith(t) or f == t for t in GATE_TRIGGERS)]
-
-
 def closing_side_effects(body: str, visible: str) -> list[str]:
     """查「合并这个动作会不会真的关掉 issue」，而不只是「正文有没有写关键词」。
 
@@ -304,33 +293,21 @@ def check_body(body: str, files: list[str]) -> list[str]:
 
 
 def from_gh(pr: int) -> tuple[str, list[str]]:
+    """取 PR 正文与改动文件；任何环境类失败都映射成退出 2。
+
+    以前坏 JSON 走裸 `json.loads`，抛 `JSONDecodeError` → 退出 1，与 `check_pr_body.py`
+    的退出 2 分叉；同一故障在 CI 里被记成「正文不合格」（#204）。
+    """
     try:
-        proc = subprocess.run(
-            ["gh", "pr", "view", str(pr), "--json", "body,files"],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except FileNotFoundError:
-        # 没有 gh 时按文档退 2，不要甩 traceback。
-        print("[红] 找不到 `gh` 命令，`--pr` 模式需要它读 PR 正文。", file=sys.stderr)
-        raise SystemExit(2)
-    if proc.returncode != 0:
-        print(f"[红] gh 返回 {proc.returncode}：{(proc.stderr or proc.stdout).strip()}", file=sys.stderr)
-        raise SystemExit(2)
-    data = json.loads(proc.stdout)
+        data = gh_json(["pr", "view", str(pr), "--json", "body,files"])
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        raise SystemExit(ENV_FAIL) from exc
+    if not isinstance(data, dict):
+        print(f"[红] gh 返回的不是对象：{type(data).__name__}", file=sys.stderr)
+        raise SystemExit(ENV_FAIL)
     files = [f.get("path", "") for f in data.get("files") or [] if f.get("path")]
     return data.get("body") or "", files
-
-
-class EnvProblem(Exception):
-    """有 PR 上下文但取不全。**必须红（退出 2），不许降级成绿。**
-
-    「取不到改动文件 → `files` 为空 → 门禁链判定恒为否 → 输出绿」是最恶劣的失败形态：
-    同一份正文会因为环境抖动从红变绿，正好是本仓库「把 SKIP 当 PASS」那条误判。
-    """
 
 
 def from_event() -> tuple[str, list[str]] | None:
@@ -359,14 +336,7 @@ def from_event() -> tuple[str, list[str]] | None:
             "此时无法判断是否命中门禁链，不能报绿"
         )
 
-    proc = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...{head}"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    proc = run(["git", "diff", "--name-only", f"{base}...{head}"])
     if proc.returncode != 0:
         raise EnvProblem(
             f"git diff {base}...{head} 失败（{proc.returncode}）："
@@ -606,6 +576,31 @@ def self_test() -> int:
 
         got = probe({"ref": "refs/heads/main"})
         checks.append(("非 PR 事件仍是 SKIP（返回 None）", got == "none", f"实际 {got}"))
+
+    # 环境问题必须退 2：`gh` 正常退出但输出不是 JSON。迁移前这里裸 `json.loads`，
+    # 抛 `JSONDecodeError` 以退出码 1 结束，与 `check_pr_body.py` 的退出 2 分叉（#204）。
+    import _common
+
+    original_run = _common.subprocess.run
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, "not-json", "")
+
+    try:
+        _common.subprocess.run = fake_run
+        try:
+            from_gh(1)
+        except SystemExit as exc:
+            env_exit = exc.code
+        except Exception as exc:  # noqa: BLE001 - 用例要抓「抛错了类型」
+            env_exit = f"异常 {type(exc).__name__}"
+        else:
+            env_exit = "未退出"
+    finally:
+        _common.subprocess.run = original_run
+    checks.append(
+        ("gh 输出坏 JSON 时退 2（不再退 1）", env_exit == 2, f"实际 {env_exit}")
+    )
 
     bad = 0
     for name, ok, detail in checks:

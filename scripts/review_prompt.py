@@ -15,21 +15,12 @@
 from __future__ import annotations
 
 import argparse
-import json
-import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from _common import ENV_FAIL, EnvProblem, gh_json, gate_hits
 
-# 命中任一前缀即视为「动了门禁链」，派发文案里会要求评审者走 PR_GUIDE 的独立复核清单。
-GATE_TRIGGERS = (
-    "scripts/check_",
-    "scripts/gates.json",
-    "scripts/run_gates.py",
-    ".github/workflows/ci.yml",
-    ".githooks/",
-)
+ROOT = Path(__file__).resolve().parent.parent
 
 
 _UTF8_READY = False
@@ -52,26 +43,12 @@ def out(text: str = "") -> None:
 
 
 def run_gh(args: list[str]) -> dict:
+    """取一次 `gh` JSON；环境类失败统一退出 2（见 `_common` 的退出码契约）。"""
     try:
-        proc = subprocess.run(
-            ["gh", *args],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except FileNotFoundError:
-        print("[红] 找不到 `gh` 命令，派发文案需要它读 PR 元信息。", file=sys.stderr)
-        raise SystemExit(2)
-    if proc.returncode != 0:
-        print(f"[红] gh 返回 {proc.returncode}：{(proc.stderr or proc.stdout).strip()}", file=sys.stderr)
-        raise SystemExit(2)
-    try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError as e:
-        print(f"[红] gh 输出不是合法 JSON：{e}", file=sys.stderr)
-        raise SystemExit(2)
+        return gh_json(args)
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        raise SystemExit(ENV_FAIL) from exc
 
 
 def fetch_meta(pr: int) -> dict:
@@ -101,10 +78,6 @@ def fetch_meta(pr: int) -> dict:
 def fetch_body(pr: int) -> str:
     raw = run_gh(["pr", "view", str(pr), "--json", "body"])
     return raw.get("body") or ""
-
-
-def gate_hits(files: list[str]) -> list[str]:
-    return [f for f in files if any(f.startswith(t) or f == t for t in GATE_TRIGGERS)]
 
 
 def render_prompt(meta: dict, body: str = "", with_body: bool = False) -> str:

@@ -36,11 +36,29 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
    `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
    `check_commit_messages.py` / `review_prompt.py` 带 `--self-test`，改门禁先改用例；
+   `_common.py` 没有参数入口，**直接运行即跑自检，带任何参数一律退 2**；
    `check_no_vendored.py` 与 `py_compile` 没有自检入口。
    导片工具有独立的 JVM 自检（`manual` 档的 `selfTest`；项数随用例增加，
    以输出末行 `== 自检全绿：N 项 ==` 为准），
    纯逻辑类不允许 `import android.*`，由编译期强制。
 2. **可重复执行的真机命令**：相机相关结论必须附带可直接粘贴的复现命令与原始输出。
+
+### 退出码契约（`1` 与 `2` 必须分开）
+
+| 码 | 含义 | 典型场景 |
+|---|---|---|
+| `0` | 绿：检查通过 / 自检全绿；本地无 PR 上下文时的 SKIP 也是 `0` | 门禁全绿、`--self-test` 全绿 |
+| `1` | **内容不达标**：这份东西本身不合格 | 断链、敏感值命中、PR 缺必填段、超 5 MB 的被跟踪文件 |
+| `2` | **环境或参数问题**：这次检查没做成 | `gh` / `git` 不可用、输出不是 JSON、文件读不到、参数形态不对 |
+
+混用这两类会让 CI 把环境抖动记成内容问题（或反过来把漏检记成通过）。共享的机械能力
+（`gh` 取数、`git ls-files -z`、命中行格式、门禁链判定、退出码常量）收口在
+[`scripts/_common.py`](../scripts/_common.py)；扫什么、算不算命中仍留在各门禁脚本里。
+
+`git ls-files` 一律带 `-z`：不带时中文文件名会被 `core.quotePath` 转义成假路径，
+`check_doc_links.py` 会把**确实存在**的中文名文档报成「被跟踪 md 读不到」——这是
+`core.quotePath=true` 机器上的固定假红，不是漏检（#204）。
+
 
 写成用例时先写「能红」的用例，再改实现；变异必须替换断言瞄准的子串，前面加无意义前缀不算变异。
 变异还原**不许用 `git checkout --`**（会把本轮全部改动冲回 HEAD），协议是

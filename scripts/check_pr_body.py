@@ -49,38 +49,14 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
+from _common import EnvProblem, format_hit, gh_json  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-class EnvProblem(Exception):
-    """取不到正文/评论（gh 缺失、未登录、事件载荷缺字段）——必须报红，不能当绿。"""
-
-
 def _gh_json(args: list[str], runner=None) -> object:
-    """跑一次 `gh` 并解析 JSON；失败一律抛 EnvProblem，`runner` 仅为自检注入。
-
-    返回类型是 `object`：`gh pr view` 给对象、`gh pr list` 给数组，由调用方各自收窄。
-    """
-    runner = runner or subprocess.run
-    try:
-        proc = runner(
-            ["gh", *args],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except FileNotFoundError as exc:
-        raise EnvProblem("找不到 gh 命令；CI 里需要 GH_TOKEN") from exc
-    if proc.returncode != 0:
-        detail = (proc.stderr or "").strip().splitlines()
-        raise EnvProblem(f"gh 退出 {proc.returncode}：{detail[-1] if detail else '无 stderr'}")
-    try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise EnvProblem(f"gh 返回的不是 JSON：{exc}") from exc
+    """历史名字保留：实际能力已收口到 `_common.gh_json`（#204）。"""
+    return gh_json(args, runner=runner)
 
 
 def _comment_label(item: dict, idx: int) -> str:
@@ -180,10 +156,7 @@ def _report(hits: list[Hit], comments: list[tuple[str, str]]) -> int:
         print(f"[绿] {scope}：无敏感信息命中")
         return 0
     for hit in hits:
-        print(
-            f"[红] {hit.path}:{hit.line} [{hit.category}] "
-            f"{hit.masked()} → {hit.placeholder()}"
-        )
+        print(format_hit(hit))
     print(f"[红] {scope}：命中 {len(hits)} 处。只显示打码值，原值不落日志")
     return 1
 
@@ -198,10 +171,7 @@ def _report_all(
     for number, hits in hits_by_pr:
         print(f"[红] PR #{number}：命中 {len(hits)} 处")
         for hit in hits:
-            print(
-                f"[红] PR #{number} {hit.path}:{hit.line} [{hit.category}] "
-                f"{hit.masked()} → {hit.placeholder()}"
-            )
+            print(format_hit(hit, where=f"PR #{number}"))
     total = sum(len(hits) for _, hits in hits_by_pr)
     print(
         f"[红] 历史 PR 回扫：{pr_count} 个 PR、{comment_count} 条评论，"
