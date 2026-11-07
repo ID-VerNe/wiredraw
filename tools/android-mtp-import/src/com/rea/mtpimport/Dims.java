@@ -10,7 +10,7 @@ public final class Dims {
 
     private Dims() {}
 
-    /** 传输环外径（V-22：`UI-SPEC.md:611`）。 */
+    /** 传输环外径（V-22）。 */
     public static final float TRANSFER_RING_DIAMETER_DP = 180f;
 
     /** 传输环描边（V-22）。 */

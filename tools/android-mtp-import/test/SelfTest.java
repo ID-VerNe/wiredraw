@@ -3437,7 +3437,7 @@ public final class SelfTest {
 
     /**
      * F-11：五档排版的字号 / 行高 / 字重 / 字距必须与 UI-SPEC §3.1 表逐项一致
-     * （表见 `UI-SPEC.md:422-434`）；V-01 给字号下界。
+     * （`UI-SPEC.md` 的 §3.1）；V-01 给字号下界。
      */
     static void typeTokenCases() {
         check("body-md = 14/20/400/-0.005em",

@@ -81,8 +81,8 @@ object UiColors {
  */
 private val Sans = FontFamily.SansSerif
 
-// 字号 / 行高 / 字重 / 字距全部取自纯 JDK 的 [TypeTokens]（issue #215 / F-11），
-// 值对齐 `UI-SPEC.md:422-434` 的 §3.1 表；`SelfTest.typeTokenCases` 逐档断言。
+// 字号 / 行高 / 字重 / 字距全部取自纯 JDK 的 [TypeTokens]（issue #215 / F-11）；
+// 表在 `UI-SPEC.md` 的 §3.1；`SelfTest.typeTokenCases` 逐档断言。
 val TextBody = TextStyle(
     fontFamily = Sans,
     fontSize = TypeTokens.BODY_MD_SIZE_SP.sp,

@@ -36,7 +36,7 @@ used = set(re.findall(r'OP\["([^"]+)"\]', src))
 dead = set(probe.OP) - used
 check("probe OP 死项仅限文档化例外", dead <= {"SetDevicePropValueEx"}, f"死项={sorted(dead)}")
 
-# 2) 只读红线：探针表里只允许 0x9209 这一个写名常量（docs/safety-and-privacy.md:32-33）
+# 2) 只读红线：探针表里只允许 0x9209 这一个写名常量（`docs/safety-and-privacy.md` 的「允许的 opcode」节）
 WRITE_OPS = {0x9209, 0x1016, 0x100B}
 hits = (set(probe.OP.values()) & WRITE_OPS) - {0x9209}
 check("probe OP 无额外写 opcode", not hits, f"命中={[hex(c) for c in hits]}")

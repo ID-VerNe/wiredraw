@@ -51,7 +51,8 @@ RESP_NAMES = {
     0xA003: "Sony_SessionNotOpened",
 }
 
-# 帧类型 1..14 的规范名；probe.py:27-29 只定义到 1..12（13/14 的 Ping/Pong 探针不发）。
+# 帧类型 1..14 的规范名；`probe.py` 的 `INIT_REQ` / `OP_REQ` / `START_DATA` 那组常量
+# 只定义到 1..12（13/14 的 Ping/Pong 探针不发）。
 # describe() 与离线排障都从这里取，避免两处各写一套后漏项（#224）。
 FRAME_NAMES = {
     1: "Init_Command_Request", 2: "Init_Command_Ack",
