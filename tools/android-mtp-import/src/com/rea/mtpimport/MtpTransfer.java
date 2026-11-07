@@ -128,7 +128,7 @@ public final class MtpTransfer implements ResumableTransfer {
                     closeQuietly(pfd);
                     pfd = null;
                     discardPart(part);
-                    return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
+                    return new Result(Kind.CANCELLED, UiText.transferCancelled());
                 }
             }
 
@@ -151,7 +151,7 @@ public final class MtpTransfer implements ResumableTransfer {
             if (token != null && token.isCancelled()) {
                 discardPart(part);
                 log.line("已取消：" + item.relPath + "（未传满，整个半成品已删除）");
-                return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
+                return new Result(Kind.CANCELLED, UiText.transferCancelled());
             }
 
             if (!imported) {
@@ -160,14 +160,13 @@ public final class MtpTransfer implements ResumableTransfer {
             }
 
             // 保留 .part 留给 #52 的生命周期；本轮绝不能记成完成，下一轮也从 0 重写（#177）。
-            return new Result(Kind.FAILED,
-                    "字节数不符：期望 " + item.size + "，实际 " + got);
+            return new Result(Kind.FAILED, UiText.sizeMismatch(item.size, got));
         } catch (Throwable t) {
             closeQuietly(pfd);
             pfd = null;
             if (token != null && token.isCancelled()) {
                 discardPart(part);
-                return new Result(Kind.CANCELLED, "已取消，整个半成品已删除（从 0 重来）");
+                return new Result(Kind.CANCELLED, UiText.transferCancelled());
             }
             return new Result(Kind.FAILED, "传输异常：" + t);
         }
@@ -186,8 +185,7 @@ public final class MtpTransfer implements ResumableTransfer {
         long got = part.length();
         if (got != item.size) {
             // 保留 .part；本轮绝不能记成完成。下一轮从 0 重写（#177）。
-            return new Result(Kind.FAILED,
-                    "字节数不符：期望 " + item.size + "，实际 " + got);
+            return new Result(Kind.FAILED, UiText.sizeMismatch(item.size, got));
         }
         File parent = dest.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
@@ -204,8 +202,8 @@ public final class MtpTransfer implements ResumableTransfer {
             // #177：本轮没有写成品，只是「已存在同尺寸文件」。按 SKIPPED 记，不记 OK；
             // 尺寸相同不等于内容正确（#20 的同路径同尺寸边界仍在）。
             if (part.exists() && !part.delete()) log.line("半成品删除失败（不影响结果）：" + part);
-            log.line("已存在同尺寸文件，未覆盖（仅尺寸核对，内容未校验）：" + item.relPath);
-            return new Result(Kind.SKIPPED, "已存在同尺寸文件，未覆盖（仅尺寸核对，内容未校验）");
+            log.line(UiText.sameSizeExists() + "：" + item.relPath);
+            return new Result(Kind.SKIPPED, UiText.sameSizeExists());
         }
         if (!part.renameTo(dest)) {
             return new Result(Kind.FAILED, "改名失败：" + part + " → " + dest);

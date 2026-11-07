@@ -108,6 +108,36 @@ public final class UiText {
         return "Skipped " + skipped + " existing";
     }
 
+    /** 逐文件跳过 note（Details 里挂在 `[Skipped]` 后）；计数句仍走 {@link #skippedLine(int)}。 */
+    public static String fileSkippedNote() {
+        return "Skipped existing";
+    }
+
+    /** 取消句：半成品整体删除、下一轮从 0 重来（#177 续传停用后的唯一取消口径）。 */
+    public static String transferCancelled() {
+        return "已取消，整个半成品已删除（从 0 重来）";
+    }
+
+    /** 字节对账不符：期望与实际都必须带出来，方便真机排障。 */
+    public static String sizeMismatch(long expected, long actual) {
+        return "字节数不符：期望 " + expected + "，实际 " + actual;
+    }
+
+    /**
+     * 目标已存在同尺寸文件：按 SKIPPED 记、不覆盖。
+     *
+     * **尺寸对账不等于内容校验**（#177），句子必须写明「内容未校验」，不能暗示校验通过。
+     */
+    public static String sameSizeExists() {
+        return "已存在同尺寸文件，未覆盖（仅尺寸核对，内容未校验）";
+    }
+
+    /** 本轮结束摘要：`完成 7 / 跳过 2 / 失败 1（共 10 个） · 已取消`（`stop` 为空时不带尾巴）。 */
+    public static String runSummary(int ok, int skipped, int failed, int total, String stop) {
+        String s = "完成 " + ok + " / 跳过 " + skipped + " / 失败 " + failed + "（共 " + total + " 个）";
+        return stop == null || stop.isEmpty() ? s : s + " · " + stop;
+    }
+
     /** 详情抽屉里的速率（P-03：不进主视觉）。 */
     public static String rate(long bytesPerSecond) {
         if (bytesPerSecond <= 0) return "0 MB/s";
