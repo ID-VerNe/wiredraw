@@ -17,7 +17,6 @@ public final class DemoPayload {
     public final int totalFiles;
     public final long doneBytes;
     public final long totalBytes;
-    public final long bytesPerSecond;
     /** `ERROR` 的一行中文原因（≤20 字）。 */
     public final String errorReason;
     /** `DONE` 的照片数。 */
@@ -33,7 +32,6 @@ public final class DemoPayload {
                        int totalFiles,
                        long doneBytes,
                        long totalBytes,
-                       long bytesPerSecond,
                        String errorReason,
                        int donePhotos,
                        long resultBytes) {
@@ -45,7 +43,6 @@ public final class DemoPayload {
         this.totalFiles = totalFiles;
         this.doneBytes = doneBytes;
         this.totalBytes = totalBytes;
-        this.bytesPerSecond = bytesPerSecond;
         this.errorReason = errorReason == null ? "" : errorReason;
         this.donePhotos = donePhotos;
         this.resultBytes = resultBytes;
