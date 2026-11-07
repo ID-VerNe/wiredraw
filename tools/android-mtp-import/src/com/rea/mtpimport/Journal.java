@@ -12,7 +12,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 断点续传日志：记住「哪个文件已经落了多少字节」，让下次开工能跳过或从中间接着传。
+ * 导入完成日志：记住「哪个文件已经完成」，让下次开工能跳过。
+ *
+ * 续传已停用（issue #177）：这里不再提供「从 `.part` 长度推导起点」的能力；
+ * 记录里只有完成态，残留半成品一律视为不可信。并且「日志说完成」不等于「成品还在」，
+ * 编排层必须再对磁盘做一次存在性 + 尺寸核对才会跳过。
  *
  * 格式故意用行式文本而不是 JSON：不引依赖、出了问题能直接 cat 出来看。
  *
@@ -50,7 +54,7 @@ public final class Journal {
     /**
      * 按「大小 + 相对路径」查已落盘字节数。
      *
-     * MTP handle 不跨会话稳定，重连后同一个文件会换句柄；续传的 resumeFrom 必须走这条，
+     * MTP handle 不跨会话稳定，重连后同一个文件会换句柄；跨会话的完成判定必须走这条，
      * 否则可能把别的文件（或上一次会话里复用同一 handle 的文件）的进度当成自己的。
      * 只有大小与 relPath 都匹配才认。
      */
@@ -90,6 +94,8 @@ public final class Journal {
     /**
      * 跨会话完成判定：按「大小 + 相对路径」找记录，不依赖 handle。
      * 导入编排层应优先用这条；handle 版本只作同会话内的快路径。
+     *
+     * **#177**：本方法只看日志。调用方必须再确认成品仍在磁盘且长度吻合，才能据此跳过。
      */
     public boolean isComplete(String relPath, long size) {
         if (relPath == null || relPath.isEmpty() || size <= 0) return false;
@@ -107,12 +113,12 @@ public final class Journal {
      * 的 `relPath + size` 口径完全一致。
      *
      * 为什么不用句柄命名（PC / issue #50）：MTP handle 不跨会话稳定，重连后同一个句柄
-     * 可能指向另一个文件；按句柄命名的 `.part` 在续传时会接错文件。
+     * 可能指向另一个文件；按句柄命名的 `.part` 在旧续传逻辑里会接错文件。
      *
-     * 为什么必须带 `size`（B-1）：只按 `relPath` 命名时，换卡 / 格式化后编号复用 / 卡上文件被
-     * 替换都会让「同路径、不同内容」的新对象认领旧半成品。旧前缀长度 `L < 新 size S` 时会被
-     * 当成自己的前缀续写，长度恰好 `== S` 就 rename 并记完成，字节数对账通过但内容是两段拼接。
-     * size 进文件名后，异 size 的残留不会被本对象看见（旧文件清理由 #52 负责）。
+     * 为什么带 `size`（B-1）：只按 `relPath` 命名时，换卡 / 格式化后编号复用 / 卡上文件被
+     * 替换都会让「同路径、不同内容」的新对象看见旧半成品。size 进文件名后，异 size 的残留
+     * 不会与本对象混淆；续传停用后（#177）所有残留都不可信，最终清理由 `MtpTransfer` 与
+     * `PartResidue` 负责。
      */
     public String partPath(String outDir, String relPath, long size) {
         String dir = outDir == null ? "" : outDir.replace('\\', '/');
@@ -125,19 +131,6 @@ public final class Journal {
         String s = relPath == null ? "" : relPath;
         s = sanitize(s.replace('\\', '_').replace('/', '_'));
         return s.isEmpty() ? "unnamed" : s;
-    }
-
-    /**
-     * 由已落盘的 `.part` 长度推导续传起点（纯判定，JVM 自检覆盖）。
-     *
-     * - `partLength > size`：半成品比目标还大，来源不可信（换了文件 / 写坏了），按 0 从头传；
-     * - `partLength == size`：半成品已满，传输层直接 rename 落盘；
-     * - 其余原样（0 表示从头）。
-     */
-    public static long resumeFrom(long partLength, long size) {
-        if (partLength <= 0 || size <= 0) return 0;
-        if (partLength > size) return 0;
-        return partLength;
     }
 
     public void save(OutputStream out) throws IOException {

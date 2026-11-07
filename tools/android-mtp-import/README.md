@@ -3,16 +3,18 @@
 把 `tools/android-mtp-probe/`（一次性验证工具）里已经跑通的 MTP 结论，
 沉淀成一个**能日常用**的导片工具的骨架。
 
-> **PA（issue #50）起，整文件传输是真的；PB 补齐暂停 / 取消 / 恢复；PC 补齐真续传。**
+> **PA（issue #50）起，整文件传输是真的；PB 补齐暂停 / 取消 / 恢复；续传已停用（#177）。**
 > `Import all N` / `Import N` 会用 `MtpDevice.importFile()` 把对象读到
-> `getFilesDir()/imported/<relPath>`，逐文件校验字节数并推进进度。
+> `getFilesDir()/imported/<relPath>`，逐文件核对字节数并推进进度。
 > `Pause` 落在文件边界（在传的那个文件会传完），`Cancel` 会关闭正在写的 fd，尝试中断
 > 当前 `importFile`：本次机型实测约 0.6 s 返回；能否打断没有跨机型保证，打不断时由
 > `isCancelStuck()` 给界面出路。
 >
-> PC（#50）用探针 #67 钉死的 `getPartialObject` 语义做真续传：失败/断线保留按
-> `relPath + size` 命名的 `.part`，下一轮按它的实际长度从绝对偏移续读（1 MiB 块，永不越界），
-> 成功后才 rename 并记账；取消会删除整个半成品（从 0 重来）。
+> **续传已停用（止血，issue #177）**：真机实测 `getPartialObject` 的 `offset` 不生效，
+> reader 忽略偏移、从对象起点顺序给数据。把遗留 `.part` 当可信前缀续写会得到
+> 「字节数对、内容错、却报 OK」的文件；满尺寸残留直接 rename 更是把残渣当成品。
+> 所以现在任何既有 `.part` 一律先删除、从 0 整段重写，成功文案只承诺「尺寸核对通过，
+> 内容未校验」。恢复续传前必须先解决 offset 语义或改用可校验的分段方案。
 >
 > PD（#50）补齐：**单文件失败同步重试 1 次（有上限，不做整轮自动重跑）**、逐文件失败固定
 > 展示在 `Location details`、`P-09` 导入前空间预检（不足时禁用主 CTA + 一行 `Low space`），
@@ -37,12 +39,12 @@
 | 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现（空勾选等价于全选：只收照片墙的 ARW，同名 JPG / 顶层非 ARW 不进计划，issue #80） |
 | 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
-| 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
+| 导入完成日志读写（按 `relPath` + 大小判定完成） | ✅ 实现（纯逻辑，JVM 自检覆盖；#177 起不再记录「已落盘字节」） |
 | 线程 / 逐文件回调 | ✅ 实现 |
 | **暂停（文件边界）/ 取消（关 fd 尝试中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 约 0.6 s 返回并重传；打断没有跨机型保证。issue #57 补：恢复前按 `relPath + size` 比较暂停轮次的清单，计划变了就取消旧轮次、按新计划重开——真机未验） |
 | **取消后 / 暂停恢复前复用会话的只读探活（`getObjectInfo`）+ 取消卡死的 ERROR 出路** | ✅ 实现（二审 B-1 / 三审 B-1：取消后与 `Pause & exit` 恢复前都探活；卡死轮次放弃后拦住扫描/新导入且不覆写 journal。探活路径 2026-11-06 真机已验，卡死路径由 SelfTest 覆盖、未触发） |
 | **真正搬字节：`importFile` 整文件传输 + 字节数对账** | ✅ 实现（PA / issue #50，`MtpTransfer`） |
-| **断点续传（`getPartialObject` offset 续读）** | ✅ 实现（PC / issue #50；语义由 #67 探针在 ILCE-7C 上验证，App 内端到端待真机） |
+| **断点续传（`getPartialObject` offset 续读）** | ⛔ 已停用（#177 止血：真机 offset 不生效；遗留 `.part` 一律作废、从 0 重传） |
 | **失败重试（单文件同步 1 次，有上限）** | ✅ 实现（PD / issue #50；`MAX_FILE_ATTEMPTS = 2`，不做整轮自动重跑） |
 | **逐文件失败上报到 UI** | ✅ 实现（PD；固定进 `Location details` 失败列表，DONE 首屏受 U-47 约束不出现 `Failed N`） |
 | **`P-09` 导入前空间预检** | ✅ 实现（PD；计划 + 5% 缓冲不足时禁用主 CTA + 一行 `Low space`，差额进 Details；真机未验） |
@@ -61,17 +63,17 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ Selection         勾选集合；勾目录 = 把子孙写进集合                   [纯 JDK]
 ├─ ImportPlan        勾选 → 去重清单 + totalBytes()                     [纯 JDK]
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
-├─ Journal           续传日志：markDone / isComplete / partPath / resumeFrom / 存取  [纯 JDK]
-├─ PartResidue       无主 .part 清理：保留集 relPath + size，枚举成功才清（#52） [纯 JDK]
+├─ Journal           导入完成日志：markDone / isComplete / partPath / 存取（#177 删 resumeFrom） [纯 JDK]
+├─ PartResidue       无主 .part 清理：保留集恒空（#177 续传停用），枚举成功才清（#52） [纯 JDK]
 ├─ ImportedIndex     已导入索引：outDir 磁盘镜像派生（relPath + size），每轮重建    [纯 JDK]
 ├─ DestPolicy        落盘冲突策略：relPath 解析 + 同名异尺寸拒绝覆盖（#54）；落点根（#28）    [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
 ├─ ImportGate        主 CTA 准入判定：后台扫描 + 空间不足两条件（N-1）         [纯 JDK]
 ├─ ImportService     编排：线程、暂停（文件边界）、取消、重试、逐文件调 transfer  [纯 JDK]
 ├─ CancelToken       取消令牌：置位 + 立即执行传输层的中断动作（PB）       [纯 JDK]
-├─ ResumableTransfer 传输契约（整文件 / 取消 / offset 续传，语义见 #67）    [纯 JDK]
-├─ MtpTransfer       真实传输：importFile（从头）/ getPartialObject（续传）
-│                    → 校验字节 → rename 到 relPath；取消删本次半成品（PB/PC） [android]
+├─ ResumableTransfer 传输契约（整文件 / 取消；`resumeFrom` 恒为 0，#177）   [纯 JDK]
+├─ MtpTransfer       真实传输：importFile 从 0 整段写（#177 不再发 getPartialObject）
+│                    → 核对字节 → rename 到 relPath；取消删本次半成品（PB） [android]
 ├─ ThumbnailStore    缩略图/看图页预览：getThumbnail → 同名 JPG；网格 24 MiB + 预览 8 MiB [android]
 ├─ ImportListener    回调接口（全 default）                              [纯 JDK]
 ├─ AttachGate        插线事件准入判定：去重，同一次插拔不得开两个会话     [纯 JDK]
@@ -111,38 +113,34 @@ import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`�
 `pureJdkClasses` 清单还有第 0 步漂移检查兜底——`checkPureJdkList` 拿「磁盘上不 import android
 的文件」与清单比对，漏列一个文件就判红（否则新加的纯逻辑类会悄悄脱离这条保护）。
 
-## 断点续传（PC / issue #50）
+## 续传已停用（止血 / issue #177）
 
-`getPartialObject` 的语义先由 `tools/android-mtp-probe` 在 ILCE-7C 上实测（issue #67），
-结论已钉死：`offset` 是**绝对偏移**；抽样的 4 张 ARW + 1 张 JPEG 首块均成功
-（未覆盖全部普通对象，`0xFFFFC001` 未测）；1 MiB 分块拼满
-24.4 MB ARW 的字节数、MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）；
-`length` 超剩余截断到 EOF；`offset == size` 返回 0；`offset == size + 1` 抛
-`IOException: Failed to read data.`（#67 首轮观察；越界后会话是否进入错误态本轮未复测、
-也未做会话探活）。
+**结论（2026-11-07 真机实测，小米 9 / Android 15 API 35 / USB MTP）**：`getPartialObject` 的
+`offset` 不生效——reader 忽略偏移、从对象起点顺序给数据。把遗留 `.part` 当可信前缀 append，
+会把「文件从 0 开始那一段」追加到后面：字节数对得上、MD5 错、日志却打 `[OK]`。
+issue #67 在 ILCE-7C 上用探针得到的「offset 是绝对偏移」结论因此不能作为 App 契约
+（探针侧另有会话在纠正，这里只按已观测到的行为止血）。
 
-对应实现：
+当期策略：**不给续传留任何捷径**。
 
-- `resumeFrom == 0` 仍走已验的 `importFile`；
-- `0 < resumeFrom < size` 走 `getPartialObject(handle, offset, min(1 MiB, size - offset), buf)`
-  循环 append 到 `.part`，**永不请求 `offset > size`**；每块按绝对偏移回调携带进度
-  （#70，见下节「文件内进度」）；
-- `resumeFrom == size` 直接把半成品 rename 落盘；
-- 半成品按 `<relPath 压平>.<size>.part` 命名（`Journal.partPath`），与跳过判定的
-  `relPath + size` 同口径、跨会话稳定；同路径异 size 的旧残留不会被当成本对象的前缀；
-  旧 size 的残留（`relPath` 已被新对象复用、size 对不上）由新一轮开始前的 `PartResidue` 按
-  `relPath + size` 清理（#52）；
-  续传起点取自 `.part` 实际长度（`Journal.resumeFrom`），超过目标大小视为损坏、从 0 重传；
-- 失败 / 断线保留 `.part`，取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）；
+- `ImportService` 的 `resumeFrom` 恒为 0，不再按 `.part` 实际长度推导；每次重试也从 0 重写，
+  避免失败轮次写下的残余长度被当成新起点、把损坏放大。
+- `MtpTransfer` 只走 `importFile` 整文件路径，**不再发 `getPartialObject`**；
+  已删除 `append()` 与 `from == size` 直通（后者等于「尺寸凑够就 rename 当成品」）。
+- 任何既有 `.part` 一律视为不可信：`MtpTransfer.whole()` 入口先删除，删不掉直接 FAILED
+  （不继续写）；`PartResidue.keepNames()` 保留集恒空，完整枚举后顶层 `.part` 全清
+  （#52 的清理机制保留）。
+- `.part` 仍按 `<relPath 压平>.<size>.part` 命名（`Journal.partPath`），但它只是临时文件名，
+  不再承载「已传前缀」语义。
+- 失败 / 断线保留 `.part`（下一轮从 0 重写）；取消删除整个半成品（取消 = 从 0 重来，与 PB 一致）。
 - 结束时字节数必须等于相机侧 `ImportPlan.Item.size`，否则 FAILED 且保留 `.part`。
-- 新一轮开始时清理无主 `.part`（#52）：只扫 `outDir` 顶层，保留集与 `Journal.partPath` 同口径
-  （`relPath + size`）——`relPath` 已不在本次目录，或同 `relPath` 但 size 已不被任何对象认领
-  （换卡 / 编号复用 / 文件替换留下的旧尺寸残留）一律删除；`relPath + size` 都对得上的保留
-  （含异尺寸拒绝留下的合法半成品，它的 size 就是当前对象 size）。开关是「本次枚举是否完整成功」
-  而不是「清单是否为空」：相机上没有可导入文件时照清，枚举失败 / 取消时一律不清。
-  完整性由 `ScanResult` 一次算出：`getObjectInfo` 返回 null 的丢弃计数、`getObjectHandles`
-  返回 null 的存储数、是否取消，任一非零即不完整；跳过时留一行含计数的中文原因。
-  清理前双闸已确认没有活动轮次；删除失败只记日志、不阻断本轮。
+- **完成只做尺寸核对，不做内容校验**：成功文案固定为「尺寸核对通过（内容未校验）」；
+  目标已存在同尺寸文件时按 `SKIPPED` 记并注明「仅尺寸核对，内容未校验」，不再记 `OK`。
+  Journal 说完成也不再单独作数——`ImportService` 必须再确认成品存在且长度吻合才跳过，
+  否则记一行日志并重新导入。
+- 无主 `.part` 清理（#52）的开关仍是「本次枚举是否完整成功」（`ScanResult.complete`），
+  不是「清单是否为空」：枚举失败 / 取消时一律不清；清理前双闸确认没有活动轮次；
+  删除失败只记日志、不阻断本轮。
 
 ## 已导入索引（issue #20）
 
@@ -173,8 +171,8 @@ import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`�
 - `Catalog.Entry` 记下 `storageId`；`Catalog.storageConflicts()` 把「同 relPath、不同 storage」的文件暴露出来。
 - `ImportPlan` 把这些项标成 `conflict`；`ImportService` 在 Journal 判定**之前**直接计入失败并写日志，
   **不调 transfer、不写 Journal**——否则同尺寸的第二项会被当成「已完成」静默跳过，用户看到的是「一切顺利」。
-- `DestPolicy` 在落盘前判目标：不存在 → 正常写；同名同尺寸 → 按同一文件处理（不覆盖、不重传，与 #20 同口径）；
-  **同名异尺寸 → 失败并保留旧文件**，不删除。
+- `DestPolicy` 在落盘前判目标：不存在 → 正常写；同名同尺寸 → 不覆盖、按 `SKIPPED` 记
+  （仅尺寸核对，内容未校验 #177，不再记 `OK`）；**同名异尺寸 → 失败并保留旧文件**，不删除。
 
 **边界**：本方案**不修「两个同名文件仍争同一落盘路径」**——本期不支持把两份同名文件同时导入；
 它保证的是**不覆盖已存在的文件、不把冲突项记成完成**。同路径同尺寸但内容不同，仍然分辨不出来
@@ -187,15 +185,16 @@ import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`�
 ## 错误与重试 / 空间预检 / onDestroy（PD / issue #50）
 
 - **单文件失败重试**：`ImportService.MAX_FILE_ATTEMPTS = 2`，即首次 + 1 次同步重试；
-  每次尝试前按 `.part` 实际长度重算 `resumeFrom`（失败可能已写进部分字节，第二次走续传）。
+  每次尝试都从 0 重写（#177：不再按 `.part` 实际长度重算起点，避免把损坏放大）。
   重试耗尽后 `failed++`，note 带「已尝试 N 次」；**不做整轮自动重跑**，用户再点 Import 时
-  Journal 跳过已完成、`.part` 从断点续传。取消优先：已取消就不再重试，也不把用户取消计入失败。
+  Journal 跳过已完成（且成品必须在磁盘上）、失败的 `.part` 从 0 重传。
+  取消优先：已取消就不再重试，也不把用户取消计入失败。
 - **逐文件失败上报**：每次 FAILED 都进 `AppModel.failedLines`（最多 20 条），固定展示在
   `Location details` 抽屉，不会被 `logLines.takeLast(8)` 挤掉；DONE 首屏受 U-47 约束
   **不出现** `Failed N`。所有文件都失败仍走现有 `ERROR` 路径。
 - **无进展挂起（#63）**：`ImportService.isStalled()` 在「worker 仍活着、**没取消、没暂停**、
-  且距最后一次进入一次文件传输（整文件 `importFile`，或续传的 `getPartialObject` 分块循环）
-  已超过 60 s」（`NO_ACTIVITY_GRACE_NANOS`）时成立。
+  且距最后一次进入一次文件传输（整文件 `importFile`）已超过 60 s」
+  （`NO_ACTIVITY_GRACE_NANOS`）时成立。
   `Main.abandonStuckService()` 把它与「取消卡住」共用同一条放弃出路，但返回成因、屏幕文案分开：
   挂起落 `ERROR`「相机长时间无响应，请拔插数据线」，取消卡住仍是「相机连接可能已失步，
   请拔插数据线」（issue #116）。于是相机休眠 / USB 掉线导致的挂起轮次不再让
@@ -215,9 +214,9 @@ import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`�
 
 ## 文件内进度（issue #70）
 
-`ResumableTransfer` 新增 `LongConsumer progress` 参数，续传路径每块按**绝对偏移**上报；
-整文件 `importFile` 路径没有字节级回调，仍在文件边界一次推进。`TransferProgress` 把
-「已完成文件字节」与「当前文件字节」分开记：
+`ResumableTransfer` 新增 `LongConsumer progress` 参数；#177 续传停用后只剩整文件
+`importFile` 路径，它没有字节级回调，仍在文件边界一次推进（块级回调接口保留，当前实现不调用）。
+`TransferProgress` 把「已完成文件字节」与「当前文件字节」分开记：
 
 - `beginFile(alreadyOnDisk, size)` 进入一次尝试时**重设**当前文件（不是累加）——
   同一文件失败后重试会再调一次，累加会把磁盘上同一段字节记两遍（重试后数字跳到 80 而不是 40）；
@@ -291,7 +290,7 @@ adb logcat -s MTPIMPORT:*
 **已有该设备授权记录**时静默通过，首次或无授权记录时系统仍会弹「是否允许访问 MTP」，
 必须点「允许」（manifest 挂了 `USB_DEVICE_ATTACHED` + `res/xml/device_filter.xml`）。
 
-续传日志落在 `getFilesDir()/imported/import-journal.txt`（与已导入索引 `imported-index.txt` 同目录），
+导入日志落在 `getFilesDir()/imported/import-journal.txt`（与已导入索引 `imported-index.txt` 同目录），
 可以直接看：
 
 ```bash
@@ -303,7 +302,7 @@ adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
 - **默认**：`getFilesDir()/imported`，不弹任何权限请求；系统「清理缓存」不会带走，「清除数据 / 卸载」会。
 - **布局**：镜像相机 `relPath`，即 `<root>/<relPath>`，**不额外加日期层、不加机型层**。日期分组由相机目录自带（卡内是 `2025-06-07/` 这类目录时天然按日期落）；`relPath` 同时是 Journal / 索引主键，落点路径与识别键保持一致，不出现「识别对了、路径变了」的双份账。
 - **回退可见**：请求的落点不可用时回退私有根，`DestPolicy.Destination.fallbackReason` 必须非空，`Main` 在 `onCreate` 写日志；不得只留在调试输出。
-- **相册未接入**：MediaStore 权限 / `.ARW` 的 MIME / `RELATIVE_PATH` 均未真机验证；且 `.part` 在私有目录、成品在 MediaStore 属跨 provider，`File.renameTo` 不可用，要改成流式复制。所以请求相册一律回退，不写「看似可用」的代码。接入前必须先拆「状态目录（journal / index / `.part`）」与「成品根」，否则换根会丢续传记录。
+- **相册未接入**：MediaStore 权限 / `.ARW` 的 MIME / `RELATIVE_PATH` 均未真机验证；且 `.part` 在私有目录、成品在 MediaStore 属跨 provider，`File.renameTo` 不可用，要改成流式复制。所以请求相册一律回退，不写「看似可用」的代码。接入前必须先拆「状态目录（journal / index / `.part`）」与「成品根」，否则换根会丢导入记录。
 - **存量兼容**：默认根不变，老文件路径与 `relPath + size` 键都不变，不会因为落点策略把老文件当冲突或重传。
 
 ## 假数据模式（不插相机也能走完 10 个状态）
@@ -416,11 +415,11 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 - [x] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
       下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）
       —— 2026-11-06 实测：取消后立即再导入，探活通过、无 `ERROR`，继续落盘 7 张
-- [ ] 真续传端到端（PC / issue #50）：导入中断线 / 杀进程，`files/imported/` 留下
-      `<relPath 压平>.<size>.part`；
-      重新插线再点 `Import N`，日志必须出现「发现半成品：… 已有 N 字节，从断点续传」，
-      最终字节数 == 相机侧 `size`、文件头 `49 49 2A 00`、MD5 与整文件结果一致；不得重传已落盘前缀
-      —— **未验**（分块语义由 #67 探针实测，App 内编排与恢复窗口待真机）
+- [ ] 续传停用止血（#177）：导入中断线 / 杀进程，`files/imported/` 留下
+      `<relPath 压平>.<size>.part` 残留；重新插线再点 `Import N`，日志必须出现
+      「作废旧半成品（… 续传已停用，从 0 重传）」，且成品 MD5 与整文件传输一致；
+      **不得**出现「发现半成品：… 从断点续传」，也不得把满尺寸残渣直接 rename 当成品
+      —— **未验**（本轮设备被另一会话独占；控制流由 SelfTest 的「忽略 offset」假 reader 覆盖）
 - [ ] 若 `pfd.close()` 打不断原生调用（`MtpTransfer` 未验项）：取消宽限 3 秒后必须判定「卡死」，
       点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`）；旧 worker 未退出前
       `Connect camera` / 新导入都必须保持 `ERROR`（不得 `session.close()` 撞上原生调用），
@@ -450,7 +449,7 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 - [ ] 逐文件失败上报（PD / issue #50）：制造一个单文件失败（拔线/相机休眠），`Location details`
       必须固定显示 `Failed: <relPath> · <原因>`，不被后续日志挤掉；DONE 首屏不得出现 `Failed N`
       —— **未验**
-- [ ] 单文件重试（PD / issue #50）：首次 `importFile` / `getPartialObject` 失败后必须自动重试 1 次，
+- [ ] 单文件重试（PD / issue #50）：首次 `importFile` 失败后必须自动重试 1 次（重试也从 0 重写，#177），
       重试成功仍记完成；连续失败只累计 `failed`，不得无限重试或整轮自动重跑
       —— **未验**（SelfTest 覆盖「首次失败→第二次成功」与「全失败恰好 2 次」）
 - [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）

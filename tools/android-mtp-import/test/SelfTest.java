@@ -64,7 +64,8 @@ public final class SelfTest {
         pauseCancelCases();
         resumePlanCases();
         importServicePauseClockCases();
-        partialResumeCases();
+        resumeDisabledCases();
+        noResumeSourceCases();
         resumeProgressCases();
         partResidueCases();
         uiStateCases();
@@ -958,17 +959,6 @@ public final class SelfTest {
                 "实际 " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 300)
                         + " vs " + j.partPath("/sdcard/out", "DCIM/100MSDCF/DSC02183.ARW", 301));
 
-        check("resumeFrom：没有半成品 → 0", Journal.resumeFrom(0, 300) == 0,
-                "实际 " + Journal.resumeFrom(0, 300));
-        check("resumeFrom：部分落盘原样返回", Journal.resumeFrom(40, 300) == 40,
-                "实际 " + Journal.resumeFrom(40, 300));
-        check("resumeFrom：已满返回 size（可直接落盘）", Journal.resumeFrom(300, 300) == 300,
-                "实际 " + Journal.resumeFrom(300, 300));
-        check("resumeFrom：超过 size 视为损坏，回 0 重传", Journal.resumeFrom(301, 300) == 0,
-                "实际 " + Journal.resumeFrom(301, 300));
-        check("resumeFrom：size 未知 → 0", Journal.resumeFrom(10, 0) == 0,
-                "实际 " + Journal.resumeFrom(10, 0));
-
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try {
             j.save(bos);
@@ -1132,10 +1122,11 @@ public final class SelfTest {
     }
 
     /**
-     * issue #70：像真实续传路径一样按块上报**当前文件的绝对偏移**，并可选「首次失败 + 重试闸门」。
+     * issue #70：按块上报**当前文件的绝对偏移**，并可选「首次失败 + 重试闸门」。
      *
+     * - 每次调用都从 0 截断重写（续传已停用，#177：旧 `.part` 不得作为前缀）。
      * - `failFirst=true`：同一 relPath 的第一次调用在落 40 字节后返回 FAILED；
-     *   第二次调用（重试）刚上报 resumeFrom 就停住，等用例核对「重试不双计」后再放行。
+     *   第二次调用（重试）刚上报起点 0 就停住，等用例核对「重试不双计」后再放行。
      * - 闸门只挂在第 2 次调用（第一个文件的重试），不干扰后续文件。
      */
     static final class ResumeReportingTransfer implements ResumableTransfer {
@@ -1162,7 +1153,8 @@ public final class SelfTest {
                 File part = new File(partPath);
                 indexMkdirs(part.getParentFile());
                 long offset = resumeFrom;
-                try (FileOutputStream out = new FileOutputStream(part, true)) {
+                // 续传停用（#177）：无论磁盘上有没有残留，都从 0 截断重写。
+                try (FileOutputStream out = new FileOutputStream(part, false)) {
                     progress.accept(offset);
                     if (failFirst && index == 2) {
                         retryEntered.countDown();
@@ -1259,7 +1251,8 @@ public final class SelfTest {
                 PhotoWall.Export.JPG_FIRST);
 
         File out = Files.createTempDirectory("wiredraw-import").toFile();
-        RecordingTransfer t1 = new RecordingTransfer();
+        // 续传停用（#177）：只有真正产出成品的假传输才能让 Journal 记账可核对。
+        RenamingTransfer t1 = new RenamingTransfer(out);
         FinishRecorder r1 = new FinishRecorder();
         new ImportService(Log.NOOP, t1, out).start(plan, r1);
         check("ImportService：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
@@ -1274,15 +1267,19 @@ public final class SelfTest {
                 r1.lastProgress == null ? "无进度"
                         : r1.lastProgress.bytesDone() + " / " + r1.lastProgress.filesDone());
         Journal j = new Journal();
-        check("ImportService：写出的 .part 落在 outDir 且按 relPath + size 命名（PC / #50）",
-                new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG", 100)).isFile()
-                        && new File(j.partPath(out.getAbsolutePath(), "DCIM/DSC02999.ARW", 50)).isFile(),
+        check("ImportService：成品落在 outDir 的镜像 relPath 处（PC / #50）",
+                new File(out, "DCIM/100MSDCF/DSC02183.JPG").isFile()
+                        && new File(out, "DCIM/DSC02999.ARW").isFile(),
+                "实际 " + Arrays.toString(out.list()));
+        check("ImportService：成功一轮不留 .part（续传停用，#177）",
+                !new File(j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.JPG", 100)).exists()
+                        && !new File(j.partPath(out.getAbsolutePath(), "DCIM/DSC02999.ARW", 50)).exists(),
                 "实际 " + Arrays.toString(out.list()));
         check("ImportService：日志文件写出 import-journal.txt",
                 new File(out, "import-journal.txt").isFile(),
                 "实际 " + Arrays.toString(out.list()));
 
-        // 第二轮：同一目录 + 同一 plan，应该全部按 relPath + size 跳过，不再调 transfer
+        // 第二轮：同一目录 + 同一 plan，成品与账本都在，应该全部跳过，不再调 transfer
         RecordingTransfer t2 = new RecordingTransfer();
         FinishRecorder r2 = new FinishRecorder();
         new ImportService(Log.NOOP, t2, out).start(plan, r2);
@@ -1320,8 +1317,8 @@ public final class SelfTest {
                 t4.calls.size() == plan.count() * 2,
                 "calls=" + t4.calls.size());
 
-        // PD / B-2：首次失败已落 40 字节，第二次 attempt 必须按 `.part` 实际长度重算
-        // resumeFrom（40），不能沿用 0 或只算一次。
+        // #177：续传停用。首次失败即使已落 40 字节，第二次 attempt 也必须从 0 重传，
+        // 否则「忽略 offset」的 reader 会把 0 前缀追加到残留后面，尺寸对、内容错。
         File partialOut = Files.createTempDirectory("wiredraw-import-partial").toFile();
         FlakyTransfer t5 = new FlakyTransfer();
         t5.firstFailureBytes = 40L;
@@ -1332,10 +1329,10 @@ public final class SelfTest {
                 r5.ok == 2 && r5.failed == 0 && r5.skipped == 0,
                 "ok=" + r5.ok + " failed=" + r5.failed + " skipped=" + r5.skipped);
         boolean resumesOk = t5.resumeFroms.size() == plan.count() * 2;
-        for (int i = 0; resumesOk && i < t5.resumeFroms.size(); i += 2) {
-            resumesOk = t5.resumeFroms.get(i) == 0L && t5.resumeFroms.get(i + 1) == 40L;
+        for (int i = 0; resumesOk && i < t5.resumeFroms.size(); i++) {
+            resumesOk = t5.resumeFroms.get(i) == 0L;
         }
-        check("PD 重试：第二次 attempt 按 .part 实际长度重算 resumeFrom（40 字节）",
+        check("PD 重试：每次 attempt 的 resumeFrom 都是 0（续传停用，#177）",
                 resumesOk, "实际 " + t5.resumeFroms);
 
         // PD / B-2：首次 FAILED 同时已请求取消 → 归为已取消，不计失败、也不再重试。
@@ -1586,7 +1583,7 @@ public final class SelfTest {
             } else if (n == 2) {
                 secondEntered.countDown();
             }
-            return writeFakePart(item, partPath);
+            return writeFakeFile(item, partPath);
         }
     }
 
@@ -1783,6 +1780,28 @@ public final class SelfTest {
         }
     }
 
+    /**
+     * 落满尺寸的 `.part` 再 rename 到 outDir/<relPath>，模拟真实传输的收尾。
+     * 续传停用（#177）后，Journal 的跳过必须能在磁盘上看到成品，暂停/取消用例要用这条。
+     */
+    static ResumableTransfer.Result writeFakeFile(ImportPlan.Item item, String partPath) {
+        try {
+            File part = new File(partPath);
+            indexMkdirs(part.getParentFile());
+            try (FileOutputStream out = new FileOutputStream(part)) {
+                out.write(new byte[(int) item.size]);
+            }
+            File dest = new File(part.getParentFile(), item.relPath);
+            indexMkdirs(dest.getParentFile());
+            if (!part.renameTo(dest)) {
+                return new ResumableTransfer.Result(Kind.FAILED, "rename failed");
+            }
+            return ResumableTransfer.Result.of(Kind.OK);
+        } catch (IOException e) {
+            return new ResumableTransfer.Result(Kind.FAILED, e.toString());
+        }
+    }
+
     /** 和 RecordingTransfer 一样落一个假 .part，供 GatedTransfer 复用。 */
     static ResumableTransfer.Result writeFakePart(ImportPlan.Item item, String partPath) {
         try {
@@ -1920,7 +1939,7 @@ public final class SelfTest {
         svc3.abandon();
         st.release.countDown();
         check("PB 卡死：放行后本轮 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
-        check("PB 放弃：被放弃的轮次跳过续传日志保存（不覆盖磁盘上的现有记录）",
+        check("PB 放弃：被放弃的轮次跳过导入日志保存（不覆盖磁盘上的现有记录）",
                 !new File(out3, "import-journal.txt").exists(), "日志仍被写出");
         check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
         check("PD onDestroy：worker 退出后 awaitWorker 返回 true",
@@ -2145,112 +2164,188 @@ public final class SelfTest {
         deleteTree(out);
     }
 
-    // ---------------- 断点续传起点（PC / issue #50） ----------------
+    // ---------------- 续传停用：旧 `.part` 一律作废（#177） ----------------
 
     /**
-     * 钉住编排层把「磁盘上的 `.part` 实际长度」作为 resumeFrom 传给传输层。
+     * 假 reader：复刻真机 `getPartialObject` 的「忽略 offset、从 0 顺序给数据」。
      *
-     * 之前 `ImportService` 取 `journal.doneBytes(relPath,size)`：Journal 只在成功时写
-     * `done = size`，失败轮次从不写部分进度，所以 resumeFrom 恒为 0，真续传不可能发生。
+     * 收到非 0 起点时故意按旧 append 语义写：保留旧前缀，再把从 0 开始的数据追加进去，
+     * 于是尺寸仍能凑够、内容却是坏的。收到 `from == size` 时按旧代码直接改名当成品。
+     * 这样一旦编排层/传输层退回续传，断言就能抓到「尺寸对、内容错还报 OK」。
      */
-    static void partialResumeCases() throws Exception {
+    static final class OffsetIgnoringTransfer implements ResumableTransfer {
+        final List<Long> resumeFroms = new ArrayList<>();
+        private final byte[] payload;
+
+        OffsetIgnoringTransfer(int size) {
+            payload = new byte[size];
+            for (int i = 0; i < size; i++) payload[i] = (byte) (i % 251);
+        }
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
+            resumeFroms.add(resumeFrom);
+            try {
+                File part = new File(partPath);
+                indexMkdirs(part.getParentFile());
+                File dest = new File(part.getParentFile(), item.relPath);
+                if (resumeFrom == item.size) {
+                    // 旧 `from == size` 直通：尺寸凑够就把残渣当成品。
+                    indexMkdirs(dest.getParentFile());
+                    return part.renameTo(dest)
+                            ? Result.of(Kind.OK)
+                            : new Result(Kind.FAILED, "rename failed");
+                }
+                if (resumeFrom > 0) {
+                    // 旧 append 语义：reader 忽略 offset，永远从 0 给数据。
+                    try (FileOutputStream out = new FileOutputStream(part, true)) {
+                        long offset = resumeFrom;
+                        while (offset < item.size) {
+                            long n = Math.min(64L, item.size - offset);
+                            out.write(payload, 0, (int) n);
+                            offset += n;
+                            progress.accept(offset);
+                        }
+                    }
+                } else {
+                    // 新契约：旧 `.part` 一律作废（删除），从 0 整段写。
+                    if (part.exists() && !part.delete()) {
+                        return new Result(Kind.FAILED, "旧 .part 删除失败");
+                    }
+                    try (FileOutputStream out = new FileOutputStream(part)) {
+                        out.write(payload);
+                    }
+                    progress.accept(item.size);
+                }
+                indexMkdirs(dest.getParentFile());
+                if (!part.renameTo(dest)) return new Result(Kind.FAILED, "rename failed");
+                return Result.of(Kind.OK);
+            } catch (IOException e) {
+                return new Result(Kind.FAILED, e.toString());
+            }
+        }
+    }
+
+    static void resumeDisabledCases() throws Exception {
         Catalog c = sample();
         Selection s = new Selection(c);
         s.setChecked(3, true);      // DSC02183 单元；用 RAW 档载荷钉住 ARW（300 字节）
         ImportPlan plan = ImportPlan.of(c, s, unitsWithArw(PhotoWall.of(c)),
                 PhotoWall.Export.RAW);
-        check("PC 续传：用例清单恰为 1 个文件", plan.count() == 1, "实际 " + plan.count());
+        check("续传停用：用例清单恰为 1 个文件", plan.count() == 1, "实际 " + plan.count());
+        String rel = "DCIM/100MSDCF/DSC02183.ARW";
 
-        // 1) 上一轮失败留下 40 字节半成品 → 本轮应从 40 续传，且半成品名按 relPath 稳定生成
-        File out = Files.createTempDirectory("wiredraw-pc-resume").toFile();
+        // 1) 部分残留（40 字节错误前缀）→ 必须从 0 重传，成品字节与基准完全一致。
+        File out = Files.createTempDirectory("wiredraw-177-residue").toFile();
         Journal j = new Journal();
-        String expectedPart = j.partPath(out.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
-        try (FileOutputStream o = new FileOutputStream(expectedPart)) {
-            o.write(new byte[40]);
-        }
-        RecordingTransfer t1 = new RecordingTransfer();
+        File residue = new File(j.partPath(out.getAbsolutePath(), rel, 300));
+        writeSizedBytes(residue, 40, (byte) 0x55);
+        OffsetIgnoringTransfer t1 = new OffsetIgnoringTransfer(300);
         FinishRecorder r1 = new FinishRecorder();
         new ImportService(Log.NOOP, t1, out).start(plan, r1);
-        check("PC 续传：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
-        check("PC 续传：resumeFrom 取半成品实际长度 40（不再恒为 0）",
-                t1.resumeFroms.size() == 1 && t1.resumeFroms.get(0) == 40L,
+        check("续传停用：部分残留一轮在 5 秒内结束",
+                r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("续传停用：编排层传给传输层的起点恒为 0（#177）",
+                t1.resumeFroms.size() == 1 && t1.resumeFroms.get(0) == 0L,
                 "实际 " + t1.resumeFroms);
-        check("PC 续传：传给传输层的是按 relPath + size 命名的半成品",
-                t1.parts.size() == 1
-                        && t1.parts.get(0).replace('\\', '/').equals(expectedPart.replace('\\', '/')),
-                "实际 " + t1.parts);
-        check("PC 续传：传完后按完成记账（第二轮应跳过）",
-                r1.ok == 1 && r1.skipped == 0 && r1.failed == 0,
-                "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
-        // 第二轮：完成记录已落盘，按 relPath + size 跳过，不再调 transfer
-        RecordingTransfer t2 = new RecordingTransfer();
-        FinishRecorder r2 = new FinishRecorder();
-        new ImportService(Log.NOOP, t2, out).start(plan, r2);
-        check("PC 续传：完成后的第二轮全部 SKIPPED",
-                r2.done.await(5, TimeUnit.SECONDS) && r2.skipped == 1 && t2.calls.isEmpty(),
-                "skipped=" + r2.skipped + " calls=" + t2.calls.size());
+        check("续传停用：部分残留不会产出「尺寸对、内容错」的坏文件",
+                r1.ok == 1 && r1.failed == 0 && payloadMatches(new File(out, rel), 300),
+                "ok=" + r1.ok + " failed=" + r1.failed + " 字节对不上=" + !payloadMatches(new File(out, rel), 300));
+        check("续传停用：部分残留被删除，不留在 outDir",
+                !residue.exists(), "仍存在：" + residue);
         deleteTree(out);
 
-        // 2) 半成品已满（== size）→ resumeFrom = size，由传输层直接落盘
-        File fullOut = Files.createTempDirectory("wiredraw-pc-full").toFile();
-        String fullPart = j.partPath(fullOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
-        try (FileOutputStream o = new FileOutputStream(fullPart)) {
-            o.write(new byte[300]);
-        }
-        RecordingTransfer t3 = new RecordingTransfer();
-        FinishRecorder r3 = new FinishRecorder();
-        new ImportService(Log.NOOP, t3, fullOut).start(plan, r3);
-        check("PC 续传：半成品已满时 resumeFrom == size（交给传输层落盘）",
-                r3.done.await(5, TimeUnit.SECONDS)
-                        && t3.resumeFroms.size() == 1 && t3.resumeFroms.get(0) == 300L,
-                "实际 " + t3.resumeFroms);
+        // 2) 满尺寸残留 → 不得走旧的 `from == size` 直通；必须删掉重写。
+        File fullOut = Files.createTempDirectory("wiredraw-177-full").toFile();
+        File fullResidue = new File(j.partPath(fullOut.getAbsolutePath(), rel, 300));
+        writeSizedBytes(fullResidue, 300, (byte) 0x5A);
+        OffsetIgnoringTransfer t2 = new OffsetIgnoringTransfer(300);
+        FinishRecorder r2 = new FinishRecorder();
+        new ImportService(Log.NOOP, t2, fullOut).start(plan, r2);
+        check("续传停用：满尺寸残留一轮在 5 秒内结束",
+                r2.done.await(5, TimeUnit.SECONDS), "等待超时");
+        check("续传停用：满尺寸残留同样从 0 重传（起点不为 size）",
+                t2.resumeFroms.size() == 1 && t2.resumeFroms.get(0) == 0L,
+                "实际 " + t2.resumeFroms);
+        check("续传停用：满尺寸残渣不会被改名当成品（尺寸凑够不算完成）",
+                r2.ok == 1 && r2.failed == 0 && payloadMatches(new File(fullOut, rel), 300),
+                "ok=" + r2.ok + " failed=" + r2.failed);
         deleteTree(fullOut);
 
-        // 3) 半成品比目标大（换了文件 / 写坏）→ 视为损坏，从 0 重传
-        File badOut = Files.createTempDirectory("wiredraw-pc-bad").toFile();
-        String badPart = j.partPath(badOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 300);
-        try (FileOutputStream o = new FileOutputStream(badPart)) {
-            o.write(new byte[301]);
-        }
+        // 3) 成品 + 账本都在 → 跳过；删掉成品后不得只看账本就跳过（#177）。
+        File doneOut = Files.createTempDirectory("wiredraw-177-done").toFile();
+        RenamingTransfer t3 = new RenamingTransfer(doneOut);
+        FinishRecorder r3 = new FinishRecorder();
+        new ImportService(Log.NOOP, t3, doneOut).start(plan, r3);
+        check("续传停用：正常一轮产出一个成品",
+                r3.done.await(5, TimeUnit.SECONDS) && r3.ok == 1,
+                "ok=" + r3.ok + " failed=" + r3.failed);
         RecordingTransfer t4 = new RecordingTransfer();
         FinishRecorder r4 = new FinishRecorder();
-        new ImportService(Log.NOOP, t4, badOut).start(plan, r4);
-        check("PC 续传：半成品超过目标大小 → resumeFrom 回 0（不拿坏文件续传）",
-                r4.done.await(5, TimeUnit.SECONDS)
-                        && t4.resumeFroms.size() == 1 && t4.resumeFroms.get(0) == 0L,
-                "实际 " + t4.resumeFroms);
-        deleteTree(badOut);
-
-        // 4) 同一 relPath、不同 size 的旧半成品（B-1）：不能被当成本对象的前缀。
-        //    旧前缀 L < 新 size S 时若不区分大小，会续写成「旧前缀 + 新尾部」且长度恰好对账通过。
-        File staleOut = Files.createTempDirectory("wiredraw-pc-stale").toFile();
-        String stalePart = j.partPath(staleOut.getAbsolutePath(), "DCIM/100MSDCF/DSC02183.ARW", 299);
-        try (FileOutputStream o = new FileOutputStream(stalePart)) {
-            o.write(new byte[40]);
-        }
+        new ImportService(Log.NOOP, t4, doneOut).start(plan, r4);
+        check("续传停用：成品与账本都在时按 Skipped 跳过",
+                r4.done.await(5, TimeUnit.SECONDS) && r4.skipped == 1 && t4.calls.isEmpty(),
+                "skipped=" + r4.skipped + " calls=" + t4.calls.size());
+        File dest = new File(doneOut, rel);
+        boolean removed = dest.delete();
+        check("续传停用：能删掉成品以模拟文件丢失", removed, "delete 失败");
         RecordingTransfer t5 = new RecordingTransfer();
         FinishRecorder r5 = new FinishRecorder();
-        new ImportService(Log.NOOP, t5, staleOut).start(plan, r5);
-        check("PC 续传：异 size 的旧半成品不被认作本对象前缀（resumeFrom 仍为 0）",
+        new ImportService(Log.NOOP, t5, doneOut).start(plan, r5);
+        check("续传停用：账本记完成但成品缺失 → 重新导入，不静默跳过",
                 r5.done.await(5, TimeUnit.SECONDS)
-                        && t5.resumeFroms.size() == 1 && t5.resumeFroms.get(0) == 0L,
-                "实际 " + t5.resumeFroms);
-        deleteTree(staleOut);
+                        && r5.skipped == 0 && t5.calls.size() == 1,
+                "skipped=" + r5.skipped + " calls=" + t5.calls.size());
+
+        // 4) 账本完成 + 成品在但尺寸不符 → 也不得跳过（尺寸对账必须对到实际文件）。
+        FinishRecorder r6 = new FinishRecorder();
+        new ImportService(Log.NOOP, new RenamingTransfer(doneOut), doneOut).start(plan, r6);
+        check("续传停用：重建成品以便覆盖成错误尺寸",
+                r6.done.await(5, TimeUnit.SECONDS) && r6.ok == 1 && r6.skipped == 0,
+                "ok=" + r6.ok + " skipped=" + r6.skipped);
+        writeSizedBytes(dest, 299, (byte) 0x11);
+        RecordingTransfer t7 = new RecordingTransfer();
+        FinishRecorder r7 = new FinishRecorder();
+        new ImportService(Log.NOOP, t7, doneOut).start(plan, r7);
+        check("续传停用：成品尺寸不符 → 重新导入，不静默跳过",
+                r7.done.await(5, TimeUnit.SECONDS)
+                        && r7.skipped == 0 && t7.calls.size() == 1,
+                "skipped=" + r7.skipped + " calls=" + t7.calls.size());
+        deleteTree(doneOut);
+    }
+
+    static boolean payloadMatches(File file, int size) throws IOException {
+        if (!file.isFile() || file.length() != size) return false;
+        byte[] actual = Files.readAllBytes(file.toPath());
+        for (int i = 0; i < size; i++) {
+            if (actual[i] != (byte) (i % 251)) return false;
+        }
+        return true;
+    }
+
+    static void writeSizedBytes(File f, int size, byte value) throws IOException {
+        indexMkdirs(f.getParentFile());
+        byte[] buf = new byte[size];
+        Arrays.fill(buf, value);
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            out.write(buf);
+        }
     }
 
     // ---------------- 文件内进度（issue #70） ----------------
 
     /**
-     * issue #70 的两条集成用例，两条都有独立判别力：
+     * issue #70 的两条集成用例（#177 续传停用后按「从 0 重传」改口径）：
      *
-     * 1) **续传从非零 offset 开始**：首个进度事件必须是磁盘上的 40 字节，
-     *    且续传期间能看到文件内中间值——只有「文件结束才一次加满」或「bytesDone() 漏算当前文件」
+     * 1) **旧半成品不计入进度起点**：磁盘上虽有 40 字节 `.part`，首个进度事件必须是 0，
+     *    重传期间能看到文件内中间值——只有「文件结束才一次加满」或「bytesDone() 漏算当前文件」
      *    都会让这条红。
-     * 2) **同一文件失败后重试不得双计**：重试刚上报 resumeFrom（40）时，总字节必须恰为 40；
-     *    `beginFile` 把已落盘字节再加一遍会变成 80，这条立刻红。
+     * 2) **同一文件失败后重试不得双计**：重试从 0 开始时总字节必须仍是 0（失败时已回滚）；
+     *    `beginFile` 把失败前落盘/已计字节再加一遍会变成 40，这条立刻红。
      */
     static void resumeProgressCases() throws Exception {
-        // 1) 续传从非零 offset 开始：单个 ARW 300 B，磁盘上已有 40 B 半成品。
+        // 1) 旧半成品 40 B：单个 ARW 300 B，本轮仍须从 0 重传。
         Catalog c = sample();
         Selection s = new Selection(c);
         s.setChecked(3, true);
@@ -2268,16 +2363,16 @@ public final class SelfTest {
         FinishRecorder r1 = new FinishRecorder();
         new ImportService(Log.NOOP, t1, out).start(resumePlan, r1);
         check("文件内进度：续传一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
-        check("文件内进度：续传的首个进度事件是磁盘上的 40 字节",
-                !r1.progressBytes.isEmpty() && r1.progressBytes.get(0) == 40L,
+        check("文件内进度：旧半成品不抬起点，首个进度事件是 0（#177）",
+                !r1.progressBytes.isEmpty() && r1.progressBytes.get(0) == 0L,
                 "实际 " + r1.progressBytes);
         boolean sawMid = false;
         for (long b : r1.progressBytes) {
-            if (b > 40L && b < 300L) sawMid = true;
+            if (b > 0L && b < 300L) sawMid = true;
         }
-        check("文件内进度：续传期间能看到文件内中间值（40 < x < 300）", sawMid,
+        check("文件内进度：重传期间能看到文件内中间值（0 < x < 300）", sawMid,
                 "实际 " + r1.progressBytes);
-        check("文件内进度：续传完成后总字节与文件计数正确",
+        check("文件内进度：重传完成后总字节与文件计数正确",
                 r1.lastProgress != null && r1.lastProgress.bytesDone() == 300
                         && r1.lastProgress.filesDone() == 1,
                 r1.lastProgress == null ? "无进度"
@@ -2300,14 +2395,14 @@ public final class SelfTest {
         check("文件内进度：重试的文件刚进入第二次尝试",
                 t2.retryEntered.await(5, TimeUnit.SECONDS), "等待超时");
         long atRetry = r2.lastProgress == null ? -1L : r2.lastProgress.bytesDone();
-        check("文件内进度：重试不得双计（第二次尝试刚上报 40 时总字节仍是 40）",
-                atRetry == 40L, "实际 " + atRetry);
+        check("文件内进度：重试不得双计（第二次尝试刚上报起点 0 时总字节仍是 0）",
+                atRetry == 0L, "实际 " + atRetry);
         t2.releaseRetry.countDown();
         check("文件内进度：重试一轮在 5 秒内结束", r2.done.await(5, TimeUnit.SECONDS), "等待超时");
         check("文件内进度：首次失败后重试仍算完成",
                 r2.ok == 2 && r2.failed == 0, "ok=" + r2.ok + " failed=" + r2.failed);
-        check("文件内进度：重试的第二次尝试按磁盘 40 字节续传",
-                t2.resumeFroms.size() >= 2 && t2.resumeFroms.get(1) == 40L,
+        check("文件内进度：重试的第二次尝试从 0 重传（续传停用，#177）",
+                t2.resumeFroms.size() >= 2 && t2.resumeFroms.get(1) == 0L,
                 "实际 " + t2.resumeFroms);
         check("文件内进度：每个文件完成点的总字节等于累计大小（100、150）",
                 r2.bytesAtFileFinish.size() == 2
@@ -2323,13 +2418,13 @@ public final class SelfTest {
     // ---------------- 无主半成品清理（issue #52） ----------------
 
     /**
-     * 钉住 S1（改 A）判据：保留集 = `relPath + size`，与 {@link Journal#partPath} 同口径。
+     * 钉住清理判据（#177 续传停用后改口径）：保留集恒空。
      *
-     * 两个关键方向：
-     * - 同 `relPath`、旧 size（size 已不被任何目录对象认领）→ 必须删（#52 主症状）；
+     * 续传停用后不存在「合法半成品」：
+     * - 同 `relPath`、同 size 的旧 `.part` → 不可信，必须删（不再当作可续传前缀）；
+     * - 同 `relPath`、旧 size → 必须删（#52 主症状）；
      * - `relPath` 已完全不在目录 → 必须删（对象已不存在，接不上）。
      *
-     * 保留：`relPath + size` 都能对上（含异尺寸拒绝留下的合法半成品）。
      * 干扰项覆盖账本、索引、`.tmp`、没有 size 段的 `.part`、子目录里的 `.part`；
      * 另钉住 `keepNames == null` 的安全语义：一个都不删。
      *
@@ -2360,10 +2455,8 @@ public final class SelfTest {
         writeSizedFile(new File(out, "plain.part"), 5);
         writeSizedFile(new File(out, "DCIM/stray.300.part"), 5);
 
-        check("无主半成品：保留集与 partPath 同口径（relPath + size）",
-                keep.contains(new File(keepSize).getName())
-                        && !keep.contains(new File(staleSize).getName()),
-                "keep 集不含当前 size 或不排斥旧 size");
+        check("无主半成品：续传停用后保留集恒空（#177）",
+                keep.isEmpty(), "keep=" + keep);
         check("无主半成品：keepNames(null) 返回空集，不退化成全删",
                 PartResidue.keepNames(null).isEmpty(), "返回非空");
         check("无主半成品：keep 集为 null 时 orphans 为空",
@@ -2398,14 +2491,14 @@ public final class SelfTest {
 
         RecordingLog cleanLog = new RecordingLog();
         int cleaned = PartResidue.cleanIfComplete(out, keep, ok, cleanLog);
-        check("无主半成品：枚举完整 → 照常清理", cleaned == 2 && cleanLog.contains("已清理无主半成品"),
+        check("无主半成品：枚举完整 → 清理全部 .part", cleaned == 3 && cleanLog.contains("已清理无主半成品"),
                 "实际 " + cleaned);
         check("无主半成品：同 relPath、旧 size → 被删（#52 主症状）",
                 !new File(staleSize).exists(), "仍存在：" + staleSize);
         check("无主半成品：relPath 已不在目录 → 被删",
                 !new File(gone).exists(), "仍存在：" + gone);
-        check("无主半成品：relPath + size 都能对上 → 保留（异尺寸拒绝的合法半成品）",
-                new File(keepSize).isFile(), "被删：" + keepSize);
+        check("无主半成品：relPath + size 都能对上也不保留（不再续传，#177）",
+                !new File(keepSize).exists(), "仍存在：" + keepSize);
         check("无主半成品：账本 / 索引 / .tmp / 无 size 段的 .part 不被动",
                 new File(out, "import-journal.txt").isFile()
                         && new File(out, ImportedIndex.FILE_NAME).isFile()
@@ -3205,6 +3298,50 @@ public final class SelfTest {
             body.append(line).append('\n');
         }
         return body.toString();
+    }
+
+    /**
+     * issue #177 的源码级护栏：`MtpTransfer` 依赖 Android `MtpDevice`，JVM 用例覆盖不到
+     * 它的读取循环，因此把「不许再按 offset 读、不许保留 append / `from == size` 直通、
+     * 成功文案必须说明内容未校验」钉在源码上，避免后续改动悄悄把续传加回来。
+     * 与 {@link #skippedSourceCases()} 同一手法：读不到文件就判红。
+     */
+    static void noResumeSourceCases() {
+        File mtp = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/MtpTransfer.java");
+        String src = readSource(mtp);
+        check("续传停用：MtpTransfer 不再按 offset 读相机对象（#177）",
+                src != null && !src.contains("getPartialObject("),
+                src == null ? "读不到 " + mtp : "仍调用 getPartialObject");
+        check("续传停用：MtpTransfer 不再保留 append 或 from == size 直通（#177）",
+                src != null && !src.contains("private Result append(")
+                        && !src.contains("from == item.size"),
+                src == null ? "读不到 " + mtp : "append 或尺寸直通仍在");
+        check("完成口径：成功文案写明「内容未校验」（#177）",
+                src != null && src.contains("尺寸核对通过") && src.contains("内容未校验"),
+                src == null ? "读不到 " + mtp : "文案仍在暗示校验通过");
+        check("完成口径：同尺寸已存在文件记 SKIPPED，不冒充 OK（#177）",
+                src != null && src.contains("Kind.SKIPPED, \"已存在同尺寸文件")
+                        && !src.contains("Kind.OK, \"已存在同尺寸文件"),
+                src == null ? "读不到 " + mtp : "同尺寸分支仍可能记 OK");
+
+        File importer = new File(System.getProperty("user.dir"),
+                "src/com/rea/mtpimport/ImportService.java");
+        String imp = readSource(importer);
+        check("续传停用：编排层起点恒为 0，且不再读 Journal.resumeFrom（#177）",
+                imp != null && imp.contains("long resumeFrom = 0L;")
+                        && !imp.contains("Journal.resumeFrom"),
+                imp == null ? "读不到 " + importer : "仍在按 .part 长度重算起点");
+        check("续传停用：Journal 完成记录必须对到磁盘成品（#177）",
+                imp != null && imp.contains("targetMatches("),
+                imp == null ? "读不到 " + importer : "缺少 targetMatches 判据");
+    }
+
+    static String readSource(File file) {
+        try {
+            return String.join("\n", Files.readAllLines(file.toPath()));
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     /**

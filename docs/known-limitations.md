@@ -21,10 +21,9 @@
 
 | 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
-| `getPartialObject` 的 `offset` 是绝对偏移 | 续传必须按 `.part` 的实际长度从绝对偏移续读 | [探针 README](../tools/android-mtp-probe/README.md) 的「PC 探针（getPartialObject）」节 |
-| `length` 超过剩余字节会截断到 EOF | 不抛异常，必须靠字节数对账判断是否读完 | 同上（同一节记录「剩余多少就返回多少」） |
-| `offset == size + 1` 会抛 `IOException` | 越界请求会打断读取；越界后会话是否进入错误态**只有首轮观察、尚未复测** | 同上（同一节的越界观察）。正常续传实现绝不能发出 `offset > size` 的请求 |
-| 分块不宜过小 | 64 KiB 小块单次只有约 0.38–0.43 MB/s | 同上（同一节的吞吐对照）。分块建议不小于 1 MiB |
+| `getPartialObject` 的 `offset` 在真机上不生效 | 传非 0 offset 仍返回对象起点数据；把它追加到 `.part` 会得到「字节数对、内容错、日志打 OK」的坏文件 | 2026-11-07 真机实测（E2 MI 9 / Android 15 / USB MTP，见 issue #177 诊断评论）。**止血方案 B：续传已停用**，遗留 `.part` 一律作废、从 0 重传。[探针 README](../tools/android-mtp-probe/README.md) 里 #67 的「绝对偏移」结论已不可作为实现依据，另有会话在纠正 |
+| 完成只做尺寸核对 | 尺寸相等不代表内容正确；日志与结果文案必须写明「内容未校验」 | [MtpTransfer.java](../tools/android-mtp-import/src/com/rea/mtpimport/MtpTransfer.java) 的 `finish()`；内容摘要校验尚未实现（issue #177 的修复候选 2） |
+| `length` 超剩余 / `offset` 越界的探针结论未复测 | 不能把 #67 的边界观察当成稳定契约 | [探针 README](../tools/android-mtp-probe/README.md) 的 PC 探针节；续传停用后 App 已不再发 `getPartialObject`，恢复前必须重新实测 |
 
 ## 三、PTP / PTP-IP 路线
 
@@ -42,7 +41,7 @@
 |---|---|---|
 | MSC 直拷 | **未验证** | 安卓侧需要额外库，且只适用于 FAT32 卡；不要当成可用方案 |
 | `getThumbnail` 对 ARW | **真机未验** | 拿不到时回退同名 JPG，再退回灰块；不得崩溃 |
-| 断点续传端到端 | **App 内待真机** | 分块语义已由探针实测，App 编排与恢复窗口未验 |
+| 断点续传 | **已停用（#177）** | 真机实测 `getPartialObject` 的 offset 不生效，续传会产出坏文件；遗留 `.part` 一律作废、从 0 重传。恢复前需先解决 offset 语义或改用可校验的分段方案 |
 | 其他机型 / 固件 | **未验证** | 本仓库所有真机结论都绑定 ILCE-7C 固件 2.00 / 2.02 与指定手机 |
 
 ## 相关文档

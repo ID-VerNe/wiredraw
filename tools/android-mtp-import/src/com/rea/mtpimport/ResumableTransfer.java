@@ -3,39 +3,31 @@ package com.rea.mtpimport;
 import java.util.function.LongConsumer;
 
 /**
- * 断点续传的**契约**。PA / PB 的 {@link MtpTransfer} 先只做整文件传输与取消；
- * PC 分节（issue #50）已按下面钉死的语义补上 offset 续读。
+ * 传输**契约**。PA / PB 的 {@link MtpTransfer} 只做整文件传输与取消。
  *
- * `MtpDevice.getPartialObject(handle, offset, size, buffer)` 在 ILCE-7C（固件 2.00）
- * 上的语义已由 `tools/android-mtp-probe` 实测（issue #67）：
- *
- * 1. **offset 是绝对偏移**：`offset=0` 连读两次拿到相同字节；1 MiB 分块拼满 24.4 MB ARW
- *    的字节数、MD5、TIFF 文件头与 `importFile` 完全一致（22.86 MB/s）。
- * 2. **边界**：`length` 超过剩余字节会截断到 EOF；`offset == size` 返回 0；
- *    `offset == size + 1` 抛 `IOException: Failed to read data.`（#67 首轮观察；越界后会话
- *    是否进入错误态本轮未复测、也未做会话探活）——实现必须保证 `0 <= offset <= size`
- *    且 `length <= size - offset`，永不越界。
- * 3. **支持面**：抽样的 4 张 ARW + 1 张 JPEG 首块均成功（**不能推及所有普通对象**；
- *    `0xFFFFC001` 未测）。
+ * **续传已停用（止血，issue #177）**：issue #67 曾按 `tools/android-mtp-probe` 的结论
+ * 认为 `getPartialObject` 的 offset 是绝对偏移；但 2026-11-07 的真机复测（小米 9，
+ * Android 15，USB MTP）显示 offset 不生效，reader 忽略偏移、从对象起点顺序给数据。
+ * 继续把 `.part` 当可信前缀 append 会得到「字节数对、内容错、日志打 OK」的文件。
+ * 因此本契约里的 `resumeFrom` 只保留字段兼容，恒为 0；实现方不得据此续读。
  *
  * 实现契约：
  *
- * - **跨会话身份**：MTP 的 object handle 不跨会话稳定；半成品 `.part` 按 `relPath + size`
- *   命名（{@link Journal#partPath}），续传起点按磁盘实际长度（{@link Journal#resumeFrom}），
- *   不依赖 handle 的持久性。`size` 进文件名后，同路径异 size 的旧残留不会被误认。
- * - **从 resumeFrom 续读**：`getPartialObject(handle, resumeFrom, min(1 MiB, size - resumeFrom), buf)`
- *   循环，每块 append 到 `.part`，成功后 rename 成最终文件名。
- * - **对账**：落盘字节必须等于 `ImportPlan.Item.size`；不等就判 FAILED 并保留
- *   `.part`，不要静默当成成功。
+ * - **旧 `.part` 一律作废**：传输前删除任何既有半成品（内容不可验证），再从 0 整段重写。
+ *   删除失败必须判 FAILED，不能跳过后继续写。
+ * - **跨会话身份**：MTP 的 object handle 不跨会话稳定；半成品 `.part` 仍按 `relPath + size`
+ *   命名（{@link Journal#partPath}），但名字只用于临时落盘，不再承载「已传前缀」语义。
+ * - **对账**：落盘字节必须等于 `ImportPlan.Item.size`；不等就判 FAILED 并保留 `.part`。
+ *   尺寸一致只是必要条件（内容未校验），日志/结果文案必须如实说明。
  */
 public interface ResumableTransfer {
 
     enum Kind {
-        /** 整个文件传完并已落盘。 */
+        /** 整个文件传完并已落盘（仅尺寸核对通过，内容未校验）。 */
         OK,
-        /** 日志显示已传满，直接跳过。 */
+        /** 成品已存在同尺寸文件或账本已确认，本轮未写数据。 */
         SKIPPED,
-        /** 中途失败，`.part` 保留，下次可续。 */
+        /** 中途失败，`.part` 保留，下次从 0 重写（不再续传，#177）。 */
         FAILED,
         /**
          * 收到取消，当前文件会被尝试中断（PB）：本次机型实测约 0.6 s 返回，能否打断没有跨机型保证。
@@ -70,12 +62,11 @@ public interface ResumableTransfer {
      * @param item       待传项（句柄、相对路径、期望大小）
      * @param partPath   半成品落盘路径（已由 {@link Journal#partPath} 按 relPath + size 算好，
  *                   跨会话稳定）
-     * @param resumeFrom 已落盘字节数（由 {@link Journal#resumeFrom} 按磁盘实际长度判定），
-     *                   0 表示从头开始；等于 item.size 表示半成品已满，只需落盘
+     * @param resumeFrom 恒为 0（#177 续传停用）。实现方必须忽略它并删除既有 `.part`；
+     *                   非 0 值只用于把「谁还在试图续传」记进日志
      * @param token      取消令牌；实现方必须在文件内注册中断动作（见 {@link CancelToken}）
-     * @param progress   issue #70：当前文件的**绝对字节偏移**回调（与 getPartialObject 的 offset
-     *                   同口径），实现方按块上报；不支持文件内上报的路径（整文件 importFile）
-     *                   可以不调用，由编排层在文件边界记账
+     * @param progress   issue #70：当前文件的**绝对字节偏移**回调。整文件 `importFile`
+     *                   路径不支持文件内上报，可以不调用，由编排层在文件边界记账
      */
     Result transfer(ImportPlan.Item item, String partPath, long resumeFrom, CancelToken token,
                     LongConsumer progress);

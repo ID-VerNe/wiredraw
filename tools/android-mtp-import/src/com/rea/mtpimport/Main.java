@@ -497,6 +497,17 @@ public final class Main extends ComponentActivity {
         return !t.isAlive();
     }
 
+    /** 逐文件日志标签：用 UI-SPEC §0.10 的词，不把内部枚举名（OK/SKIPPED/...）写给用户看。 */
+    private static String kindLabel(ResumableTransfer.Kind kind) {
+        switch (kind) {
+            case OK: return "Done";
+            case SKIPPED: return "Skipped";
+            case FAILED: return "Failed";
+            case CANCELLED: return "Cancelled";
+            default: return "";
+        }
+    }
+
     @Override
     public void onBackPressed() {
         callbacks.onBack();
@@ -887,7 +898,8 @@ public final class Main extends ComponentActivity {
      * 两个前提缺一不可：
      *
      * 1. **本次枚举完整**（{@link #lastScan}）。未扫 / 取消 / 丢弃过对象 / 存储取句柄失败都不能清——
-     *    残缺目录当保留集会把仍可续传的 `.part` 全删掉，这是最坏的结果。完整性判定与跳过原因由
+     *    残缺枚举说明这一轮还不能确定磁盘上哪些 `.part` 是残渣，贸然删除可能误删正在写的半成品。
+     *    完整性判定与跳过原因由
      *    {@link PartResidue#cleanIfComplete} 统一处理，跳过时留一行给用户看的日志。
      *    相机上确实没有可导入文件时（完整枚举、目录为空）仍要清，所以本方法放在 doStart 的空清单早退之前。
      * 2. **没有活动写者**：{@link #service} 在跑（含暂停但 worker 未退）或遗留 worker 还在跑时跳过；
@@ -1071,7 +1083,11 @@ public final class Main extends ComponentActivity {
             @Override
             public void onFileFinished(ImportPlan.Item item, ResumableTransfer.Kind kind,
                                        String note) {
-                log.line("[" + kind + "] " + item.relPath + (note.isEmpty() ? "" : " · " + note));
+                // issue #177：内部枚举名不得直出到用户可见的 Details 日志。
+                // 依据 UI-SPEC §0.10：`:166` 完成 = Done、`:735` 跳过 = Skipped；
+                // `:173` 明确「内部状态名不得显示」。
+                log.line("[" + kindLabel(kind) + "] " + item.relPath
+                        + (note.isEmpty() ? "" : " · " + note));
                 // PD / issue #50：逐文件失败必须进 UI。DONE 首屏受 U-47 约束不能出现 Failed N，
                 // 所以落到 Details 抽屉的固定失败列表——不会被后续日志挤出 takeLast(8)。
                 // 被放弃/换轮的迟到回调不改当前轮次的失败列表。
