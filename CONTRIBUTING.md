@@ -36,11 +36,13 @@ python scripts/run_gates.py ci --fail-fast  # 见到红就停
 python scripts/run_gates.py manual          # Android 构建档（需要 SDK + JDK）
 ```
 
-装一次 git 钩子（`commit-msg` 校验提交信息格式，`pre-push` 自动跑静态检查）：
+装一次 git 钩子：
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+钩子职责与 `SKIP_GATES=1` 的绕过审计见 [AGENTS.md](AGENTS.md) §0.1。
 
 新增门禁只改 `scripts/gates.json`，然后跑
 `python scripts/check_gates_manifest.py --write` 同步 AGENTS.md 的生成段。

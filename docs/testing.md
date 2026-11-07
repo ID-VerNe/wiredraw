@@ -8,9 +8,9 @@
 
 | 档 | 条目 | 何时跑 | 需要什么 |
 |---|---|---|---|
-| `ci` | 5 条 `static`：元门禁、仓库卫生、文档链接、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
-| `manual` | 2 条：探针 APK 构建、导片工具自检 + 构建 + 验签 | 动到 `tools/android-mtp-probe/` 或 `tools/android-mtp-import/` 时 | Android SDK + JDK |
-| `support` | 3 条：PR 正文分段、PR 正文与评论的敏感信息、commit message 敏感信息 | 有 PR 上下文时（CI 的 `pull_request`） | `gh` / `GH_TOKEN`；本地无 PR 时 SKIP |
+| `ci` | `static` 档（条数以 [`scripts/gates.json`](../scripts/gates.json) 为准）：元门禁、仓库卫生、文档链接、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
+| `manual` | 条数以 `scripts/gates.json` 为准：探针 APK 构建、导片工具自检 + 构建 + 验签 | 动到 `tools/android-mtp-probe/` 或 `tools/android-mtp-import/` 时 | Android SDK + JDK |
+| `support` | 条数以 `scripts/gates.json` 为准：PR 正文分段、PR 正文与评论的敏感信息、commit message 敏感信息 | 有 PR 上下文时（CI 的 `pull_request`） | `gh` / `GH_TOKEN`；本地无 PR 时 SKIP |
 
 ```bash
 python scripts/run_gates.py --list          # 看档位与执行顺序
@@ -26,17 +26,8 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 
 ## 二、钩子与绕过
 
-```bash
-git config core.hooksPath .githooks   # 换机器后重设一次
-```
-
-- `commit-msg`：拦 commit 文案格式与 `Co-Authored-By:`。
-- `pre-push`：跑 `static` 分片。
-
-`SKIP_GATES=1` **仅用于钩子自身故障**（例如钩子在当前 shell 下跑不起来）。它会打印醒目横幅，
-并把绕过记录写入 `$(git rev-parse --git-common-dir)/skip-gates.log`（所有 worktree 共用一份）。
-使用后必须在 PR 正文说明原因，并附上手动执行 `python scripts/run_gates.py ci` 的原始输出；
-它不是「门禁红了赶时间」的通行证。
+钩子的安装、`commit-msg` / `pre-push` 职责与 `SKIP_GATES=1` 的绕过审计，统一以
+[`AGENTS.md`](../AGENTS.md) §0.1 为准；本节不再复述，避免两处口径漂移。
 
 ## 三、回归靠什么
 

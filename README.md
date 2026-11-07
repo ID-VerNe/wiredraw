@@ -89,8 +89,8 @@ python scripts/run_gates.py manual
 
 ## 已知限制
 
-- **MTP 会话结束后约 1 分钟相机会挂起 USB**：`open()` 卡 10 秒、`getStorageIds()` 返回空，
-  重试 70 秒唤不醒，必须拔插数据线。
+- **MTP 会话结束后相机会挂起 USB**：症状、重试次数与耗时以 [AGENTS.md](AGENTS.md) §4 为准；
+  应用内重试唤不醒，必须拔插数据线。
 - **别用 `getObjectHandles` 的 format 过滤**：传 `0xB101` 返回 754 个，逐个 `getObjectInfo`
   只有 511 个真是 `0xB101`；老实走全量枚举（39 ms/个）或按 `parent` 逐目录。
 - **PTP 握手有配对门**：随机 UUID 一律 `Init_Fail reason=1`，只认当初配对的 GUID；
@@ -102,7 +102,7 @@ python scripts/run_gates.py manual
 ## 仓库结构
 
 ```
-AGENTS.md               协作规则的唯一事实源（五步流程、红线、已证实结论、环境坑）
+AGENTS.md               协作总纲：五步流程入口、红线、已证实结论、环境坑；细则在 docs/contributing/，实测数据在 docs/research/，门禁清单在 scripts/gates.json
 CONTRIBUTING.md         外部贡献者入口（只给摘要，正文以 AGENTS.md 为准）
 SECURITY.md             安全报告渠道与范围（漏洞走私密报告，勿附设备身份）
 CODE_OF_CONDUCT.md      行为准则（Contributor Covenant 2.1 原文）

@@ -319,7 +319,8 @@ adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
 adb shell am start -n com.rea.mtpimport/.Main --es demo_state IMPORTING
 ```
 
-假树与真机同口径：1526 对象 / 503 文件夹 / 511 ARW / 512 JPEG / 12.75 GB（ARW 11.89 GB）；
+假树与真机对象总数同为 1526，但构成不同：真机 503 文件夹 + 511 ARW + 511 JPEG + 1 MP4；
+假树 503 文件夹 + 511 ARW + 512 JPEG（无 MP4）。假树体积 12.75 GB（ARW 11.89 GB）；
 `IMPORTING` / `PAUSED` 冻结在 `12/36`（33%），`DONE` 是 `36 · 858 MB`。
 P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、不得进主视觉；本轮没有调用点
 （`UiText.rate` / `UiText.eta` 只被自检覆盖，界面与 `Main` 都不调），所以主视觉与抽屉里都不出现。
@@ -348,9 +349,8 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 1. **format 过滤不可信**：`getObjectHandles(sid, 0xB101, 0)` 返回 754 个而全量只有
    511 个真 ARW（探针 README 坑 2）。`CatalogScanner` 一律全量枚举 + 逐个
    `getObjectInfo()` 自己分类，不做这个「优化」。
-2. **相机会挂起 USB**：会话结束后约 1 分钟，`getStorageIds()` 返回空、`open()` 卡 10 秒。
-   `MtpSession.storageIds()` 重试 8 次 / 每次 3 秒；仍失败就提示用户拔插线
-   —— 实测重试唤不醒，只有拔插有效。
+2. **相机会挂起 USB**（现象、重试次数与实测结论以 `AGENTS.md` §4 为准）：`MtpSession.storageIds()`
+   做唤醒重试，仍失败就提示用户拔插线。本文件不再复制实测数字。
 3. **扫描要 59 秒**：1526 个对象 × 39 ms。所以扫描必须回调进度，且扫描结果要缓存成
    `Catalog` 复用——每次勾选都重扫的交互没法用。issue #60 起不再等全量：首批 ARW
    一出现就发布快照（之后每 200 个对象一次），照片墙先可用，剩余对象在后台静默补齐；
@@ -437,8 +437,8 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 - [ ] 拔线重插后能重新扫描（会话重建）
 - [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
       `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
-- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可阻塞约 10 秒
-      （相机会在 MTP 会话结束后约 1 分钟挂起 USB），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
+- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可能阻塞较久
+      （会话结束后相机会挂起 USB，口径见 `AGENTS.md` §4），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
 - [ ] `onDestroy` 的竞态（PD / issue #50）：先 `cancel` 传输与扫描，再 1 s 有界 join；
       全部退出才 `session.close()`，否则跳过并记日志（1 s 预算）——**未验**（逻辑由 `ImportService.awaitWorker`
       的 SelfTest 覆盖，真机尚未造出「取消打不断原生调用」窗口）
