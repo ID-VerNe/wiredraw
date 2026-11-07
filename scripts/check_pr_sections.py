@@ -219,9 +219,12 @@ def headings(body: str) -> list[str]:
     return [m.group(1).strip() for m in HEADING.finditer(strip_markup(body))]
 
 
-def has_section(body: str, names: tuple[str, ...]) -> bool:
-    """段名按前缀匹配：`## 测试（门禁原始输出）` 也算 `测试`。"""
-    for h in headings(body):
+def has_section(heads: list[str], names: tuple[str, ...]) -> bool:
+    """段名按前缀匹配：`## 测试（门禁原始输出）` 也算 `测试`。
+
+    接收已算好的标题列表：调用方只剥离一次正文，比较多次复用（#207）。
+    """
+    for h in heads:
         for n in names:
             if h == n or h.startswith(n):
                 return True
@@ -273,9 +276,10 @@ def closing_side_effects(body: str, visible: str) -> list[str]:
 def check_body(body: str, files: list[str]) -> list[str]:
     problems: list[str] = []
     visible = strip_indented(strip_markup(body))
+    heads = headings(body)
 
     for label, names in REQUIRED:
-        if not has_section(body, names):
+        if not has_section(heads, names):
             problems.append(f"缺必填段：`## {label}`")
 
     if not CLOSING.search(visible):
@@ -287,7 +291,7 @@ def check_body(body: str, files: list[str]) -> list[str]:
     problems.extend(closing_side_effects(body, visible))
 
     hits = gate_hits(files)
-    if hits and not has_section(body, (GATE_SECTION,)):
+    if hits and not has_section(heads, (GATE_SECTION,)):
         problems.append(
             f"diff 命中门禁链（{len(hits)} 个文件：{', '.join(hits[:3])}"
             f"{' 等' if len(hits) > 3 else ''}）但正文缺 `## {GATE_SECTION}` 段"
@@ -459,6 +463,15 @@ def self_test() -> int:
     )
     html_comment = SAMPLE_FULL.replace("## 影响面", "<!--\n## 门禁改动\n-->\n\n## 影响面")
     unclosed_fence = SAMPLE_FULL + "```\n## 门禁改动\n"
+    # 必填段标题只在围栏里出现：页面上是代码，不算段。这条钉住「标题只从剥离后的正文取一次」
+    # （#207）；若把 `headings()` 的输入换成未剥离的正文，它会从红翻绿。
+    fenced_required = SAMPLE_FULL.replace(
+        "## 影响面", "```markdown\n## 影响面\n```", 1
+    )
+    # 同一必填段标题围栏内外并存：围栏里那份不算、围栏外那份算，结论必须是绿。
+    fenced_and_real_required = SAMPLE_FULL.replace(
+        "## 影响面", "```markdown\n## 影响面\n```\n\n## 影响面", 1
+    )
 
     # 行尾与标题边界：三条输入路径（--body-file / --pr / 事件载荷）拿到的换行不一样，
     # 结论必须一样。下面四条都来自真实误判（CI 在 CRLF 正文上整段吞掉）。
@@ -518,6 +531,8 @@ def self_test() -> int:
         ("命中门禁链且写了 `## 门禁改动` 必绿", SAMPLE_GATE, ["scripts/gates.json"], 0),
         ("只改文档不触发门禁链要求", SAMPLE_FULL, ["docs/contributing/PR_GUIDE.md"], 0),
         ("围栏里的 `## 门禁改动` 不算数", fenced_gate, ["scripts/gates.json"], 1),
+        ("必填段标题只在围栏里出现时必须红", fenced_required, [], 1),
+        ("同一必填段标题围栏内外并存时算绿", fenced_and_real_required, [], 0),
         ("围栏里的 `Closes` 不算数", fenced_closing, [], 1),
         ("缩进 2 空格的围栏也算围栏", indented_fence, ["scripts/gates.json"], 1),
         ("开 3 个闭 4 个算闭合：围栏内那段不算、围栏后真的有段则绿", long_close_fence, ["scripts/gates.json"], 0),
@@ -662,7 +677,8 @@ def main() -> int:
         print(f"     正文结构见 docs/contributing/PR_GUIDE.md「正文分段」；{source}", file=sys.stderr)
         return 1
 
-    gate_note = f"，门禁链 {len(gate_hits(files))} 个文件已声明" if gate_hits(files) else ""
+    hits = gate_hits(files)
+    gate_note = f"，门禁链 {len(hits)} 个文件已声明" if hits else ""
     print(f"[绿] {source}：必填段齐全、关闭关键词存在{gate_note}")
     return 0
 
