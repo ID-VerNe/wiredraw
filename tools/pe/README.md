@@ -27,7 +27,7 @@ python tools/pe/pe_inspect.py whoimports <dllname> <path-to-pe>...
 |---|---|
 | `exports` | 文件头（machine / imagebase / sections）+ 导出表，逐项 `[序号] RVA 名称` |
 | `imports` | 按 DLL 分组的导入函数名与数量 |
-| `rtti` | `.data` / `.rdata` 中扫到的 `.?AV<name>@@` 类名 |
+| `rtti` | 全文件字节里扫到的 `.?AV<name>@@` 类名（不限节区；脚本注释写的 `.data/.rdata` 是历史说法） |
 | `strings` | 可打印 ASCII 串，默认最短 6 字符，`minlen` 可调 |
 | `whoimports` | 在给定 PE 文件里找 import 了指定 DLL 的文件，逐条打印函数名 |
 
