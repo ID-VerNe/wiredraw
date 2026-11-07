@@ -97,11 +97,12 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 
 ## 四、发布前真机待验清单（全部待验）
 
-> 数据来源：`gh issue list --state open --label needs-live-verify`，2026-11-08 实际 **29 条**
-> （#159 快照写的是 25，差额是之后拆分/新增的审计单，按实际条数入表）。
+> 数据来源：`gh issue list --state open --label needs-live-verify`，2026-11-08 06:41（UTC+8）快照
+> **25 条**，与 #159 正文记录的 25 条一致。
 > **本表全部是「未验证」**，任何一条都不许在读表时当成「已通过」。
 > 优先级取自各 issue 正文的「影响面」；同一优先级内按 issue 号升序。
 > 跑完一条就把结论按 §「怎么读」回填到上面三张能力表，并把 issue 贴上对应环境编号。
+> 不带该标签的离线审计单另见本节末尾附表，**不占真机额度**。
 
 | 优先级 | issue | 待验点 | 可直接粘贴的复现动作 | 前提 |
 |---|---|---|---|---|
@@ -114,31 +115,37 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 | P1 | #60 | 冷启动 57 s 才出照片墙 | `adb logcat -c` → `adb shell am force-stop com.rea.mtpimport` → `adb shell am start -n com.rea.mtpimport/.Main` → 等 70 s → `adb logcat -d -s MTPIMPORT:*` | 相机在位、USB、已授权 |
 | P1 | #63 | 传输中挂起把 `Import` 变死键 | 传输中拔线或让相机休眠 → 点 `Import` → 看是否无响应；这是 `needs-repro` 单，先复现再判 | 相机在位、需制造挂起 |
 | P1 | #83 | filter 语义与像素优先 JPG | `adb shell am start -n com.rea.mtpimport/.Main --es demo_state CATALOG_READY` → 切 `All` / `RAW` / `JPG` / 日期 → `adb exec-out uiautomator dump /dev/tty` 看 CTA N 与胶囊；真机再比对导出集合 | 无相机（UI）+ 相机在位（真机部分） |
-| P1 | #204 | 门禁共享层 | `.\.venv\Scripts\python.exe scripts\run_gates.py ci` | 无（离线） |
 | P1 | #205 | 构建常量收口 | `git grep -n -E "compileSdk|targetSdk|minSdk" -- tools/android-mtp-import` | 无（离线） |
 | P1 | #209 | 完成 / 跳过判据 | `.\.venv\Scripts\python.exe scripts\run_gates.py ci`；真机重复导入看 `Skipped` | 无（静态）+ 相机在位（回归） |
 | P1 | #214 | `visibleUnits` 唯一派生 | `git grep -n "visibleUnits" -- tools/android-mtp-import`；demo 切 filter 对比组头与进度 | 无（静态）+ 无相机（demo） |
 | P1 | #215 | 设计常量 | `git grep -n -E "[0-9]+(dp|sp)" -- tools/android-mtp-import/src/com/rea/mtpimport/ui`；截图取色对照 | 无相机（demo） |
-| P1 | #225 | 离线解析门槛与 GUID | `.\.venv\Scripts\python.exe tools\sony-ptpip\parse_ptpip.py --help` 与 `.\.venv\Scripts\python.exe tools\sony-ptpip\probe.py --help` | 无（离线） |
 | P2 | #28 | 落点决策落地 | 真机导入后 `adb shell run-as com.rea.mtpimport ls -l files/imported`；看日志里的相册回退原因 | 相机在位、需权限场景 |
 | P2 | #53 | `Skipped` 进 Details | 重复导入 → 打开 `Details` → `adb exec-out uiautomator dump /dev/tty` | 相机在位、已有导入文件 |
 | P2 | #54 | 多存储同名 `relPath` | 机身与卡放同名目录 / 同名文件 → 导入 → `adb shell run-as com.rea.mtpimport ls -l files/imported` 看是否覆盖 | 相机在位、双存储 |
 | P2 | #57 | 暂停后改勾选 | `Pause & exit` → 改勾选 → `Import` → `adb logcat -d -s MTPIMPORT:*` | 相机在位 |
 | P2 | #64 | 视图关闭后全失败静默 | `Pause & exit` → 拔线使剩余全失败 → 看是否出现 `ERROR` | 相机在位、拔插 |
 | P2 | #65 | 取消日志语气 | `git grep -n -i "cancel" -- tools/android-mtp-import/src/com/rea/mtpimport` | 无（离线） |
+| P2 | #96 | 纯 JPG 首屏渐进发布 | 相机只留 JPG（或清空 ARW）→ `adb shell am start -n com.rea.mtpimport/.Main` → 看照片墙是否在扫描进度走完前出现；静态判据 `git grep -n "rawSeen" -- tools/android-mtp-import/src/com/rea/mtpimport/CatalogScanner.java` | 相机在位、纯 JPG 卡 |
 | P2 | #116 | 自检 / README / `ERROR` 文案 | `git grep -n -E "Not available|ERROR" -- tools/android-mtp-import`；真机 `--es demo_state ERROR` 截图 | 无（静态）+ 相机在位 |
 | P2 | #124 | 暂停注释与预检顺序 | `git grep -n -i "pause" -- tools/android-mtp-import/src/com/rea/mtpimport`；低空间真机复导 | 无（静态）+ 低空间 |
 | P2 | #127 | `Skipped` 文案与早退 | `git grep -n "Skipped" -- tools/android-mtp-import`；真机 `ERROR` 展开 `Details` | 无（静态）+ 相机在位 |
-| P2 | #207 | 单文件过载 | `Get-Content tools/android-mtp-import/UI-SPEC.md \| Measure-Object -Line` 与 `.\.venv\Scripts\python.exe scripts\run_gates.py ci` | 无（文档） |
 | P2 | #217 | 抽屉 / 按钮抽离 | `git grep -n -E "Details|Drawer" -- tools/android-mtp-import/src/com/rea/mtpimport/ui`；demo 截图回归 | 无相机（demo） |
 | P2 | #221 | 缩略图链与短读 | `git grep -n -i -E "thumb|thumbnail" -- tools/android-mtp-import/src`；真机看缩略图与大图 | 无（静态）+ 相机在位 |
-| P2 | #224 | opcode / RESP 表 | `git grep -n "0x" -- tools/sony-ptpip/probe.py` | 无（离线） |
-| P2 | #226 | 死字段与 `pe_inspect` | `.\.venv\Scripts\python.exe scripts\run_gates.py ci`；`.\.venv\Scripts\python.exe -m unittest discover -s tools/pe/tests -p "test_*.py"` | 无（离线） |
 
-**统计**：P0 2 条 / P1 13 条 / P2 14 条，共 29 条。**已通过 0 条。**
+**统计**：P0 2 条 / P1 11 条 / P2 12 条，共 25 条。**已通过 0 条。**
 
 **跑表顺序建议**：先 P0 两条（#50 落盘、#177 完整性），再 P1 的真机项（#60 冷启动、#63 挂起、#83 过滤），
 最后 demo-only 项可以离线批量跑。每条跑完按「怎么读」补环境编号与证据链接，不要只写「通过」。
+
+### 附：离线审计回归（不带 `needs-live-verify`，不占真机额度）
+
+| 优先级 | issue | 待验点 | 可直接粘贴的复现动作 | 前提 |
+|---|---|---|---|---|
+| P1 | #204 | 门禁共享层 | `.\.venv\Scripts\python.exe scripts\run_gates.py ci` | 无（离线） |
+| P2 | #207 | 单文件过载 | `Get-Content tools/android-mtp-import/UI-SPEC.md \| Measure-Object -Line` 与 `.\.venv\Scripts\python.exe scripts\run_gates.py ci` | 无（文档） |
+| P2 | #224 | opcode / RESP 表 | `git grep -n "0x" -- tools/sony-ptpip/probe.py` | 无（离线） |
+| P2 | #225 | 离线解析门槛与 GUID | `git grep -n -i "guid" -- tools/sony-ptpip`；`.\.venv\Scripts\python.exe tools\sony-ptpip\parse_ptpip.py --help` | 无（离线） |
+| P2 | #226 | 死字段与 `pe_inspect` | `.\.venv\Scripts\python.exe scripts\run_gates.py ci`；`.\.venv\Scripts\python.exe tools\pe\tests\test_none_paths.py` | 无（离线） |
 
 ## 与其他文档的关系
 
