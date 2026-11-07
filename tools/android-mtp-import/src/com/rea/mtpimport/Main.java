@@ -1,6 +1,5 @@
 package com.rea.mtpimport;
 
-import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -21,8 +20,6 @@ import androidx.activity.ComponentActivity;
 
 import java.io.File;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 导片工具（界面层）。
@@ -35,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * `getFilesDir()/imported/`；`ImportService` 负责逐文件进度、暂停与取消。
  * demo 仍是独立调试入口，不参与真实 USB 路径。
  */
-public final class Main extends ComponentActivity {
+public final class Main extends ComponentActivity implements ScanTask.Host {
 
     private static final String TAG = "MTPIMPORT";
     private static final String ACTION_PERM = "com.rea.mtpimport.USB_PERM";
@@ -63,10 +60,7 @@ public final class Main extends ComponentActivity {
      */
     private static final String EXTRA_PERM_SEQ = "com.rea.mtpimport.PERM_SEQ";
 
-    /** USB 权限申请的等待门（#11）：每次申请重建 latch、只认本次序号的回调。 */
-    private final PermGate permGate = new PermGate();
-
-    /** 插线事件的准入判定（#17）：同一次插拔可能从 intent 与广播投递两次，重复事件不得开第二个会话。 */
+    /** USB 插线事件的准入判定（#17）：同一次插拔可能从 intent 与广播投递两次，重复事件不得开第二个会话。 */
     private final AttachGate attachGate = new AttachGate();
 
     /** 界面状态（Compose 唯一数据源）。 */
@@ -75,7 +69,7 @@ public final class Main extends ComponentActivity {
     /** 照片墙缩略图（issue #59）：会话级缓存，所有相机调用走 session.ioLock()。 */
     private final ThumbnailStore thumbnails = new ThumbnailStore();
 
-    /** 当前这一轮扫描的取消令牌（B1）；没有扫描时为 null，由 scanWorker 的 finally 清掉。 */
+    /** 当前这一轮扫描的取消令牌（B1）；没有扫描时为 null，由 {@link ScanTask} 的 finally 清掉。 */
     private volatile ScanRun scanRun;
 
     /** 当前扫描线程：取消时 interrupt，让 3 秒睡眠 / 权限等待立刻退出（第五轮评审 B-1）。 */
@@ -103,17 +97,12 @@ public final class Main extends ComponentActivity {
 
     /**
      * 被放弃的上一轮（三审 B-3）：`service` 已摘掉，但 worker 可能还阻塞在原生 `importFile` 上。
-     * worker 退出前不得重建会话（`scanWorker` 的 `session.close()` 会撞上那条原生调用）。
+     * worker 退出前不得重建会话（扫描的 `session.close()` 会撞上那条原生调用）。
      */
-    private volatile ImportService orphanService;
+    private final OrphanRounds orphanRounds = new OrphanRounds();
 
-    private volatile TransferProgress lastProgress;
-
-    /**
-     * 进度回调合并闸（PB）：worker 每个文件投一次更新，主线程忙时不希望几百个 Runnable
-     * 在队列里排队。只在没有待执行更新时投递，执行时直接取 {@link #lastProgress} 的最新值。
-     */
-    private final AtomicBoolean progressUiPending = new AtomicBoolean(false);
+    /** 当前这一轮的导入回调（G9a）；恢复暂停轮次时读它的最新进度。 */
+    private volatile ImportRoundListener roundListener;
 
     /** debug 假数据入口；release 构建里没有这个类，恒为 null（U-54）。 */
     private DemoBridge demoBridge;
@@ -144,6 +133,109 @@ public final class Main extends ComponentActivity {
 
     private final Log log = this::logLine;
 
+    /** USB 权限流程（G9a）：申请序号 / 等待门 / 广播结果判定。 */
+    private final UsbPermissionFlow permissionFlow = new UsbPermissionFlow(
+            this, ACTION_PERM, EXTRA_PERM_SEQ, log,
+            () -> runOnUiThread(model::showPermission));
+
+    /** 导入轮次往界面投递（G9a）：`post` 切 UI 线程，其余方法都假定已在 UI 线程。 */
+    private final ImportUi importUi = new ImportUi() {
+        @Override
+        public void post(Runnable r) {
+            runOnUiThread(r);
+        }
+
+        @Override
+        public void updateProgress(int done, int total) {
+            model.updateProgress(done, total);
+        }
+
+        @Override
+        public void addFailedLine(String line) {
+            model.addFailedLine(line);
+        }
+
+        @Override
+        public void showImportError() {
+            model.showError("导入中断，请拔插数据线");
+        }
+
+        @Override
+        public void finishRound(boolean cancelled, int ok, int skipped, int failed, long bytesDone) {
+            // issue #53 / P-07 / U-21：跳过数必须进 Details 抽屉（主视觉不出现）。
+            // 先于 FinishOutcome 写入，DONE / ERROR / 取消 / 保持当前视图四种去向都能在抽屉里看到。
+            model.showSkipped(skipped);
+            // 判定顺序收进纯 JDK 的 FinishOutcome（issue #64）：全失败优先于「视图已关闭」，
+            // 避免关闭视图后整轮全失败被 backToCatalog 静默吞掉。
+            FinishOutcome.Action action = FinishOutcome.of(
+                    cancelled, model.getTransferViewClosed(), ok, skipped, failed);
+            switch (action) {
+                case LEAVE_TRANSFER_VIEW:
+                    // 取消：视图已在 onCancel 里关掉；这里再关一次，防迟到的进度回调
+                    // 在 onFinished 之前落地把界面拽回 IMPORTING（#48）。
+                    model.leaveTransferView();
+                    return;
+                case SHOW_ERROR:
+                    // 一个都没成：落 ERROR + `Connect camera`（不是 Retry，§1.2 / U-52）。
+                    model.showError("导入失败，请拔插数据线");
+                    return;
+                case STAY_CURRENT_VIEW:
+                    // 三审顺带：`Pause & exit`（或顶部返回）后用户已回到照片墙；若暂停恰好落在
+                    // 最后一个文件，worker 会在文件边界正常结束。此时 DONE 会把界面从照片墙
+                    // 拽回传输页，与 §1.3「关视图后任务继续、不抢回界面」相冲突。
+                    log.line("本轮结束但传输视图已关闭：保持当前视图（不跳 DONE）");
+                    model.backToCatalog();
+                    return;
+                case SHOW_DONE:
+                    model.showDone(ok + skipped, bytesDone);
+                    return;
+                case BACK_TO_CATALOG:
+                default:
+                    // 兜底：新增 Action 必须在此显式处理，否则会静默落到回照片墙。
+                    model.backToCatalog();
+            }
+        }
+    };
+
+    /** 入口清零 / 早退（G9a）：`ImportEntry` 保证清零永远早于任何早退。 */
+    private final ImportEntry.Sink entrySink = new ImportEntry.Sink() {
+        @Override
+        public void resetSkipped() {
+            model.showSkipped(0);
+        }
+
+        @Override
+        public void logLine(String line) {
+            log.line(line);
+        }
+    };
+
+    /** 空间预检投递（G9a）：`SpaceGate` 只算，界面状态由这里落。 */
+    private final SpaceGate.Sink spaceSink = new SpaceGate.Sink() {
+        @Override
+        public void setSpaceStatus(boolean low, String detail) {
+            model.setSpaceStatus(low, detail);
+        }
+
+        @Override
+        public void logLine(String line) {
+            log.line(line);
+        }
+    };
+
+    /** 孤儿轮次投递（G9a）。 */
+    private final OrphanRounds.Sink orphanSink = new OrphanRounds.Sink() {
+        @Override
+        public void logLine(String line) {
+            log.line(line);
+        }
+
+        @Override
+        public void showError(String message) {
+            model.showError(message);
+        }
+    };
+
     private final AppCallbacks callbacks = new AppCallbacks() {
         @Override
         public void onConnectCamera() {
@@ -158,7 +250,7 @@ public final class Main extends ComponentActivity {
                 return;
             }
             // 真实路径**不能**走 handleAttach / AttachGate（B1）：扫描线程正卡在
-            // `permGate.await` 上，扫描锁要到 scanWorker 的 finally 才释放，admit 必回
+            // `permissionFlow.await` 上，扫描锁要到 ScanTask 的 finally 才释放，admit 必回
             // NOTHING_ALREADY_SCANNING，Allow 就成了死键。这里只重发一次权限申请，
             // 由 PermGate 的新序号唤醒那条正在等待的线程（`begin()` 会唤醒旧 latch）。
             UsbDevice dev = findCamera();
@@ -170,14 +262,14 @@ public final class Main extends ComponentActivity {
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
             if (um.hasPermission(dev)) {
                 // 权限已经在手时不能只记日志：系统对话框的广播可能永远不来（用户先前已授权、
-                // 或授权发生在别的会话），扫描线程仍卡在 `permGate.await` 上，要空等 120 s 才超时。
+                // 或授权发生在别的会话），扫描线程仍卡在 `permissionFlow.await` 上，要空等 120 s 才超时。
                 // 这里按「内部已知事实」直接把本轮等待判成已授权（PR #41 第三轮评审小项 1）。
-                boolean released = permGate.resolve(true);
+                boolean released = permissionFlow.resolve(true);
                 log.line("点 Allow → 权限已经在手，"
                         + (released ? "放行扫描线程" : "本轮等待已结束"));
                 return;
             }
-            int seq = requestPermission(um, dev);
+            int seq = permissionFlow.request(um, dev);
             log.line("点 Allow → 重发 USB 权限申请（序号 " + seq + "）");
         }
 
@@ -192,14 +284,14 @@ public final class Main extends ComponentActivity {
             if (hadImportRun) service.cancel();
             // 扫描态取消（U-06 / P-02）。这里只置位令牌 + 唤醒两边等待：
             // - 扫描线程的重试/枚举循环都判令牌，会尽快自己退出；
-            // - interrupt 让 `Thread.sleep` / `permGate.await` 立刻返回，不必等满 3 秒 / 120 秒。
+            // - interrupt 让 `Thread.sleep` / `permissionFlow.await` 立刻返回，不必等满 3 秒 / 120 秒。
             // **不在 UI 线程关会话**（第五轮评审 B-1 同源缺陷①）：`MtpDevice.getStorageIds()` /
             // `getObjectInfo()` 既不 checkOpen 也不拿锁，用 `close()` 当中断手段是未验证的原生竞态。
-            // 会话统一交给 scanWorker 的 finally 在自己的线程上关闭，随后才释放 attachGate。
+            // 会话统一交给 ScanTask 的 finally 在自己的线程上关闭，随后才释放 attachGate。
             ScanRun run = scanRun;
             if (run != null && !run.isCancelled()) {
                 run.cancel();
-                permGate.resolve(false);
+                permissionFlow.resolve(false);
                 Thread worker = scanThread;
                 if (worker != null) worker.interrupt();
                 log.line("点 Cancel → 已请求取消扫描（会话由扫描线程收尾时关闭）");
@@ -371,11 +463,8 @@ public final class Main extends ComponentActivity {
         public void onReceive(Context c, Intent i) {
             String a = i.getAction();
             if (ACTION_PERM.equals(a)) {
-                boolean granted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                int seq = i.getIntExtra(EXTRA_PERM_SEQ, 0);
                 // 序号对不上或已经回答过的回调属于上一次申请，不得释放本次等待（#11）
-                boolean accepted = permGate.onResult(seq, granted);
-                log.line("USB 权限回调：granted=" + granted + (accepted ? "" : " · 旧请求，已忽略"));
+                permissionFlow.onResult(i);
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
                 // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
                 if (!demoActive()) handleAttach("收到 USB_DEVICE_ATTACHED 广播");
@@ -448,12 +537,12 @@ public final class Main extends ComponentActivity {
         // worker 没退出前**不得**在 UI 线程 close 会话：那条原生调用可能还占着 MtpDevice。
         ImportService running = service;
         if (running != null) running.cancel();
-        ImportService orphan = orphanService;
+        ImportService orphan = orphanRounds.current();
         if (orphan != null) orphan.cancel();
         ScanRun scan = scanRun;
         if (scan != null) scan.cancel();
         // 销毁后不会再收到回调（receiver 已注销），提前释放还在等权限的扫描线程，别让它空等 120 秒
-        permGate.cancel();
+        permissionFlow.cancel();
         Thread scanning = scanThread;
         if (scanning != null) scanning.interrupt();
 
@@ -493,17 +582,6 @@ public final class Main extends ComponentActivity {
             return false;
         }
         return !t.isAlive();
-    }
-
-    /** 逐文件日志标签：用 UI-SPEC §0.10 的词，不把内部枚举名（OK/SKIPPED/...）写给用户看。 */
-    private static String kindLabel(ResumableTransfer.Kind kind) {
-        switch (kind) {
-            case OK: return "Done";
-            case SKIPPED: return "Skipped";
-            case FAILED: return "Failed";
-            case CANCELLED: return "Cancelled";
-            default: return "";
-        }
     }
 
     @Override
@@ -627,7 +705,7 @@ public final class Main extends ComponentActivity {
         // 取消卡死的 worker 不能把重扫也永久拦住（二审 B-1）：先放弃该轮再走准入判定。
         // 放弃只摘掉引用、不 close 会话；但 worker 未退出前也不重建会话（三审 B-3）。
         abandonStuckService();
-        if (orphanWorkerStillRunning()) return;
+        if (orphanRounds.stillRunning(orphanSink)) return;
         AttachGate.Admit admit = attachGate.admit(dev != null, service != null && service.isRunning());
         switch (admit) {
             case GO: {
@@ -637,7 +715,7 @@ public final class Main extends ComponentActivity {
                 lastScan = null;
                 log.line(trigger + " → 开始扫描");
                 model.showScanning(0, 0);
-                Thread worker = new Thread(() -> scanWorker(dev, run), "scan-worker");
+                Thread worker = new Thread(new ScanTask(this, dev, run), "scan-worker");
                 scanThread = worker;
                 worker.start();
                 break;
@@ -655,121 +733,103 @@ public final class Main extends ComponentActivity {
         }
     }
 
-    private void scanWorker(UsbDevice dev, ScanRun run) {
-        try {
-            UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
-            if (!um.hasPermission(dev) && !awaitPermission(um, dev, run)) {
-                if (run.isCancelled()) {
-                    log.line("已取消，停止等待 USB 权限");
-                    return;
-                }
-                log.line("USB 权限未授予，退出");
-                postIfActive(run, () -> model.showError("未获得 USB 权限"));
-                return;
-            }
-            if (run.isCancelled()) {
-                log.line("扫描已取消，跳过会话建立");
-                return;
-            }
-            if (session != null) {
-                // 先摘会话再关（与取消路径同一顺序）：缩略图拿锁后会重判 session。
-                thumbnails.detachSession();
-                session.close();
-            }
-            // 句柄只在当前会话里有效；重开前把旧缩略图整块释放。
-            thumbnails.clear();
-            session = MtpSession.open(um, dev, log);
-            if (session == null) {
-                postIfActive(run, () -> model.showError("相机未就绪，请拔插数据线"));
-                return;
-            }
-            thumbnails.setSession(session);
-            if (run.isCancelled()) {
-                // 取消可能发生在 open() 返回之前：会话不在 UI 线程关，交给 finally 收尾
-                // （同一个 MtpDevice 上 close 与 getObjectInfo 并发的竞态未验证）。
-                log.line("扫描已取消，放弃本轮会话（由收尾统一关闭）");
-                return;
-            }
+    // ---------------- ScanTask.Host ----------------
+    //
+    // 扫描本身在 {@link ScanTask} 的 worker 线程上跑（G9a）；这里只提供会话、缩略图、
+    // 界面投递与收尾，且一律经 postIfActive 保证「取消后丢弃」。
 
-            int[] sids = session.storageIds(log, run);
-            if (run.isCancelled()) {
-                log.line("扫描已取消，停止本轮");
-                return;
-            }
-            if (sids.length == 0) {
-                log.line("拿不到存储：请拔插 USB 线（相机会话结束后约 1 分钟会挂起 USB）");
-                postIfActive(run, () -> model.showError("相机存储不可用，请拔插数据线"));
-                return;
-            }
-            for (int sid : sids) log.line("存储：" + session.describeStorage(sid));
+    @Override
+    public Log log() {
+        return log;
+    }
 
-            ScanResult scan = CatalogScanner.scan(session.device(), sids, log, run,
-                    new CatalogScanner.ScanProgress() {
-                        @Override
-                        public void onScan(int done, int total) {
-                            postIfActive(run, () -> model.showScanning(done, total));
-                        }
+    @Override
+    public UsbPermissionFlow permission() {
+        return permissionFlow;
+    }
 
-                        @Override
-                        public void onPartial(Catalog snapshot, int done, int total) {
-                            postIfActive(run, () -> {
-                                if (model.getBackgroundScanning()) {
-                                    selection.retarget(snapshot);
-                                } else {
-                                    // 本轮第一次发布：新建空集选择，避免沿用上一轮勾选。
-                                    // 首轮自己不会留下 backgroundScanning=true（完成/取消都会清零）。
-                                    selection = new Selection(snapshot);
-                                }
-                                catalog = snapshot;
-                                model.showPartialCatalog(snapshot, selection, done, total);
-                                log.line(String.format(Locale.US,
-                                        "渐进发布：已扫描 %d/%d，照片墙 %d 格",
-                                        done, total, model.getPhotoCount()));
-                            });
-                        }
-                    });
-            if (!run.accept()) {
-                log.line("扫描已取消，丢弃本轮结果（不上照片墙）");
-                return;
+    @Override
+    public UsbManager usb() {
+        return (UsbManager) getSystemService(Context.USB_SERVICE);
+    }
+
+    @Override
+    public ThumbnailStore thumbnails() {
+        return thumbnails;
+    }
+
+    @Override
+    public MtpSession session() {
+        return session;
+    }
+
+    @Override
+    public void session(MtpSession s) {
+        session = s;
+    }
+
+    @Override
+    public void showScanning(ScanRun run, int done, int total) {
+        postIfActive(run, () -> model.showScanning(done, total));
+    }
+
+    @Override
+    public void showError(ScanRun run, String message) {
+        postIfActive(run, () -> model.showError(message));
+    }
+
+    @Override
+    public void publishPartial(ScanRun run, Catalog snapshot, int done, int total) {
+        postIfActive(run, () -> {
+            if (model.getBackgroundScanning()) {
+                selection.retarget(snapshot);
+            } else {
+                // 本轮第一次发布：新建空集选择，避免沿用上一轮勾选。
+                // 首轮自己不会留下 backgroundScanning=true（完成/取消都会清零）。
+                selection = new Selection(snapshot);
             }
-            // 明细只由 CatalogScanner 打一条（issue #211 / A7）；这里只标阶段，避免一次扫描两条同格式。
-            log.line("扫描收尾：进入 CATALOG_READY");
-            if (!scan.complete) {
-                // issue #52：残缺目录仍可显示，但不能当 `.part` 保留集；把原因提前说清。
-                log.line(scan.skipReason());
-            }
-            // 收尾也必须在 UI 线程排队：扫描线程先于已投递的渐进快照执行的话，
-            // 会把用户在渐进态里的勾选冲掉。UI 队列 FIFO 保证这里晚于所有 onPartial。
-            postIfActive(run, () -> {
-                catalog = scan.catalog;
-                // issue #52：完整扫描结果只在这里落地；渐进快照（onPartial）不置 lastScan。
-                lastScan = scan;
-                // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
-                if (model.getBackgroundScanning()) selection.retarget(scan.catalog);
-                else selection = new Selection(scan.catalog);
-                model.showCatalog(scan.catalog, selection);
-                // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
-                refreshSpaceCheck();
-            });
-        } catch (Throwable t) {
-            log.line("扫描异常：" + t);
-            postIfActive(run, () -> model.showError("相机连接已断开，请拔插数据线"));
-        } finally {
-            // 取消时由扫描线程自己收尾关会话（第五轮评审 B-1）：UI 线程不碰 MtpDevice。
-            if (run.isCancelled()) {
-                MtpSession s = session;
-                if (s != null) {
-                    // 先摘会话再关：缩略图线程拿锁后会重判 session，避免 getThumbnail 撞上 close。
-                    thumbnails.detachSession();
-                    log.line("取消收尾：关闭 MTP 会话");
-                    s.close();
-                    session = null;
-                }
-            }
-            if (scanRun == run) scanRun = null;
-            if (scanThread == Thread.currentThread()) scanThread = null;
-            attachGate.finish();
-        }
+            catalog = snapshot;
+            model.showPartialCatalog(snapshot, selection, done, total);
+            log.line(String.format(Locale.US,
+                    "渐进发布：已扫描 %d/%d，照片墙 %d 格",
+                    done, total, model.getPhotoCount()));
+        });
+    }
+
+    @Override
+    public void publishFinal(ScanRun run, ScanResult scan) {
+        // 收尾也必须在 UI 线程排队：扫描线程先于已投递的渐进快照执行的话，
+        // 会把用户在渐进态里的勾选冲掉。UI 队列 FIFO 保证这里晚于所有 onPartial。
+        postIfActive(run, () -> {
+            catalog = scan.catalog;
+            // issue #52：完整扫描结果只在这里落地；渐进快照（onPartial）不置 lastScan。
+            lastScan = scan;
+            // UI 状态为准：渐进态保留用户勾选；没有渐进发布才重建空集。
+            if (model.getBackgroundScanning()) selection.retarget(scan.catalog);
+            else selection = new Selection(scan.catalog);
+            model.showCatalog(scan.catalog, selection);
+            // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
+            refreshSpaceCheck();
+        });
+    }
+
+    @Override
+    public void closeCancelledSession() {
+        // 取消时由扫描线程自己收尾关会话（第五轮评审 B-1）：UI 线程不碰 MtpDevice。
+        MtpSession s = session;
+        if (s == null) return;
+        // 先摘会话再关：缩略图线程拿锁后会重判 session，避免 getThumbnail 撞上 close。
+        thumbnails.detachSession();
+        log.line("取消收尾：关闭 MTP 会话");
+        s.close();
+        session = null;
+    }
+
+    @Override
+    public void finishRun(ScanRun run) {
+        if (scanRun == run) scanRun = null;
+        if (scanThread == Thread.currentThread()) scanThread = null;
+        attachGate.finish();
     }
 
     /**
@@ -784,41 +844,6 @@ public final class Main extends ComponentActivity {
         });
     }
 
-    private boolean awaitPermission(UsbManager um, UsbDevice dev, ScanRun run) throws InterruptedException {
-        // 闭合「onCancel 落在 showScanning 与 begin() 之间」的 120 秒窗口（第五轮评审 B-1 同源缺陷②）：
-        // 取消后绝不发起新的权限申请，否则 resolve(false) 打在还没 begin() 的门上，begin() 一复位又要等满。
-        if (run.isCancelled()) return false;
-        log.line("尚无 USB 权限，发起申请");
-        runOnUiThread(model::showPermission);
-        if (run.isCancelled()) return false;
-        requestPermission(um, dev);
-        permGate.await(120, TimeUnit.SECONDS);
-        return permGate.granted() && !run.isCancelled();
-    }
-
-    /**
-     * 发起一次权限申请（带序号），返回本次序号。
-     *
-     * 首次申请（{@link #awaitPermission}）与 `PERMISSION_PENDING` 里点 `Allow` 的重发共用这一段，
-     * 避免两条路径的 PendingIntent 细节走偏——B1 的根因就是「Allow 走了另一条路」。
-     */
-    private int requestPermission(UsbManager um, UsbDevice dev) {
-        int seq = permGate.begin();
-        // requestCode 必须用 seq（#11 复评）：PendingIntent 记录按 requestCode 区分，
-        // 固定用 0 + FLAG_UPDATE_CURRENT 时所有申请共用一条记录，后一次 begin() 会把
-        // extras 里的 seq 覆写成新值——上一轮迟到的回调于是带着「当前」seq 到达，
-        // 序号判定被绕过，又回到「迟到回调被当成当前回调」。每条申请一条独立记录后，
-        // 迟到回调只会携带它自己那一轮的 seq，被 PermGate.onResult 丢弃。
-        Intent pi = new Intent(ACTION_PERM).setPackage(getPackageName()).putExtra(EXTRA_PERM_SEQ, seq);
-        // 必须 MUTABLE，别改成 IMMUTABLE（#11 复评，防复发）：系统是拿 fillIn 把
-        // EXTRA_PERMISSION_GRANTED 塞进这条广播的，PendingIntentRecord.sendInner 在
-        // immutable 时会跳过 fillIn —— 那样即使用户点「允许」，回调读到的也恒为 false，
-        // 授权永远失败。记录已按 seq 唯一，不需要 FLAG_UPDATE_CURRENT；
-        // 也不要把 MUTABLE 与 IMMUTABLE 同时给，会抛 IllegalArgumentException。
-        um.requestPermission(dev, PendingIntent.getBroadcast(this, seq, pi, PendingIntent.FLAG_MUTABLE));
-        return seq;
-    }
-
     /**
      * 刷新空间预检（PD / P-09），只在 UI 线程调用。
      *
@@ -826,6 +851,7 @@ public final class Main extends ComponentActivity {
      * `lowSpace` 交给 AppModel（主 CTA 禁用 + 一行 `Low space`），差额进 Details。
      * 计划按当前 filter 的**可见集合**算（issue #83），与主 CTA 的分母同口径；
      * 计划为空（可见集合里没有可导出文件）时不做拦截。
+     * 判据与文案收进纯 JDK 的 {@link SpaceGate#refresh}（G9a）。
      */
     private void refreshSpaceCheck() {
         if (demoActive() || catalog == null || selection == null) {
@@ -834,13 +860,7 @@ public final class Main extends ComponentActivity {
         }
         ImportPlan plan = ImportPlan.of(catalog, selection,
                 model.getVisibleUnits(), model.getExportMode());
-        if (plan.isEmpty()) {
-            model.setSpaceStatus(false, "");
-            return;
-        }
-        long free = freeBytes();
-        boolean enough = SpaceCheck.enough(free, plan.totalBytes());
-        model.setSpaceStatus(!enough, enough ? "" : SpaceCheck.describe(free, plan.totalBytes()));
+        SpaceGate.refresh(spaceSink, plan, freeBytes());
     }
 
     /**
@@ -875,17 +895,10 @@ public final class Main extends ComponentActivity {
      *
      * 两处共用：清单变化时、取消旧暂停轮**之前**（空间不足就不取消，保留暂停轮次），
      * 以及新建一轮之前（防「预检之后、点击之前」空间被别的应用吃掉）。
-     * 不足时落 `Low space` 并返回 false，调用方直接 return。
+     * 不足时落 `Low space` 并返回 false，调用方直接 return。判据收进 {@link SpaceGate#precheck}。
      */
     private boolean precheckSpace(ImportPlan plan) {
-        long free = freeBytes();
-        if (!SpaceCheck.enough(free, plan.totalBytes())) {
-            model.setSpaceStatus(true, SpaceCheck.describe(free, plan.totalBytes()));
-            log.line("空间不足：计划 " + plan.totalBytes() + " 字节，可用 " + free + " 字节");
-            return false;
-        }
-        model.setSpaceStatus(false, "");
-        return true;
+        return SpaceGate.precheck(spaceSink, plan, freeBytes());
     }
 
     /**
@@ -906,7 +919,7 @@ public final class Main extends ComponentActivity {
     private void cleanupPartResidue() {
         if (catalog == null) return;
         if (service != null && service.isRunning()) return;
-        if (orphanWorkerStillRunning()) return;
+        if (orphanRounds.stillRunning(orphanSink)) return;
         File out = destination().root;
         // 没有目录就没有 `.part`；不要为了清理去建目录。
         if (!out.isDirectory()) return;
@@ -917,17 +930,16 @@ public final class Main extends ComponentActivity {
         // issue #127：跳过数属于「本轮」，在入口就清空。清零必须早于下面所有早退分支：
         // 探活失败 / 无会话 / 建目录失败 / 空间不足等落 ERROR 时，Details 抽屉只判
         // `skippedLine.isNotEmpty()`，不能把上一轮的 `Skipped N existing` 留在 ERROR 态里。
-        model.showSkipped(0);
-        // 假数据模式必须排在 `catalog == null` 之前（issue #46）：demo 下 `Main.catalog`
-        // 从未赋值（树只装在 AppModel 里），旧顺序会让 Import all 永远停在这一句「先扫描」。
-        if (demoActive()) {
+        // 「先清零再判分支」收进纯 JDK 的 ImportEntry（G9a），自检直接驱动它断言顺序。
+        // 假数据模式必须排在清单判定之前（issue #46）：demo 下 `Main.catalog` 从未赋值
+        // （树只装在 AppModel 里），旧顺序会让 Import all 永远停在这一句「先扫描」。
+        ImportEntry.Stage stage = ImportEntry.begin(entrySink, demoActive(),
+                catalog != null && selection != null);
+        if (stage == ImportEntry.Stage.DEMO) {
             startDemoImport();
             return;
         }
-        if (catalog == null || selection == null) {
-            log.line("先扫描");
-            return;
-        }
+        if (stage == ImportEntry.Stage.NEEDS_SCAN) return;
 
         // issue #52：清理无主 `.part`。开关是「本次枚举是否完整成功」，不是「清单是否为空」：
         // 相机上没有可导入文件时也要清；枚举失败 / 取消时一律不清。详见 cleanupPartResidue()。
@@ -968,7 +980,8 @@ public final class Main extends ComponentActivity {
                     if (!pausedRound.awaitWorker(1000)) {
                         // 暂停中 worker 停在文件边界，正常 200 ms 内退出；打不断时给 ERROR 出路，
                         // 不放行新一轮（旧 worker 可能仍占着同一个 MtpDevice）。
-                        orphanService = pausedRound;
+                        // 该轮已正常 cancel，登记即可（不调 abandon()：正常收尾仍要保存日志）。
+                        orphanRounds.adopt(pausedRound);
                         model.showError(StuckError.SESSION_LOST);
                         return;
                     }
@@ -983,7 +996,7 @@ public final class Main extends ComponentActivity {
                         pausedRound.cancel();
                         // worker 还能自己退出（暂停不是卡死），但要挡掉它的 onFinished：置空引用后
                         // 回调会因 `service != round` 被丢弃，ERROR 不会被 leaveTransferView 冲掉。
-                        orphanService = pausedRound;
+                        orphanRounds.adopt(pausedRound);
                         service = null;
                         model.showError(StuckError.SESSION_LOST);
                         return;
@@ -1010,7 +1023,7 @@ public final class Main extends ComponentActivity {
             }
         }
         // 放弃过卡死轮次时，旧 worker 可能仍占着同一个 MtpDevice：不放行新导入（三审 B-3）。
-        if (orphanWorkerStillRunning()) return;
+        if (orphanRounds.stillRunning(orphanSink)) return;
         MtpSession s = session;
         if (s == null || s.device() == null) {
             // 扫描成功后会话会保持常开；走到这里说明会话已经被取消/断开。
@@ -1046,98 +1059,13 @@ public final class Main extends ComponentActivity {
         final ImportService round = new ImportService(
                 log, new MtpTransfer(s.device(), log, s.ioLock()), out);
         service = round;
-        lastProgress = null;
+        // 回调转发与「迟到回调丢弃」收进纯 JDK 的 ImportRoundListener（G9a）；
+        // 新一轮自然从 lastProgress == null 开始，不需要在这里手工清。
+        roundListener = new ImportRoundListener(log, importUi, () -> service == round);
         // PD：失败明细属于「本轮」；新一轮开始时清空，避免上一轮的失败混进本次 Details。
         model.clearFailedLines();
         model.showImport(0, plan.count());
-        round.start(plan, new ImportListener() {
-            @Override
-            public void onPlanReady(ImportPlan p) {
-                log.line("计划：" + p.count() + " 个文件 / " + p.totalBytes() + " 字节");
-            }
-
-            @Override
-            public void onProgress(TransferProgress progress, ImportPlan.Item current) {
-                if (service != round) return;   // 该轮已被放弃/换轮：迟到的进度不得改写界面
-                lastProgress = progress;
-                // 合并闸（PB）：已有一个待执行更新时直接丢弃本次投递，
-                // 待执行那个 Runnable 会读 lastProgress 的最新值，主线程不会被进度回调打爆。
-                if (!progressUiPending.compareAndSet(false, true)) return;
-                runOnUiThread(() -> {
-                    progressUiPending.set(false);
-                    TransferProgress p = lastProgress;
-                    if (p == null) return;
-                    // 只送文件计数：字节 / 速率不上屏（issue #70；#177 证 offset 不可信）。
-                    model.updateProgress(p.filesDone(), p.totalFiles());
-                });
-            }
-
-            @Override
-            public void onFileFinished(ImportPlan.Item item, ResumableTransfer.Kind kind,
-                                       String note) {
-                // issue #177：内部枚举名不得直出到用户可见的 Details 日志。
-                // 依据 UI-SPEC §0.10：`:166` 完成 = Done、`:735` 跳过 = Skipped；
-                // `:173` 明确「内部状态名不得显示」。
-                log.line("[" + kindLabel(kind) + "] " + item.relPath
-                        + (note.isEmpty() ? "" : " · " + note));
-                // PD / issue #50：逐文件失败必须进 UI。DONE 首屏受 U-47 约束不能出现 Failed N，
-                // 所以落到 Details 抽屉的固定失败列表——不会被后续日志挤出 takeLast(8)。
-                // 被放弃/换轮的迟到回调不改当前轮次的失败列表。
-                if (kind == ResumableTransfer.Kind.FAILED && service == round) {
-                    String fail = "Failed: " + item.relPath + (note.isEmpty() ? "" : " · " + note);
-                    runOnUiThread(() -> model.addFailedLine(fail));
-                }
-            }
-
-            @Override
-            public void onFinished(boolean cancelled, int ok, int skipped, int failed, String summary) {
-                if (service != round) return;   // 被放弃的卡死轮次收尾时不得动界面
-                // issue #127：文案只在 UiText.skippedLine 维护；0 跳过时不打日志（与抽屉口径一致，不出现「跳过 0」）。
-                if (skipped > 0) log.line(UiText.skippedLine(skipped));
-                runOnUiThread(() -> {
-                    // issue #53 / P-07 / U-21：跳过数必须进 Details 抽屉（主视觉不出现）。
-                    // 先于 FinishOutcome 写入，DONE / ERROR / 取消 / 保持当前视图四种去向都能在抽屉里看到。
-                    model.showSkipped(skipped);
-                    // 判定顺序收进纯 JDK 的 FinishOutcome（issue #64）：全失败优先于「视图已关闭」，
-                    // 避免关闭视图后整轮全失败被 backToCatalog 静默吞掉。
-                    FinishOutcome.Action action = FinishOutcome.of(
-                            cancelled, model.getTransferViewClosed(), ok, skipped, failed);
-                    switch (action) {
-                        case LEAVE_TRANSFER_VIEW:
-                            // 取消：视图已在 onCancel 里关掉；这里再关一次，防迟到的进度回调
-                            // 在 onFinished 之前落地把界面拽回 IMPORTING（#48）。
-                            model.leaveTransferView();
-                            return;
-                        case SHOW_ERROR:
-                            // 一个都没成：落 ERROR + `Connect camera`（不是 Retry，§1.2 / U-52）。
-                            model.showError("导入失败，请拔插数据线");
-                            return;
-                        case STAY_CURRENT_VIEW:
-                            // 三审顺带：`Pause & exit`（或顶部返回）后用户已回到照片墙；若暂停恰好落在
-                            // 最后一个文件，worker 会在文件边界正常结束。此时 DONE 会把界面从照片墙
-                            // 拽回传输页，与 §1.3「关视图后任务继续、不抢回界面」相冲突。
-                            log.line("本轮结束但传输视图已关闭：保持当前视图（不跳 DONE）");
-                            model.backToCatalog();
-                            return;
-                        case SHOW_DONE:
-                            model.showDone(ok + skipped,
-                                    lastProgress == null ? 0 : lastProgress.bytesDone());
-                            return;
-                        case BACK_TO_CATALOG:
-                        default:
-                            // 兜底：新增 Action 必须在此显式处理，否则会静默落到回照片墙。
-                            model.backToCatalog();
-                    }
-                });
-            }
-
-            @Override
-            public void onError(String message, Throwable t) {
-                if (service != round) return;
-                log.line("错误：" + message + (t == null ? "" : " · " + t));
-                runOnUiThread(() -> model.showError("导入中断，请拔插数据线"));
-            }
-        });
+        round.start(plan, roundListener);
     }
 
     /**
@@ -1151,9 +1079,9 @@ public final class Main extends ComponentActivity {
      *   （该态按 UI-SPEC §1.3 没有 Cancel 入口）。
      *
      * 正常取消窗口（毫秒级）与正常传输（单文件约 1.1 s）都不会触发，避免误判。
-     * 放弃只摘掉 `service` 引用到 {@link #orphanService}，**不在这里 close 会话**：没能被打断
+     * 放弃只摘掉 `service` 引用到 {@link OrphanRounds}，**不在这里 close 会话**：没能被打断
      * 的原生调用可能还占着 `MtpDevice`，UI 线程 close 是未验证的原生竞态（与扫描取消同一条口径）。
-     * 旧 worker 退出前 {@link #orphanWorkerStillRunning()} 会拦住扫描与新导入；退出后由扫描线程
+     * 旧 worker 退出前 {@link OrphanRounds#stillRunning} 会拦住扫描与新导入；退出后由扫描线程
      * 收尾并重建会话。旧轮迟到的 `finally` 用 {@link ImportService#abandon()} 跳过日志保存，
      * 不会冲掉新一轮的 `import-journal.txt`（三审 B-3）。
      *
@@ -1169,32 +1097,12 @@ public final class Main extends ComponentActivity {
                 ? "本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）"
                 : "本轮传输长时间无进展：放弃该轮（会话可能已失步，需拔插数据线）");
         final ImportService dead = service;
-        // 旧轮 finally 的整文件覆写不得冲掉新一轮的记录（三审 B-3）。
-        dead.abandon();
+        // 旧轮 finally 的整文件覆写不得冲掉新一轮的记录（三审 B-3）；abandon 与登记在
+        // OrphanRounds 内一起做，避免两处语义走偏。
         // 保留引用：worker 未退出前不放行扫描/新导入，避免 session.close() 撞上原生调用。
-        orphanService = dead;
+        orphanRounds.abandon(dead);
         service = null;
         return cancelStuck ? StuckError.Kind.CANCEL_STUCK : StuckError.Kind.STALLED;
-    }
-
-    /**
-     * 被放弃的上一轮 worker 是否还活着（三审 B-3）。
-     *
-     * `abandonStuckService()` 只摘 `service` 引用，旧 worker 可能仍阻塞在原生 `importFile`
-     * 上、占着同一个 `MtpDevice`。此时若 `scanWorker` 去 `session.close()` 并重建会话，正好
-     * 撞上那条原生调用（与「不在 UI 线程 close」同一理由）。拔线后旧调用会失败返回、worker
-     * 退出，这里自动放行；未拔线前一律保持 `ERROR`。
-     */
-    private boolean orphanWorkerStillRunning() {
-        final ImportService orphan = orphanService;
-        if (orphan == null) return false;
-        if (!orphan.isRunning()) {
-            orphanService = null;
-            return false;
-        }
-        log.line("上一轮传输线程仍未退出：暂不重建会话（请拔插数据线后重试）");
-        model.showError(StuckError.SESSION_LOST);
-        return true;
     }
 
     /**
@@ -1248,7 +1156,8 @@ public final class Main extends ComponentActivity {
 
     /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */
     private void showImportFromProgress() {
-        TransferProgress p = lastProgress;
+        ImportRoundListener listener = roundListener;
+        TransferProgress p = listener == null ? null : listener.lastProgress();
         model.showImport(
                 p == null ? 0 : p.filesDone(),
                 p == null ? 0 : p.totalFiles());
