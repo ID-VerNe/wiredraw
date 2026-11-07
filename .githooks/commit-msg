@@ -45,26 +45,30 @@ case "$FIRST_LINE" in
     ;;
 esac
 
-# 首行长度上限 72 字符（中文按字符数近似：用 python 数，取不到就跳过）
-if command -v python >/dev/null 2>&1; then
-  LEN=$(python -c "import sys;print(len(sys.argv[1]))" "$FIRST_LINE" 2>/dev/null || echo 0)
-  if [ "$LEN" -gt 72 ] 2>/dev/null; then
-    echo "[commit-msg] 拒绝：首行 $LEN 字符，上限 72。" >&2
-    exit 1
-  fi
+# 解释器只解析一次（issue #205）：先前长度检查与敏感扫描各判一次 `command -v python`，
+# 且找不到时只打印一句就放行（fail-open）——而 pre-push 走 run_gates.py 时是硬失败。
+# 同仓库两种策略会让「换了台没有 python 的机器」变成静默不扫敏感值，所以这里改为缺解释器即拒绝。
+PYTHON=$(command -v python || command -v python3 || true)
+if [ -z "$PYTHON" ]; then
+  echo "[commit-msg] 拒绝：找不到 python（python3 也没有）。" >&2
+  echo "             本仓库的 commit message 敏感扫描依赖 Python 3；装好后重试。" >&2
+  exit 1
+fi
+
+# 首行长度上限 72 字符（中文按字符数近似：用 python 数）
+LEN=$("$PYTHON" -c "import sys;print(len(sys.argv[1]))" "$FIRST_LINE" 2>/dev/null || echo 0)
+if [ "$LEN" -gt 72 ] 2>/dev/null; then
+  echo "[commit-msg] 拒绝：首行 $LEN 字符，上限 72。" >&2
+  exit 1
 fi
 
 # commit message 的敏感值扫描（issue #134）：与 support 档 `check_commit_messages.py`
 # 同一套规则。钩子只是便利层，在写入 git 历史之前止损；最终判定由 support 档负责。
 # 上面已对 Merge / Revert 早退，这里不重复扫。
-if command -v python >/dev/null 2>&1; then
-  if ! python scripts/check_commit_messages.py --message-file "$MSG_FILE"; then
-    echo "[commit-msg] 拒绝：commit message 命中敏感信息（规则见 scripts/check_sensitive.py）。" >&2
-    echo "             改成占位符或公开值；确认误报见 docs/contributing/PR_GUIDE.md。" >&2
-    exit 1
-  fi
-else
-  echo "[commit-msg] 提示：找不到 python，跳过 commit message 敏感扫描；PR 的 support 档仍会兜底。" >&2
+if ! "$PYTHON" scripts/check_commit_messages.py --message-file "$MSG_FILE"; then
+  echo "[commit-msg] 拒绝：commit message 命中敏感信息（规则见 scripts/check_sensitive.py）。" >&2
+  echo "             改成占位符或公开值；确认误报见 docs/contributing/PR_GUIDE.md。" >&2
+  exit 1
 fi
 
 exit 0
