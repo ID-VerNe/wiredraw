@@ -6,10 +6,12 @@ import java.util.function.LongConsumer;
  * 传输**契约**。PA / PB 的 {@link MtpTransfer} 只做整文件传输与取消。
  *
  * **续传已停用（止血，issue #177）**：issue #67 曾按 `tools/android-mtp-probe` 的结论
- * 认为 `getPartialObject` 的 offset 是绝对偏移；但 2026-11-07 的真机复测（小米 9，
- * Android 15，USB MTP）显示 offset 不生效，reader 忽略偏移、从对象起点顺序给数据。
- * 继续把 `.part` 当可信前缀 append 会得到「字节数对、内容错、日志打 OK」的文件。
- * 因此本契约里的 `resumeFrom` 只保留字段兼容，恒为 0；实现方不得据此续读。
+ * 认为 `getPartialObject` 的 offset 是绝对偏移；但 2026-11-07 的真机判别（E2 MI 9 /
+ * Android 15 API 35 / ILCE-7C fw2.00 / USB MTP）给出精确语义：非零 `offset` 只有在恰好等于
+ * 相机内部游标时才被采纳；对不上时忽略 offset、从对象头返回。「游标」是相机侧读流的位置
+ * （相机在会话内维护）。从 0 起逐块顺读永远对；跳读 / 续传一定错，而且续读不省带宽
+ * （要先从 0 读到该位置）。继续把 `.part` 当可信前缀 append 会得到「字节数对、内容错、
+ * 日志打 OK」的文件。因此本契约里的 `resumeFrom` 只保留字段兼容，恒为 0；实现方不得据此续读。
  *
  * 实现契约：
  *
