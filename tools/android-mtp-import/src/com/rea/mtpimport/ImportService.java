@@ -407,6 +407,9 @@ public final class ImportService {
                         break;
                     case SKIPPED:
                         skipped++;
+                        // #177 复审：同尺寸成品也必须落账，否则下一轮会再整文件重下再丢弃（不收敛）。
+                        // 账本只记 relPath + size，与 targetMatches 的判定口径一致，不放宽校验。
+                        journal.markDone(item.handle, item.size, item.size, item.relPath);
                         progress.onBytes(item.size);
                         progress.onFileDone();
                         l.onFileFinished(item, r.kind, r.note);

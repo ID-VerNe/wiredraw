@@ -2227,6 +2227,23 @@ public final class SelfTest {
         }
     }
 
+    /**
+     * 复刻 `MtpTransfer` 的「目标同尺寸」分支：整文件已经下完，发现目标同尺寸 → 删 `.part`、
+     * 返回 SKIPPED（仅尺寸核对，内容未校验）。用来钉住「SKIPPED 必须落账」，否则下一轮会再整文件重下。
+     */
+    static final class SameSizeSkipTransfer implements ResumableTransfer {
+        int calls;
+
+        @Override
+        public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
+                               CancelToken token, LongConsumer progress) {
+            calls++;
+            File part = new File(partPath);
+            if (part.exists()) part.delete();
+            return new Result(Kind.SKIPPED, "已存在同尺寸文件，未覆盖（仅尺寸核对，内容未校验）");
+        }
+    }
+
     static void resumeDisabledCases() throws Exception {
         Catalog c = sample();
         Selection s = new Selection(c);
@@ -2313,6 +2330,24 @@ public final class SelfTest {
                         && r7.skipped == 0 && t7.calls.size() == 1,
                 "skipped=" + r7.skipped + " calls=" + t7.calls.size());
         deleteTree(doneOut);
+
+        // 5) 同尺寸成品已在、但没有账本 → 首轮的 SKIPPED 必须落账，否则下一轮继续整文件重下再丢弃
+        //    （#177 复审：账本只在 OK 分支写，SKIPPED 漏写会让该文件永不收敛）。
+        File sameOut = Files.createTempDirectory("wiredraw-177-samesize").toFile();
+        writeSizedBytes(new File(sameOut, rel), 300, (byte) 0x33);
+        SameSizeSkipTransfer t8 = new SameSizeSkipTransfer();
+        FinishRecorder r8 = new FinishRecorder();
+        new ImportService(Log.NOOP, t8, sameOut).start(plan, r8);
+        check("续传停用：目标同尺寸命中时记 SKIPPED",
+                r8.done.await(5, TimeUnit.SECONDS) && r8.skipped == 1 && t8.calls == 1,
+                "skipped=" + r8.skipped + " calls=" + t8.calls);
+        RecordingTransfer t9 = new RecordingTransfer();
+        FinishRecorder r9 = new FinishRecorder();
+        new ImportService(Log.NOOP, t9, sameOut).start(plan, r9);
+        check("续传停用：SKIPPED 必须落账，第二轮不再重下同尺寸成品（#177 复审）",
+                r9.done.await(5, TimeUnit.SECONDS) && r9.skipped == 1 && t9.calls.isEmpty(),
+                "skipped=" + r9.skipped + " calls=" + t9.calls.size());
+        deleteTree(sameOut);
     }
 
     static boolean payloadMatches(File file, int size) throws IOException {
