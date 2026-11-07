@@ -128,12 +128,20 @@ def _subject_script(entry: dict) -> Path | None:
     return None
 
 
+class ProbeError(Exception):
+    """脚本存在但参数自证探测失败。
+
+    以前这里一律 `return None`，把「脚本没有 argparse」和「脚本读不到 / `--help` 跑不起来」
+    混成同一个静默分支，结果是探测失败也照样跑绿（#203）。现在失败必须报红。
+    """
+
+
 def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
     """取脚本自己声明的参数（长参数与短别名）以及它们的别名组。
 
     先看源码是否用 argparse。不走 argparse 的脚本收到 `--help` 会执行真实检查，
     元门禁不能顺手跑别的门禁（也会把元门禁自己递归调起来），所以直接跳过。
-    拿不到选项集时返回 None，调用方只保留策略层校验。
+    `None` 只表示「无需探测」；探测本身失败抛 `ProbeError`，由调用方报红。
 
     第二项是「同一行里列出的选项」组成的别名组（argparse 把 `-h, --help` 渲染成
     一行），用来把短别名映射回同组的长参数（#139）。
@@ -142,8 +150,8 @@ def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
         return None  # 不探测自己：本脚本没有 argparse，`--help` 会真的跑一遍检查
     try:
         source = script.read_text(encoding="utf-8")
-    except OSError:
-        return None
+    except OSError as e:
+        raise ProbeError(f"读不到脚本源码：{script.relative_to(ROOT)}（{e}）") from e
     # 只看真正的 import 行。注释里写「argparse」不算——否则元门禁会把自己
     # 当成 argparse 脚本递归探测下去（2026-11-07 实测单次 15 秒）。
     if not re.search(r"^\s*(?:import\s+argparse|from\s+argparse\s+import)", source, re.M):
@@ -158,10 +166,14 @@ def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
             errors="replace",
             timeout=15,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ProbeError(
+            f"`{script.relative_to(ROOT)} --help` 跑不起来：{e}"
+        ) from e
     if proc.returncode != 0:
-        return None
+        raise ProbeError(
+            f"`{script.relative_to(ROOT)} --help` 退出 {proc.returncode}，无法自证参数"
+        )
     flags: set[str] = set()
     groups: list[set[str]] = []
     for line in proc.stdout.splitlines():
@@ -209,7 +221,11 @@ def check_cmd_contract(data: dict) -> list[str]:
                     f"`{name}` 的主体脚本是 {script.relative_to(ROOT)}，与门禁名不一致"
                     "（整条命令可能被换成了别的脚本）"
                 )
-            declared = _script_flags(script) if script else None
+            try:
+                declared = _script_flags(script) if script else None
+            except ProbeError as e:
+                problems.append(str(e))
+                declared = None
             declared_flags, alias_groups = declared if declared else (None, [])
             flags_in_cmd = [t for t in cmd if t.startswith("-")]
             for flag in flags_in_cmd:
@@ -461,12 +477,6 @@ def main() -> int:
     elif current != expected:
         print("[红] AGENTS.md 的门禁生成段与 scripts/gates.json 不一致。", file=sys.stderr)
         print("     修法：python scripts/check_gates_manifest.py --write", file=sys.stderr)
-        return 1
-
-    problems = check_scripts_exist(data) + check_cmd_contract(data)
-    if problems:
-        for p in problems:
-            print(f"[红] {p}", file=sys.stderr)
         return 1
 
     print(f"[绿] 清单一致：{len(data.get('ci', []))} 个 ci 门禁，脚本均存在，无重名")
