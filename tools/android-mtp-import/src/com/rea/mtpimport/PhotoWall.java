@@ -1,6 +1,7 @@
 package com.rea.mtpimport;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -141,9 +142,17 @@ public final class PhotoWall {
             return sum;
         }
 
-        /** 组头：`Jun 7 · 43 · 74.0 MB`（U-44 的正则口径）。 */
+        /**
+         * 组头聚合快照（#214 / F-09）：视觉组头与读屏文案共用这一份，
+         * 页面不再各算一遍 `count()` / `bytes(mode)`。
+         */
+        public Summary summary(Export mode) {
+            return new Summary(label, photos.size(), bytes(mode));
+        }
+
+        /** 组头（U-44）；内部走 {@link #summary}，与读屏文案同源。 */
         public String header(Export mode) {
-            return UiText.groupHeader(label, count(), bytes(mode));
+            return summary(mode).header();
         }
 
         /** 只保留满足条件的单元；没有可见单元时返回 null（组头随之重算）。 */
@@ -154,6 +163,32 @@ public final class PhotoWall {
             }
             if (keep.isEmpty()) return null;
             return new Group(key, label, keep);
+        }
+    }
+
+    /**
+     * 日期组头的两种呈现（#214 / F-09）：视觉 `Jun 7 · 43 · 74.0 MB`（U-44）与
+     * 读屏 `Date group Jun 7, 43 photos, 74.0 MB`（A-05）由同一份聚合快照产出。
+     */
+    public static final class Summary {
+        public final String label;
+        public final int count;
+        public final long bytes;
+
+        Summary(String label, int count, long bytes) {
+            this.label = label;
+            this.count = count;
+            this.bytes = bytes;
+        }
+
+        /** 视觉组头（U-44）。 */
+        public String header() {
+            return UiText.groupHeader(label, count, bytes);
+        }
+
+        /** 读屏组头（A-05）。 */
+        public String spoken() {
+            return "Date group " + label + ", " + count + " photos, " + UiText.capacity(bytes);
         }
     }
 
@@ -188,6 +223,21 @@ public final class PhotoWall {
     /** 全部单元按 `JPG_FIRST` 口径的载荷字节（`All` 档的默认导出量）。 */
     public long photoBytes() {
         return photoBytes;
+    }
+
+    /**
+     * 可见组（#214 / F-02）：按可见单元的 {@link Unit#key} 集合从全部组重建，
+     * 组头计数因此恒等于条目数。页面不再另起一条过滤链。
+     *
+     * 返回的组是新的 {@link Group}（只含可见单元）；不可见组与剪空的组都不出现。
+     */
+    public static List<Group> restrict(List<Group> all, Collection<String> unitKeys) {
+        List<Group> out = new ArrayList<>();
+        for (Group g : all) {
+            Group kept = g.select(u -> unitKeys.contains(u.key));
+            if (kept != null) out.add(kept);
+        }
+        return out;
     }
 
     public static PhotoWall of(Catalog catalog) {

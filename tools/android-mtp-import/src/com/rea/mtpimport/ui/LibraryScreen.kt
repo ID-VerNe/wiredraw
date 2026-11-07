@@ -90,11 +90,7 @@ fun LibraryScreen(model: AppModel) {
  */
 @Composable
 private fun ScanLine(model: AppModel) {
-    val fraction = if (model.scanTotal > 0) {
-        (model.scanDone.toFloat() / model.scanTotal).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    val fraction = UiText.progressFraction(model.scanDone, model.scanTotal)
     Box(
         Modifier
             .fillMaxWidth()
@@ -136,10 +132,10 @@ private fun PhotoGrid(model: AppModel) {
 /** 日期组头：整行可点（L-08）；文案是组内聚合 `Jun 7 · 43 · 74.0 MB`（U-44/#83）。 */
 @Composable
 private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
-    // Selection 不是 observable：读版本号让「本组是否全选」随勾选变化重算。
-    val version = model.selectionVersion
-    val handles = group.photos.flatMap { it.handles() }
-    val allSelected = group.photos.isNotEmpty() && model.selection?.allCheckedHandles(handles) == true
+    // 组头两种呈现共用一次聚合（#214 / F-09）：视觉与读屏都取 summary 的结果。
+    val summary = group.summary(model.exportMode)
+    // 勾选状态走 AppModel 的统一入口（#214 / F-20），页面不裸读版本号。
+    val allSelected = model.isGroupChecked(group)
     val collapsed = model.isCollapsed(group.key)
     val haptic = LocalHapticFeedback.current
     Row(
@@ -159,8 +155,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             }
             .semantics {
                 // A-05：`Date group <date>, N photos, <size>`
-                contentDescription = "Date group " + group.label + ", " + group.count() +
-                    " photos, " + UiText.capacity(group.bytes(model.exportMode))
+                contentDescription = summary.spoken()
                 role = Role.Button
                 onClick(label = if (collapsed) "Expand date group" else "Collapse date group") {
                     model.toggleCollapsed(group.key)
@@ -183,7 +178,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             ChevronGlyph(16.dp, UiColors.outline, up = collapsed)
         }
         BasicText(
-            group.header(model.exportMode),
+            summary.header(),
             style = TextSmall.copy(color = UiColors.secondary),
             modifier = Modifier.weight(1f)
         )
@@ -205,8 +200,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
  */
 @Composable
 private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
-    // Selection 本身不是 observable：读一次版本号，勾选后本格才会重绘。
-    val version = model.selectionVersion
+    // 勾选状态走 AppModel 的统一入口（#214 / F-20）：入口内部读版本号，勾选后本格才重绘。
     val checked = model.isUnitChecked(unit)
 
     // #59：缩略图在 IO 线程异步取，composition / 主线程不做同步解码；
@@ -293,7 +287,7 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
 /** 底部固定操作区：唯一主 CTA；分子分母都按当前 filter 的可见集合算（`C-08` / `C-10`）。 */
 @Composable
 private fun ImportBar(model: AppModel) {
-    val version = model.selectionVersion
+    // 已选数由 AppModel 的入口读版本号（#214 / F-20）。
     val selected = model.visibleSelectedCount
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         // P-09：空间不足时 CTA 被禁用，并在其上方加一行 `Low space`；差额只进 Details。
