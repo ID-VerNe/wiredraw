@@ -31,7 +31,7 @@
 
 ┌──────────────────────────────────────────────────────────────────┐
 │  门禁层：scripts/gates.json（唯一清单） → scripts/run_gates.py      │
-│  static（5） / manual（2） / support（2）；本机与 CI 共用           │
+│  static（5） / manual（2） / support（3）；本机与 CI 共用           │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,7 +64,7 @@ PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 - [`scripts/gates.json`](../scripts/gates.json) 是**唯一事实来源**；新增门禁只改清单，
   再跑 `python scripts/check_gates_manifest.py --write` 重写 `AGENTS.md` 的生成段。
 - [`scripts/run_gates.py`](../scripts/run_gates.py) 是执行器，本机与 CI 跑同一份清单。
-- 分档：`static`（不碰设备的 5 条）、`manual`（Android 构建 2 条）、`support`（需要 PR 上下文的 2 条）。
+- 分档：`static`（不碰设备的 5 条）、`manual`（Android 构建 2 条）、`support`（需要 PR 上下文的 3 条）。
 - 元门禁 `check_gates_manifest.py` 校验「清单 ↔ `AGENTS.md` 生成段 ↔ 磁盘脚本」零漂移，
   并禁止门禁命令带 `--warn` / `--fix` / `--write` / `--self-test` 这类会降级或改写工作区的参数。
 
