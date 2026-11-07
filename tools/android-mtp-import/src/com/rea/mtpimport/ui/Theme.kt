@@ -117,7 +117,8 @@ val TextDisplay = TextStyle(
     fontWeight = FontWeight(TypeTokens.DISPLAY_SM_WEIGHT),
     letterSpacing = TypeTokens.DISPLAY_SM_TRACKING_EM.em,
     color = UiColors.onSurface,
-    // display-sm 用在状态主文案、环内百分比与 DONE 的 `36 · 871 MB`，等宽数字避免进度跳动。
+    // display-sm 用在状态主文案、环内百分比与 DONE 的 `36 · 858 MB`（假树值，口径见
+    // `UI-SPEC.md` §3.1 与 `U-54`），等宽数字避免进度跳动。
     fontFeatureSettings = "tnum"
 )
 

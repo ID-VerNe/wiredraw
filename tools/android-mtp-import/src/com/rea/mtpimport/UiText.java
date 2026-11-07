@@ -26,7 +26,7 @@ public final class UiText {
      * 容量：1024 进制，GB 2 位小数、MB 最多 1 位小数（C-05）。
      *
      * 单位分界取 1 GB：定稿的组头与 `DONE` 用的都是 MB（`Jun 7 · 12 · 284 MB`、
-     * `36 · 871 MB`），所以 1 GB 以下一律走 MB；C-06 的「小于 0.1 GB 必须降级为 MB」
+     * `36 · 858 MB`），所以 1 GB 以下一律走 MB；C-06 的「小于 0.1 GB 必须降级为 MB」
      * 是这条规则的下界，天然满足，且不会出现 `0.00 GB`（C-07）。
      */
     public static String capacity(long bytes) {
@@ -37,7 +37,7 @@ public final class UiText {
         double mb = bytes / (double) MB;
         double rounded = Math.round(mb * 10.0) / 10.0;
         if (rounded >= 100.0) {
-            // 100 MB 以上按整数展示（`871 MB` / `284 MB`），与 U-44 的组头正则一致。
+            // 100 MB 以上按整数展示（`858 MB` / `284 MB`），与 U-44 的组头正则一致。
             return String.format(Locale.US, "%.0f MB", rounded);
         }
         if (rounded >= 10.0) {
@@ -102,7 +102,7 @@ public final class UiText {
         return percent(done, total) + "%";
     }
 
-    /** `DONE` 的 `36 · 871 MB`（U-47 的正则口径，容量按 C-05）。 */
+    /** `DONE` 的 `36 · 858 MB`（假树值，口径见 `UI-SPEC.md` §3.1 与 `U-54`；U-47 的正则口径，容量按 C-05）。 */
     public static String doneSummary(int count, long bytes) {
         return count + " · " + capacity(bytes);
     }
