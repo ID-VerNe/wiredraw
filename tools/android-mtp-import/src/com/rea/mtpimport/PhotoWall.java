@@ -304,6 +304,9 @@ public final class PhotoWall {
     /**
      * 目录名 → 组头标签。`20260607` / `20260607-1` 这类以 8 位日期开头的目录
      * 渲染成 `Jun 7`；其余按目录名原样（§0.6 的「按目录名」降级）。
+     *
+     * 这里是全仓唯一的「8 位日期头」解析（G10 / A16 / issue #220）：
+     * 原先另有一份 `isoDateOf` 做同样的取头与判数字，但全仓 0 引用，已删除。
      */
     static String labelOf(String folder) {
         String digits = null;
@@ -325,16 +328,6 @@ public final class PhotoWall {
         String label = UiText.monthDay(year, month, day);
         // 解析失败或月份越界时退回目录名，避免组头出现 `null`。
         return label == null ? folder : label;
-    }
-
-    /** 供测试与详情用：把日期目录名规范成 `yyyy-mm-dd`；解析不了返回空串。 */
-    static String isoDateOf(String folder) {
-        if (folder == null || folder.length() < 8) return "";
-        String head = folder.substring(0, 8);
-        for (int i = 0; i < head.length(); i++) {
-            if (!Character.isDigit(head.charAt(i))) return "";
-        }
-        return head.substring(0, 4) + "-" + head.substring(4, 6) + "-" + head.substring(6, 8);
     }
 
     @Override

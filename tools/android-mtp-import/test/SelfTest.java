@@ -80,6 +80,7 @@ public final class SelfTest {
         backNavCases();
         uiTextCases();
         photoWallCases();
+        aggregateCases();
         derivedValueCases();
         derivedSourceCases();
         typeTokenCases();
@@ -249,6 +250,52 @@ public final class SelfTest {
         nonPhoto.add(new Catalog.Entry(7, 1, 0x3004, 0, "C0001.MP4"));
         check("渐进门槛：文件夹与 MP4 不算照片",
                 !nonPhoto.hasPhotoFile(), "非照片对象被计入照片");
+    }
+
+    // ---------------- 聚合与遍历口径（G10 / A11） ----------------
+
+    /**
+     * A11 / issue #220：5 个统计 getter 原本各扫一遍全表，口径分散；改为 `add()` 增量维护后，
+     * 这里用一份混合目录逐项对账，锁定「增量 = 逐项累加」，并确认快照继承同一口径。
+     *
+     * 源码守卫：`Catalog` 里只允许 `build()` 与 `snapshot()` 两处全表遍历；`isoDateOf` 必须已删。
+     */
+    static void aggregateCases() {
+        Catalog c = new Catalog();
+        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        c.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        c.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 24_000_000L, "DSC00001.ARW"));
+        c.add(new Catalog.Entry(4, 2, Catalog.FMT_JPEG, 8_000_000L, "DSC00001.JPG"));
+        c.add(new Catalog.Entry(5, 2, Catalog.FMT_ARW, 24_000_000L, "DSC00002.ARW"));      // 无同名 JPG
+        c.add(new Catalog.Entry(6, 2, 0x3004, 900_000L, "C0001.MP4"));                      // 非照片
+        c.add(new Catalog.Entry(3, 2, Catalog.FMT_ARW, 24_000_000L, "DSC00001.ARW"));       // 重复句柄
+        c.build();
+
+        check("聚合：文件夹数与对象总数（重复句柄去重）",
+                c.folderCount() == 2 && c.all().size() == 6,
+                "folder=" + c.folderCount() + " size=" + c.all().size());
+        check("聚合：文件数 = 总数 − 文件夹数", c.fileCount() == 4, "实际 " + c.fileCount());
+        check("聚合：全部文件字节", c.fileBytes() == 56_900_000L, "实际 " + c.fileBytes());
+        check("聚合：ARW 字节", c.rawBytes() == 48_000_000L, "实际 " + c.rawBytes());
+        check("聚合：ARW 张数", c.rawCount() == 2, "实际 " + c.rawCount());
+
+        Catalog snap = c.snapshot();
+        check("聚合：快照继承同一口径",
+                snap.folderCount() == 2 && snap.fileCount() == 4
+                        && snap.fileBytes() == 56_900_000L
+                        && snap.rawBytes() == 48_000_000L && snap.rawCount() == 2,
+                "snapshot folder=" + snap.folderCount() + " files=" + snap.fileCount()
+                        + " bytes=" + snap.fileBytes() + " raw=" + snap.rawCount());
+
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> hits = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "String isoDateOf(", null, hits);
+        check("日期解析一处实现：isoDateOf 已删（全 src/ 0 命中）", scanned > 0 && hits.isEmpty(),
+                "命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "for (Entry e : entries)", null, hits);
+        check("Catalog 全表遍历只剩 build() 与 snapshot() 两处", hits.size() == 2,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------

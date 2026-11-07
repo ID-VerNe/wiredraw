@@ -89,6 +89,17 @@ public final class Catalog {
     private boolean built;
     /** 已发现的照片对象数（ARW + JPG，按对象计、不按照片单元合并）。issue #96。 */
     private int photoFiles;
+    /**
+     * 聚合随 {@link #add} 增量维护（G10 / A11 / issue #220）。
+     *
+     * 原本 `folderCount` / `fileBytes` / `rawBytes` / `rawCount` 各写一遍全表遍历，
+     * 口径分散且新增字段就要再抄一遍循环。统计的唯一生产调用点是扫描完成日志
+     * （`CatalogScanner`），不是首屏热路径；这里是口径收口，不是性能优化。
+     */
+    private int folderCount;
+    private long fileBytes;
+    private long rawBytes;
+    private int rawCount;
 
     public void add(Entry e) {
         if (built) throw new IllegalStateException("build() 之后不能再 add");
@@ -98,7 +109,16 @@ public final class Catalog {
         byParent.computeIfAbsent(e.parent, k -> new ArrayList<>()).add(e);
         // issue #96：渐进发布不再等 ARW。这里随 add 增量计数（O(1)），
         // 避免扫描热循环为每个对象重扫全表（isJpeg() 内部还有 toUpperCase）。
-        if (!e.isFolder() && (e.isRaw() || e.isJpeg())) photoFiles++;
+        if (e.isFolder()) {
+            folderCount++;
+        } else {
+            fileBytes += e.size;
+            if (e.isRaw()) {
+                rawBytes += e.size;
+                rawCount++;
+            }
+            if (e.isRaw() || e.isJpeg()) photoFiles++;
+        }
     }
 
     /** 解析 relPath、把子节点按「文件夹在前、再按名字」排序；返回 this 便于链式调用。 */
@@ -243,14 +263,13 @@ public final class Catalog {
         return n;
     }
 
+    /** 文件夹数（增量口径，见 {@link #add}）。 */
     public int folderCount() {
-        int n = 0;
-        for (Entry e : entries) if (e.isFolder()) n++;
-        return n;
+        return folderCount;
     }
 
     public int fileCount() {
-        return entries.size() - folderCount();
+        return entries.size() - folderCount;
     }
 
     /**
@@ -264,24 +283,18 @@ public final class Catalog {
         return photoFiles > 0;
     }
 
-    /** 所有非文件夹对象的字节数之和。 */
+    /** 所有非文件夹对象的字节数之和（增量口径，见 {@link #add}）。 */
     public long fileBytes() {
-        long n = 0;
-        for (Entry e : entries) if (!e.isFolder()) n += e.size;
-        return n;
+        return fileBytes;
     }
 
     public long rawBytes() {
-        long n = 0;
-        for (Entry e : entries) if (!e.isFolder() && e.isRaw()) n += e.size;
-        return n;
+        return rawBytes;
     }
 
     /** ARW 张数（`RAW` 档的单元数口径；照片墙一格按照片单元计，见 {@code PhotoWall}）。 */
     public int rawCount() {
-        int n = 0;
-        for (Entry e : entries) if (!e.isFolder() && e.isRaw()) n++;
-        return n;
+        return rawCount;
     }
 
 }
