@@ -120,7 +120,7 @@
 | 能力 | 验证状态 | 若可得 | 若不可得（降级） |
 |---|---|---|---|
 | 缩略图（PTP `GetThumb` 或 ObjectInfo 附带预览） | **缩略图已实现、真机未验证**（#59 已按 `getThumbnail` 异步取图，当前顺序 ARW → 同名 JPG）；**JPG 优先顺序未实现**（`V-32`，随 issue #83 的实现 PR 落地）；ARW 句柄是否支持仍未知 | 网格缩略图（宽 ≥88 dp，长按进 `photo` 页） | **同尺寸灰块 + 文件名 12 sp**，可正常点选（这是网格内**唯一**允许出现文件名的场景，见 V-19）；不显示已导入标记（依赖 §0.11 第 1 行） |
-| 同名 JPG 整张（`photo` 页） | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步补同名 JPG 整张，均值 1.7 MB/张） | `photo` 页先出缩略图，停留后异步取整张 JPG 替换；失败保留缩略图 | 拿不到像素时 `photo` 页只显示「格式 · 容量」单行胶囊（格式与容量 = **当前档位下的导出文件**：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`），不显示假图；**不得**回退去下载整张 ARW |
+| 同名 JPG 整张（`photo` 页） | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步补同名 JPG 整张，均值约 1.5 MB/张——按真机总量推算，未单独实测，见 §4.2） | `photo` 页先出缩略图，停留后异步取整张 JPG 替换；失败保留缩略图 | 拿不到像素时 `photo` 页只显示「格式 · 容量」单行胶囊（格式与容量 = **当前档位下的导出文件**：`All` / 日期档有 JPG 时 `JPG · 1.5 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.5 MB`），不显示假图；**不得**回退去下载整张 ARW |
 | EXIF 拍摄时间 | **未验证** | 按拍摄日期分组 | 按文件修改日期分组（见下一行），组头标「按文件时间」 |
 | 文件修改时间（ObjectInfo 的 `DateModified`） | **未验证**（`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name，无日期字段） | 按修改日期分组 | 按 MTP 目录分组（目录名即日期），组头标「按目录名」 |
 
@@ -183,7 +183,7 @@
 |---|---|---|---|---|---|
 | 1 | **已导入照片索引**（任务 A「新片」判定依据，也是「已导入标记」的唯一来源） | §0.2 的「新片」定义、§0.2.1「首屏『新片』数量」行、`T-CATALOG` 的降级写法、`T-01`；§0.7 降级块的已导入标记、V-16 的未导入过滤 | 无此索引：`Catalog.java` 的 `public static final class Entry` 只有 handle/parent/format/size/name/relPath，无「已导入」标记；`Journal.java` 类注释里「size + relPath」那句与 `public void markDone` 是按 handle 的续传日志，跨会话主键是 `size+relPath`，不是「哪些照片导入过」的记录 | 首屏不承诺「新片」数量；顶栏计数胶囊显示可见导出总量，可见已选 0 时与 `Import all N` 同值（§2.2 / `V-27`，日期组头只承担组内数量）；主 CTA 退化为 `Import all N`（`T-CATALOG` 唯一允许的降级写法，首次使用即如此）；**网格不显示已导入标记**（如需表达，只允许在 `Location details` 里写 `Import state unknown`）；过滤抽屉不出现未导入项 | 任务 A 首屏的「新片」语义、`T-01`；V-16 的未导入过滤 |
 | 2 | **缩略图**（PTP `GetThumb` 或 ObjectInfo 附带预览） | §0.3 任务 B 的网格、§0.5 挑图型首屏、§0.6 的缩略图载体、V-18/V-19、U-29、`T-04`、`T-CATALOG` 正文的选片提示 | **缩略图已实现、真机未验证**（#59 已按 `getThumbnail` 实现，当前顺序 ARW → 同名 JPG）；**JPG 优先顺序未实现**（`V-32`，见 §0.7 第 1 行） | 同尺寸灰块 + 文件名 12 sp（§0.7，可正常点选）；`T-CATALOG` 不再写「点缩略图选片」 | 任务 B 的缩略图载体、U-29 的缩略图/降级块形态、`T-04`、`T-CATALOG` 的选片提示 |
-| 3 | **同名 JPG 整张（`photo` 页）** | §0.7 第 2 行、`V-32`、`T-04` / `V-25` | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步取同名 JPG 整张，缺失回退缩略图） | `photo` 页有缩略图就全幅 `Fit`；拿不到像素时只显示「格式 · 容量」单行胶囊（格式与容量 = 当前档位下的导出文件：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`），不显示假图；**不得**回退下载整张 ARW | `T-04` / `V-25` |
+| 3 | **同名 JPG 整张（`photo` 页）** | §0.7 第 2 行、`V-32`、`T-04` / `V-25` | **未实现、真机未验证**（当前 `loadPreview` 只走 `getThumbnail`；issue #83 要求停留后异步取同名 JPG 整张，缺失回退缩略图） | `photo` 页有缩略图就全幅 `Fit`；拿不到像素时只显示「格式 · 容量」单行胶囊（格式与容量 = 当前档位下的导出文件：`All` / 日期档有 JPG 时 `JPG · 1.5 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.5 MB`），不显示假图；**不得**回退下载整张 ARW | `T-04` / `V-25` |
 | 4 | **EXIF 拍摄时间** | §0.2 的可选辅助字段、§0.6 日期分组一级依据、V-18、U-29 | **未验证**（ObjectInfo 是否含该字段未真机确认，§0.7 第 3 行） | 按文件修改日期分组（未验证，见第 5 行）；再降级按 MTP 目录分组，组头标「按目录名」 | 任务 B 的「按拍摄日期」分组、U-29 的日期分组、`T-03` |
 | 5 | **文件修改时间**（ObjectInfo `DateModified`） | §0.6 分组依据（EXIF 缺失时的回退）、§0.7 第 3 行降级 | **未验证**（`Catalog.java` 的 `public static final class Entry` 无日期字段，§0.7 第 4 行） | 按 MTP 目录分组（目录名即日期） | 任务 B 的日期分组、U-29 的日期分组、`T-03`（同第 4 行） |
 | 6 | **传输实现** | `IMPORTING`/`PAUSED`/`DONE` 状态、`T-02`、U-45～U-47 | `ImportService.java` 类注释里「只有真正搬字节那一步委托给 `ResumableTransfer`」那段，当前是 `ResumableTransfer.NotImplemented`；`Journal.java` 注释里「跨会话续传要先按 relPath」那句：跨会话续传的真实现未做 | 界面按状态机照常渲染；点主 CTA（`T-CATALOG`）会进入 `UNAVAILABLE`（见 `T-UNAVAILABLE`），不得伪装成传输中 | `T-02` 及一切真实传输验收 |
@@ -421,7 +421,7 @@
 | `body-sm` | 12 sp | 16 | 400 | 0 | 日期组头；顶栏 `Disconnected` / `Reconnect` 标签（12 sp） |
 | `label-md` | 13 sp | 16 | 500 | 0.01em | 环下 `12/36`（`photo` 胶囊与顶栏**不用**本档） |
 | `label-sm` | 11 sp | 14 | 500 | 0.02em | 未使用（不得用于数字/状态） |
-| `mono-data` | 12 sp | 16 | 400 | 0 | `photo` 页「格式 · 容量」胶囊（按当前档位与单元取：`JPG · 1.7 MB` / `ARW · 23.8 MB`）与 `CATALOG_READY` 顶栏计数胶囊（`512`，假树值）；字体族仍是 Geist，靠 `tabular-nums` 对齐 |
+| `mono-data` | 12 sp | 16 | 400 | 0 | `photo` 页「格式 · 容量」胶囊（按当前档位与单元取：`JPG · 1.5 MB` / `ARW · 23.8 MB`）与 `CATALOG_READY` 顶栏计数胶囊（`512`，假树值）；字体族仍是 Geist，靠 `tabular-nums` 对齐 |
 
 - **V-01** 正文**不得**小于 14 sp；辅助说明与数字**不得**小于 12 sp；**不得**用 <12 sp 承载状态、错误或数字。
 - **V-02** 单位**必须**用 sp（随系统字号缩放）；尺寸**必须**用 dp。
@@ -611,8 +611,8 @@
   扫描/导入并发下发相机命令。
 - **V-25（`photo` 页预览异步，issue #61 / #83）** 看图页像素也**必须**在 IO 线程异步取与解码，
   `composition` / 主线程**不得**同步取图或解码；首帧**必须**用 `getThumbnail`（同名 JPG 优先）立即出图，
-  用户停留后**必须**异步取同名 JPG 整张并就地替换（均值 1.7 MB/张，见 §0.7 第 2 行）；
-  补图失败**必须保持**当前缩略图，无缩略图时保持 `U-51` 的单行「格式 · 容量」胶囊（格式与容量 = **当前档位下的导出文件**：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`；均按 `C-05`），**不得**出现占位块、
+  用户停留后**必须**异步取同名 JPG 整张并就地替换（均值约 1.5 MB/张，按真机总量推算，见 §4.2 与 §0.7 第 2 行）；
+  补图失败**必须保持**当前缩略图，无缩略图时保持 `U-51` 的单行「格式 · 容量」胶囊（格式与容量 = **当前档位下的导出文件**：`All` / 日期档有 JPG 时 `JPG · 1.5 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.5 MB`；均按 `C-05`），**不得**出现占位块、
   假图或加载文字；**不得**回退去下载整张 ARW。预览缓存**必须**有上限并与网格缓存分离
   （允许「连续打开同一张不重复读相机」），会话关闭时一并清空。
 
@@ -858,7 +858,7 @@ Next:    <一个可执行动作>
 
 | 编号 | 对象 | 断言 | 验证方法 |
 |---|---|---|---|
-| U-51 | `photo` 页 | 全幅照片；首帧用 `getThumbnail`（同名 JPG 优先，`V-32`），停留后异步补同名 JPG 整张，补图失败保留缩略图；不可得时按 §0.7 第 2 行只显示单行「格式 · 容量」胶囊（格式与容量 = 当前档位下的导出文件：`All` / 日期档有 JPG 时 `JPG · 1.7 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.7 MB`），**不显示占位块/假图**；**不得**下载整张 ARW；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：有图时存在图片节点且无胶囊以外的说明文字；无图时 `contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
+| U-51 | `photo` 页 | 全幅照片；首帧用 `getThumbnail`（同名 JPG 优先，`V-32`），停留后异步补同名 JPG 整张，补图失败保留缩略图；不可得时按 §0.7 第 2 行只显示单行「格式 · 容量」胶囊（格式与容量 = 当前档位下的导出文件：`All` / 日期档有 JPG 时 `JPG · 1.5 MB`、缺 JPG 回退 `ARW · 23.8 MB`；`RAW` 档 `ARW · 23.8 MB`；`JPG` 档 `JPG · 1.5 MB`），**不显示占位块/假图**；**不得**下载整张 ARW；+ 返回图标 + 位置图标；返回图标热区 ≥48 dp | dump：有图时存在图片节点且无胶囊以外的说明文字；无图时 `contentDescription` 为 `Back` / `Location` 的节点存在且 bounds ≥48 dp；不匹配 `Share`、`Edit`、`Favorite`、`Delete`、`Histogram`；无 EXIF 表、无叠加徽标 |
 | U-52 | 过滤抽屉 | 点漏斗后出现 `All` / `RAW` / `JPG` 三项各 1 个，加上按日期组数逐行各 1 个的日期标签；抽屉打开不推挤主 CTA（L-03） | dump：前三项各 1 个；日期标签行数 = 日期组数（假数据 12），总项数 = 3 + 日期组数；日期标签形如 `Jun 7`，不含张数与容量；不匹配未导入过滤与两组分段按钮；抽屉前后主 CTA `bounds` 四值不变 |
 | U-53 | 总量口径 | `Import all N` 的 N = 当前 filter 可见集合的导出文件数；`CATALOG_READY` 顶栏计数胶囊的数字 = 同一可见总量（可见总量分母，`V-27`），可见已选 0 时与 CTA 同值；可见已选数 ≥1 时 `Import N` 的 N = 可见已选数（同一可见集合下的子集，不是第二个总量分母），胶囊**不改**、仍等于可见集合的导出文件数；同屏不出现第二个**不同口径**的总量分母。假数据各档：`All` 512、`RAW` 511、`JPG` 512（假数据无 ARW-only 单元，`JPG` 档与 `All` 等价：都 512 单元、都导出 512 张 JPG；仅在存在 ARW-only 单元时才与 `All` 有差异）；日期组 `Jun 7` 43 | 读 catalog 与 `PhotoWall` 的可见导出文件数；dump CTA 文本、顶栏胶囊与顶栏全部纯数字节点（设备短名 `a7C` 里的数字与 filter 芯片的日期数字不算）；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 1023 文件 / 511 ARW / 512 JPEG / 512 照片单元；ARW 12,766,800,000 字节 / JPEG 923,408,256 字节 | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列数字一致（`demo_state` 入口在 `src/debug` 源集实现，release 无实现） |
