@@ -41,8 +41,9 @@ from _common import CONTENT_FAIL, ENV_FAIL, EnvProblem, git_ls_files, strip_fenc
 ROOT = Path(__file__).resolve().parent.parent
 # 冻结证据目录：见模块 docstring「不扫什么」。
 SKIP_PREFIXES = ("docs/archive/",)
-# 被扫类型只有这一份真清单：`SCAN_PATTERNS` 由它派生，新增 / 删除类型只改这里。
-# 自检会断言它恰好是这五种，且派生结果与它逐项对应（`*.` + 扩展名）。
+# 被扫类型只有这一份真清单：`SCAN_PATTERNS` 与 `LINE_REF` 都由它派生，
+# 新增 / 删除类型只改这里。自检会断言它恰好是这五种、派生结果逐项对应、
+# 且每种类型都能被行号正则识别。
 EXTENSIONS = ("md", "java", "kt", "kts", "py")
 SCAN_PATTERNS = tuple(f"*.{ext}" for ext in EXTENSIONS)
 # 路径级排除：精确相对路径 → 具体理由。理由必须说明「为什么这个文件必须存在违规文本」，
@@ -54,7 +55,10 @@ EXCLUDED = {
     ),
 }
 # `[)]*` 覆盖 `[ImportGate.java](path/ImportGate.java):17` 这种链接尾巴的写法。
-LINE_REF = re.compile(r"\.(?:kts|java|kt|py|md)[)]*[:：][0-9]+")
+# 扩展名分支同样由 EXTENSIONS 派生，避免出现第三份手写清单。
+LINE_REF = re.compile(
+    r"\.(?:" + "|".join(re.escape(ext) for ext in EXTENSIONS) + r")[)]*[:：][0-9]+"
+)
 
 
 def skipped(rel: str) -> bool:
@@ -164,6 +168,12 @@ def self_test() -> int:
         failures.append(
             f"[FAIL] 扫描入口派生：应为 EXTENSIONS 逐项拼接 `*.` + 扩展名，实际 {SCAN_PATTERNS}"
         )
+    # 正则分支同为派生：每种类型都必须能被 `<文件名>.<ext>:<数字>` 命中，
+    # 防止只改 EXTENSIONS 而正则漏掉新类型（门禁主体的静默漏检就出在这里）。
+    if not all(LINE_REF.search(f"x.{ext}:12") for ext in EXTENSIONS):
+        failures.append(
+            f"[FAIL] 行号正则覆盖：EXTENSIONS 中有类型未被 LINE_REF 识别，实际 {LINE_REF.pattern}"
+        )
     if len(EXCLUDED) != 1 or "scripts/check_line_refs.py" not in EXCLUDED:
         failures.append(
             f"[FAIL] 路径排除清单：应恰好 1 条且只含门禁自身，实际 {sorted(EXCLUDED)}"
@@ -180,7 +190,7 @@ def self_test() -> int:
         for f in failures:
             print(f)
         return ENV_FAIL
-    print("[绿] 自检通过：正样本 10 条、负样本 10 条、定位行号 1 条、结构 6 条")
+    print("[绿] 自检通过：正样本 10 条、负样本 10 条、定位行号 1 条、结构 7 条")
     return 0
 
 
