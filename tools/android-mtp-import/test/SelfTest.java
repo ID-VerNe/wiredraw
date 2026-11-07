@@ -985,6 +985,9 @@ public final class SelfTest {
                 "实际 " + j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 0));
         check("isComplete(relPath,size)：空 relPath 一律不算完成",
                 !j.isComplete("", 1024), "实际 " + j.isComplete("", 1024));
+        check("isComplete(relPath,size)：未传满不算完成",
+                !j.isComplete("DCIM/100MSDCF/DSC02183.ARW", 24389632),
+                "实际 " + j.isComplete("DCIM/100MSDCF/DSC02183.ARW", 24389632));
         check("isComplete(relPath,size)：跨会话按路径+大小也认完成",
                 j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024),
                 "实际 " + j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024));
