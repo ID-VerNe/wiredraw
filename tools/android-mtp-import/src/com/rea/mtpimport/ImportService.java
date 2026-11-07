@@ -345,15 +345,17 @@ public final class ImportService {
 
                 // #177：Journal 只说明上一轮记过完成，不能单独证明成品还在。续传停用后
                 // 尺寸对账必须落到实际文件：成品缺失 / 尺寸不符都重新导入，不许静默跳过。
-                if (journal.isComplete(item.relPath, item.size)) {
-                    if (targetMatches(item)) {
-                        skipped++;
-                        progress.onBytes(item.size);
-                        progress.onFileDone();
-                        l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, UiText.fileSkippedNote());
-                        l.onProgress(progress, item);
-                        continue;
-                    }
+                // #209 / G1：这两个条件的「与」只在 SkipRule 里拼一次。
+                SkipRule.Verdict verdict = SkipRule.check(journal, outDir, item.relPath, item.size);
+                if (verdict == SkipRule.Verdict.SKIP) {
+                    skipped++;
+                    progress.onBytes(item.size);
+                    progress.onFileDone();
+                    l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, UiText.fileSkippedNote());
+                    l.onProgress(progress, item);
+                    continue;
+                }
+                if (verdict == SkipRule.Verdict.STALE) {
                     log.line("导入记录显示已完成，但成品缺失或尺寸不符，本轮重新导入："
                             + item.relPath);
                 }
@@ -409,7 +411,7 @@ public final class ImportService {
                     case SKIPPED:
                         skipped++;
                         // #177 复审：同尺寸成品也必须落账，否则下一轮会再整文件重下再丢弃（不收敛）。
-                        // 账本只记 relPath + size，与 targetMatches 的判定口径一致，不放宽校验。
+                        // 账本只记 relPath + size，与 SkipRule 的判定口径一致，不放宽校验。
                         journal.markDone(item.handle, item.size, item.size, item.relPath);
                         progress.onBytes(item.size);
                         progress.onFileDone();
@@ -459,19 +461,6 @@ public final class ImportService {
         String summary = UiText.runSummary(ok, skipped, failed, plan.count(), stop);
         log.line("本轮结束：" + summary);
         l.onFinished(cancelled, ok, skipped, failed, summary);
-    }
-
-    /**
-     * #177：Journal 记完成时，必须能在磁盘上看到尺寸吻合的成品才允许跳过。
-     * 越界 relPath 解析失败按「不匹配」处理，交给传输层报路径错误，不在预检阶段冒充跳过。
-     */
-    private boolean targetMatches(ImportPlan.Item item) {
-        try {
-            File dest = DestPolicy.resolve(outDir, item.relPath);
-            return dest != null && dest.isFile() && dest.length() == item.size;
-        } catch (IOException e) {
-            return false;
-        }
     }
 
 }
