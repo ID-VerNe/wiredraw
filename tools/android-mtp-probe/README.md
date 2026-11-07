@@ -139,7 +139,7 @@ adb exec-out run-as com.rea.mtpprobe cat files/report.txt > <本机报告路径>
   未验证）。
 - 实际后果：从 0 起逐块顺读**永远对**（此时每步 `offset` 恰好等于游标）；**跳读 / 续传一定错**；
   而且**续读不省带宽**——要让 `offset` 对上相机游标，得先把前一段从 0 读一遍。
-- 证据（E2 MI 9 / Android 15 (API 35) / ILCE-7C fw2.00 / USB MTP，2026-11-07，`main@261942b`）：
+- 证据（环境与 HEAD 快照见[已知限制](../../docs/known-limitations.md) 第二节的验证快照）：
   R1 @2 MiB、R2 @8 KiB 判定行 `实际内容位置=0`（#179）；25 次顺序拼接的字节数与 MD5 与整文件
   一致（#67）。
 
@@ -160,7 +160,7 @@ adb exec-out run-as com.rea.mtpprobe cat files/report.txt > <本机报告路径>
 
 1. **相机会在会话结束后约 1 分钟挂起 USB。**
    症状：`MtpDevice.open()` 卡 10 秒，`getStorageIds()` 一直返回空。
-   8 次重试（约 70 秒）唤不醒，**必须拔插 USB 线**。
+   8 次重试仍唤不醒（口径与证据见 [`AGENTS.md`](../../AGENTS.md) §4），**必须拔插 USB 线**。
    正式 App 里要么保持会话常开，要么提示用户重插。
 
 2. **`getObjectHandles(storageId, 0xB101, 0)` 的 format 过滤不可信。**

@@ -66,22 +66,14 @@ PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 - [`scripts/gates.json`](../scripts/gates.json) 是**唯一事实来源**；新增门禁只改清单，
   再跑 `python scripts/check_gates_manifest.py --write` 重写 `AGENTS.md` 的生成段。
 - [`scripts/run_gates.py`](../scripts/run_gates.py) 是执行器，本机与 CI 跑同一份清单。
-- 分档：`static`（不碰设备的 5 条）、`manual`（Android 构建 2 条）、`support`（需要 PR 上下文的 3 条）。
+- 分档：`static`、`manual`（Android 构建）、`support`（需要 PR 上下文）；条数与执行顺序以
+  [`scripts/gates.json`](../scripts/gates.json) 为准，本文不重复计数。
 - 元门禁 `check_gates_manifest.py` 校验「清单 ↔ `AGENTS.md` 生成段 ↔ 磁盘脚本」零漂移，
   并禁止门禁命令带 `--warn` / `--fix` / `--write` / `--self-test` 这类会降级或改写工作区的参数。
 
 ## 五、单一归属
 
-新代码往哪儿写，以 [`AGENTS.md`](../AGENTS.md) §3 的「单一归属」表为准，摘要：
-
-| 关注点 | 唯一归属 |
-|---|---|
-| 门禁清单 / 执行器 | `scripts/gates.json` + `scripts/run_gates.py` |
-| MTP 枚举与下载 | `tools/android-mtp-probe/src/com/rea/mtpprobe/Main.java` |
-| 导片工具构建 | `tools/android-mtp-import/build.gradle.kts` + `gradle/wrapper/` |
-| PTP/IP 连相机 | `tools/sony-ptpip/probe.py` |
-| pcap 解析 | `tools/sony-ptpip/parse_ptpip.py` |
-| 实测数据与历史 | [`docs/research/a7c-usb-raw-2026-11.md`](research/a7c-usb-raw-2026-11.md) |
+新代码往哪儿写，以 [`AGENTS.md`](../AGENTS.md) §3 的「单一归属」表为准；本文不再维护第二份表，避免两处漂移。
 
 ## 相关文档
 

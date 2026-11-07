@@ -59,7 +59,8 @@
   它依赖 `gh` 登录与仓库读权限；**外部贡献者不需要运行它**，评审契约见
   [`REVIEW_DISPATCH.md`](REVIEW_DISPATCH.md)。
 - **`.githooks/`** —— 入库的 git 钩子，但不会自动生效。装一次：
-  `git config core.hooksPath .githooks`。不装也能提交，只是 `commit-msg` 的格式检查与
+  `git config core.hooksPath .githooks`。职责与绕过口径见 [AGENTS.md](../../AGENTS.md) §0.1。
+  不装也能提交，只是 `commit-msg` 的格式检查与
   `pre-push` 的 static 分片会被跳过，问题会推迟到 PR 阶段才暴露。
 - **worktree** —— 约定放在仓库外：`git worktree add ../wiredraw-<issue> -b <branch> main`；
   万一放进了仓库内，就落在 `.tmp/`。用完 `git worktree remove --force`，别留在磁盘上发酵。

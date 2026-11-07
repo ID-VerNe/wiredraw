@@ -319,7 +319,8 @@ adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
 adb shell am start -n com.rea.mtpimport/.Main --es demo_state IMPORTING
 ```
 
-假树与真机同口径：1526 对象 / 503 文件夹 / 511 ARW / 512 JPEG / 12.75 GB（ARW 11.89 GB）；
+假树与真机对象总数同为 1526，但构成不同：真机 503 文件夹 + 511 ARW + 511 JPEG + 1 MP4；
+假树 503 文件夹 + 511 ARW + 512 JPEG（无 MP4）。假树体积 12.75 GB（ARW 11.89 GB）；
 `IMPORTING` / `PAUSED` 冻结在 `12/36`（33%），`DONE` 是 `36 · 858 MB`。
 P-03 只规定速率与 ETA **允许**出现在 `Location details` 抽屉里、不得进主视觉；本轮没有调用点
 （`UiText.rate` / `UiText.eta` 只被自检覆盖，界面与 `Main` 都不调），所以主视觉与抽屉里都不出现。

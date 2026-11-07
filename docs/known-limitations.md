@@ -11,7 +11,7 @@
 
 | 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
-| 会话结束后约 1 分钟挂起 USB | `MtpDevice.open()` 卡约 10 秒才返回，`getStorageIds()` 一直返回空；应用内重试 8 次（约 70 秒）唤不醒 | [AGENTS.md](../AGENTS.md) §4 与[探针 README](../tools/android-mtp-probe/README.md) 坑 1。**拔插数据线**才能恢复；正式应用要么保持会话常开，要么提示用户重插 |
+| 会话结束后约 1 分钟挂起 USB | 症状与重试口径见 [AGENTS.md](../AGENTS.md) §4；**拔插数据线**才能恢复 | [AGENTS.md](../AGENTS.md) §4。正式应用要么保持会话常开，要么提示用户重插 |
 | `getObjectHandles` 的 format 过滤不可信 | 传 `0xB101` 返回 754 个，逐个 `getObjectInfo` 只有 511 个真是 `0xB101`，差集对不上账 | [主报告](research/a7c-usb-raw-2026-11.md) §12.4。不用 format 过滤；走全量枚举（约 39 ms/个，1526 个约 59 秒）或按 `parent` 逐目录 |
 | 首次插线需要用户授权 | 系统会弹「是否允许访问 MTP」；首次还要勾一次「一律打开」 | [导片工具 README](../tools/android-mtp-import/README.md) 的安装运行节。应用侧没有正规接口能绕过，只能引导用户操作 |
 | 扫描是串行的 | 扫描与导入不能在同一 MTP 会话上并行发命令 | [ImportGate.java](../tools/android-mtp-import/src/com/rea/mtpimport/ImportGate.java):17 与[导片工具 README](../tools/android-mtp-import/README.md#沿用探针的三条实测结论)。导入前必须等扫描结束；渐进加载期间主操作要禁用 |
