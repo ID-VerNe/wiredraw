@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.Dims
 import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiState
 import com.rea.mtpimport.UiText
@@ -73,8 +74,8 @@ fun StatusScreen(model: AppModel) {
                 ProgressRing(
                     progress = UiText.progressFraction(model.scanDone, model.scanTotal),
                     stateText = null,
-                    diameter = 180.dp,
-                    stroke = 2.dp
+                    diameter = Dims.SCAN_RING_DIAMETER_DP.dp,
+                    stroke = Dims.SCAN_RING_STROKE_DP.dp
                 ) {}
                 Spacer(Modifier.height(16.dp))
                 // 1526 只在这个位置出现（C-09 白名单：扫描进度分母）。

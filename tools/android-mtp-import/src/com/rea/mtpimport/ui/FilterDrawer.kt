@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.Dims
 
 /**
  * 过滤抽屉（U-52 / issue #83）：`All` / `RAW` / `JPG` 各一项 + 日期标签逐行，每行热区 ≥48 dp。
@@ -38,7 +39,7 @@ fun FilterDrawer(model: AppModel) {
                 .background(UiColors.surfaceWhite)
                 .systemBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .heightIn(max = 480.dp)
+                .heightIn(max = Dims.DRAWER_MAX_HEIGHT_DP.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {

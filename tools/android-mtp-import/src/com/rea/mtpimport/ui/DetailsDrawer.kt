@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.Dims
 import com.rea.mtpimport.UiState
 
 /**
@@ -41,7 +42,7 @@ fun DetailsDrawer(model: AppModel) {
                 .background(UiColors.surfaceWhite)
                 .systemBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
-                .heightIn(max = 480.dp)
+                .heightIn(max = Dims.DRAWER_MAX_HEIGHT_DP.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
