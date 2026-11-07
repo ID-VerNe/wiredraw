@@ -1,6 +1,5 @@
 package com.rea.mtpimport.ui
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,13 +10,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.clip
 import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiState
 import com.rea.mtpimport.UiText
@@ -67,24 +64,15 @@ fun TransferScreen(model: AppModel) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                Modifier
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .border(1.dp, UiColors.outline, RoundedCornerShape(24.dp))
-                    .tappable { model.callbacks?.onPauseResume() }
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            // F-08 / #217：暂停/继续复用 `SecondaryButton`（48 dp 高、24 dp 圆角、1 dp 描边），
+            // 水平内边距保持原视觉值 12 dp，前置图标由 `icon` 槽提供。
+            val paused = model.state == UiState.State.PAUSED
+            SecondaryButton(
+                text = if (paused) "Resume" else "Pause",
+                onClick = { model.callbacks?.onPauseResume() },
+                horizontalPadding = 12.dp
             ) {
-                if (model.state == UiState.State.PAUSED) {
-                    PlayGlyph(16.dp, UiColors.onSurface)
-                    Spacer(Modifier.width(8.dp))
-                    BasicText("Resume", style = TextBody)
-                } else {
-                    PauseGlyph(16.dp, UiColors.onSurface)
-                    Spacer(Modifier.width(8.dp))
-                    BasicText("Pause", style = TextBody)
-                }
+                if (paused) PlayGlyph(16.dp, UiColors.onSurface) else PauseGlyph(16.dp, UiColors.onSurface)
             }
             Spacer(Modifier.width(8.dp))
             SecondaryButton("Cancel", onClick = { model.callbacks?.onCancel() })

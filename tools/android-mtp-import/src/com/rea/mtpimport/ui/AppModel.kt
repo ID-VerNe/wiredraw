@@ -247,7 +247,8 @@ class AppModel {
      * [exitConfirmOpen]）只在这里赋值，常规状态切换也统一走这里；该复位什么由纯 JDK 的
      * [UiTransition] 表决定（`SelfTest` 直接驱动那张表，不依赖 Compose）。
      *
-     * `applyDemo` 的 `when` 分支例外：它按 demo 载荷直接落状态，没有对应的跨状态语义；
+     * `applyDemo` 例外：它按 demo 载荷直接落状态，`when` 分支没有对应的跨状态语义；
+     * 装树前的 `state = prev` 是为了先借用 `showCatalog` 再盖回原值，同样不构成迁移。
      * [setExitConfirm] 是用户开关覆盖层，也不是状态迁移。
      */
     private fun transition(action: UiTransition.Action) {

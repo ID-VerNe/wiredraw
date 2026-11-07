@@ -85,6 +85,7 @@ public final class SelfTest {
         typeTokenCases();
         dimsCases();
         typeSourceCases();
+        layoutShapeCases();
         demoTreesCases();
         demoTransferCases();
         commentRefCases();
@@ -3363,6 +3364,43 @@ public final class SelfTest {
         scanned = scanSourceText(srcRoot, "onDark", null, hits);
         check("Pill 参数统一叫 onCanvas：src 里 onDark 0 命中", scanned > 0 && hits.isEmpty(),
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+    }
+
+    // ---------------- 布局形状的唯一实现（G8 / issue #217） ----------------
+
+    /**
+     * F-04/F-08/F-15/F-17/F-18 的结构守卫：抽屉骨架、次按钮、图标画布、动作行、筛选选项
+     * 各只允许有一份实现。页面里再抄一遍即红。
+     */
+    static void layoutShapeCases() {
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> hits = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "BottomCenter", "src/com/rea/mtpimport/ui/Widgets.kt", hits);
+        check("抽屉骨架只在 Widgets：页面不得各写一份 BottomCenter", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "DrawerSkeleton(title = ", null, hits);
+        check("两个抽屉都走 DrawerSkeleton：调用点正好 2 处", hits.size() == 2,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "Canvas(modifier.size(size))", null, hits);
+        check("图标画布只在 Icons 的 Glyph 工厂：全 src/ 正好 1 处", scanned > 0 && hits.size() == 1,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "Glyph(size, modifier)", null, hits);
+        check("13 个 glyph 都走 Glyph 工厂", hits.size() == 13, "实际 " + hits.size() + " 处");
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "RoundedCornerShape(24.dp)", "src/com/rea/mtpimport/ui/Widgets.kt", hits);
+        check("24 dp 圆角按钮只在 Widgets：TransferScreen 不得手写", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "Modifier.fillMaxWidth().padding(8.dp)", null, hits);
+        check("状态动作行只在 StatusScreen：页面不得手写 Row 内边距", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "setFilter(FilterKind.", null, hits);
+        check("筛选选项数据驱动：ALL/RAW/JPG 不得各写一条", scanned > 0 && hits.size() == 1,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
     }
 
     // ---------------- 假数据模式（DemoTree，U-54） ----------------

@@ -7,14 +7,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -98,7 +106,13 @@ fun PrimaryButton(
  * 描边取 `outline`（#747878 on #FFFFFF ≈ 4.47:1），满足图形 ≥3:1。
  */
 @Composable
-fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun SecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp = 20.dp,
+    icon: (@Composable () -> Unit)? = null
+) {
     Box(
         modifier
             .heightIn(min = 48.dp)
@@ -106,11 +120,17 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
             .border(1.dp, UiColors.outline, RoundedCornerShape(24.dp))
             .tappable(onClick = onClick)
             .semantics { role = Role.Button }
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = horizontalPadding, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        // V-01 / V-03：次按钮与正文同级（14 sp）。
-        BasicText(text, style = TextBody.copy(color = UiColors.onSurface))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                icon()
+                Spacer(Modifier.width(8.dp))
+            }
+            // V-01 / V-03：次按钮与正文同级（14 sp）。
+            BasicText(text, style = TextBody.copy(color = UiColors.onSurface))
+        }
     }
 }
 
@@ -195,6 +215,42 @@ fun Scrim(onDismiss: () -> Unit) {
             .background(UiColors.scrim)
             .tappable(onClick = onDismiss)
     )
+}
+
+/**
+ * 抽屉骨架（L-05 / L-09）：遮罩 + 贴底白底面板 + 系统栏内边距 + 最大高度 + 滚动容器 + 标题行。
+ *
+ * 详情与过滤两个抽屉共用这一份形状（F-04 / issue #217）：差异只允许出现在 [title] 与 [content]。
+ * 最大高度取 `Dims.DRAWER_MAX_HEIGHT_DP`，与 G7a 的具名同源。
+ */
+@Composable
+fun DrawerSkeleton(
+    title: String,
+    onClose: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Box(Modifier.fillMaxSize()) {
+        Scrim(onClose)
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(UiColors.surfaceWhite)
+                .systemBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .heightIn(max = Dims.DRAWER_MAX_HEIGHT_DP.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText(title, style = TextBody)
+                Spacer(Modifier.weight(1f))
+                IconAction(desc = "Close", onClick = onClose) {
+                    CloseGlyph(16.dp, UiColors.outline)
+                }
+            }
+            content()
+        }
+    }
 }
 
 /**
