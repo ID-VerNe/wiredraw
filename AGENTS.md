@@ -84,7 +84,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 1 | `static` | `check_gates_manifest.py` | `python scripts/check_gates_manifest.py` | 元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：禁用参数表的唯一来源是 scripts/check_gates_manifest.py 的 FORBIDDEN_FLAGS（本清单不再枚举），flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131、#173、#203） |
 | 2 | `static` | `check_no_vendored.py` | `python scripts/check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
 | 3 | `static` | `check_doc_links.py` | `python scripts/check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
-| 4 | `static` | `check_line_refs.py` | `python scripts/check_line_refs.py` | 被跟踪的 md 不许写物理行号（AGENTS.md §2 第 10 条，规则原在 UI-SPEC 只覆盖自身，#252 上收为全仓）：行号随上方插行漂移，而文档没有编译门禁能发现。扩展名白名单（java/kt/kts/py/md）避开主机端口与章节号，跳过围栏代码块（issue/PR 模板里的行号示例属一次性上下文）与 docs/archive/ 冻结证据；裸冒号数字误报不可控，不进这条门禁 |
+| 4 | `static` | `check_line_refs.py` | `python scripts/check_line_refs.py` | 被跟踪文件（md/java/kt/kts/py，含代码注释）不许写物理行号（AGENTS.md §2 第 10 条，规则原在 UI-SPEC 只覆盖自身，#252 上收为全仓）：行号随上方插行漂移，而文档与注释都没有编译门禁能发现。扩展名白名单避开主机端口与章节号；md 跳围栏代码块（issue/PR 模板里的行号示例属一次性上下文）与 docs/archive/ 冻结证据（失效是预期），代码类型不剥围栏；门禁自身的测试夹具按精确路径排除（夹具必须字面含违规形态才能验证判红），不做值级白名单；裸冒号数字误报不可控，不进这条门禁 |
 | 5 | `static` | `py_compile` | `python -m compileall -q scripts tools` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 | 6 | `static` | `check_sensitive.py` | `python scripts/check_sensitive.py --check` | 敏感信息门禁：相机 GUID 及其 hex/14 位去横线/4-4-4-2 重分组/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。命中即阻断（#110）。相机 AP 公开示例网关与 Android debug keystore 公开口令走脚本内 ALLOWLIST，只按「类别 + 精确值」放行，不做网段/通配；其余行内豁免必须带具体理由。--fix 才改写，--warn 只用于排查基线 |
 
@@ -143,13 +143,14 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
    - 变异还原**不许用 `git checkout --`**：对未提交的跟踪文件 checkout 会把本轮全部改动
      冲回 HEAD，而 `git diff --stat` 还显示为空、看不出异常。协议是
      `cp file /tmp/x.bak` → 变异 → `cp` 回写。
-10. **文档不写物理行号**（全仓规则，`check_line_refs.py` 兜底；原规则只覆盖 `UI-SPEC.md`
-    自身，见 #252）：被跟踪的 `.md`（含 README 类）**不得**用「文件名 / 扩展名 + 冒号 + 数字」
-    引用代码或文档位置。引用一律写「文件名 + 该文件里可唯一 `grep` 的字符串」或「类名 + 方法名」；
-    引用规范条目用编号（`V-16` / `C-08`），引用实测数据用章节号 + 数值。锚点串必须能在目标文件里
-    `grep` 到且能唯一定位，串被改名时改锚点而不是退回写行号。例外：`docs/archive/` 是当时证据的
-    冻结副本，不改；issue / PR 正文属一次性上下文，可写行号，但要绑定当时的分支或 commit
-    （文档里展示这类正文的围栏示例随此豁免）。
+10. **不写物理行号**（全仓规则，`check_line_refs.py` 兜底；原规则只覆盖 `UI-SPEC.md`
+    自身，见 #252）：被跟踪文件（`.md` / `.java` / `.kt` / `.kts` / `.py`，含 README 类与代码注释）
+    **不得**用「文件名 / 扩展名 + 冒号 + 数字」引用代码或文档位置。引用一律写「文件名 +
+    该文件里可唯一 `grep` 的字符串」或「类名 + 方法名」；引用规范条目用编号（`V-16` / `C-08`），
+    引用实测数据用章节号 + 数值。锚点串必须能在目标文件里 `grep` 到且能唯一定位，串被改名时
+    改锚点而不是退回写行号。例外：`docs/archive/` 是当时证据的冻结副本，不改——它引用的是
+    本地不入库的第三方仓库，本来不可达，坐标失效是预期；issue / PR 正文属一次性上下文，
+    可写行号，但要绑定当时的分支或 commit（文档里展示这类正文的围栏示例随此豁免）。
     不带文件名的裸冒号数字进不了门禁（与时刻、编号无法区分），靠评审把关。
 
 ## 3. 现状：已经证实的事（别再重推一遍）
@@ -196,7 +197,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 实测数据与历史结论 | `docs/research/*`（归档在 `docs/archive/*`） | 只加口径标注，不改当时判断 |
 | 容量与耗时数字口径 | `tools/android-mtp-import/UI-SPEC.md` §4.2 | 假树值必须显式标注 |
 | 验证环境与待验清单 | `docs/verification-matrix.md`（矩阵）+ `docs/known-limitations.md`（快照） | 单点快照只留一处 |
-| 文档里引用代码坐标的写法 | `AGENTS.md` §2 第 10 条 | `UI-SPEC` §10 第 8 条只给指针；门禁是 `scripts/check_line_refs.py` |
+| 文档与代码注释里引用坐标的写法 | `AGENTS.md` §2 第 10 条 | `UI-SPEC` §10 第 8 条只给指针；门禁是 `scripts/check_line_refs.py` |
 | 合并评审的派发与检查项 | `docs/contributing/REVIEW_DISPATCH.md`（文案由 `scripts/review_prompt.py` 生成） | 不要手写派发文案 |
 | 自动关单事故的完整叙述 | `docs/contributing/PR_GUIDE.md` 的「硬规则」节 | `REVIEW_DISPATCH` 只留检查项 + 指针 |
 
@@ -273,7 +274,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | `scripts/check_commit_messages.py` | commit message 的敏感信息门禁：`support` 档扫 PR 的 `base..head` 新增提交，本地 `.githooks/commit-msg` 调 `--message-file` 先拦 |
 | `scripts/gates.json` | 门禁清单**唯一事实来源**（§0.1 生成段由它渲染） |
 | `scripts/check_gates_manifest.py` | 元门禁：清单 / AGENTS.md 生成段 / 磁盘脚本零漂移；cmd 参数不许降级（`--self-test` 跑回归用例） |
-| `scripts/check_line_refs.py` | 全仓 md 物理行号禁令的门禁（规则在 `AGENTS.md` §2 第 10 条） |
+| `scripts/check_line_refs.py` | 全仓被跟踪文件（md/java/kt/kts/py）物理行号禁令的门禁（规则在 `AGENTS.md` §2 第 10 条） |
 | `tools/android-mtp-probe/README.md` | MTP 探针的用法、实测结果与三个坑 |
 | `tools/android-mtp-import/README.md` | 导片工具骨架：类职责、实现状态表、为什么不做真续传、真机待验清单 |
 | `tools/android-mtp-import/UI-SPEC.md` | 导片工具界面规范（约束式）：两条主任务与任务流验收、状态机、布局安全区、视觉/文案基线、§8 全部 `U-xx` 断言 + `T-01`～`T-06` |
