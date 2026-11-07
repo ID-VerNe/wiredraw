@@ -78,11 +78,11 @@ class AppModel {
     var backgroundScanning by mutableStateOf(false)
         private set
 
+    // 传输进度只按文件计数：环内百分比与环下 `a/b` 同源（UI-SPEC `U-45` / `P-03`）。
+    // 字节数与速率不建界面状态、不上屏——#177 已证 `getPartialObject` 的 offset 真机不生效，
+    // 「已落盘字节」不可信；`DONE` 的容量统计走 `showDone`，与本状态无关。
     var importDoneFiles by mutableIntStateOf(0)
     var importTotalFiles by mutableIntStateOf(0)
-    var importDoneBytes by mutableLongStateOf(0L)
-    var importTotalBytes by mutableLongStateOf(0L)
-    var bytesPerSecond by mutableLongStateOf(0L)
 
     var donePhotos by mutableIntStateOf(0)
     var doneBytes by mutableLongStateOf(0L)
@@ -304,20 +304,22 @@ class AppModel {
         state = if (wall!!.photoCount() == 0) UiState.State.EMPTY_CATALOG else UiState.State.CATALOG_READY
     }
 
-    fun showImport(doneFiles: Int, totalFiles: Int, doneBytes: Long, totalBytes: Long, bps: Long) {
+    fun showImport(doneFiles: Int, totalFiles: Int) {
         transferViewClosed = false
         exitConfirmOpen = false
-        updateProgress(doneFiles, totalFiles, doneBytes, totalBytes, bps)
+        updateProgress(doneFiles, totalFiles)
         state = UiState.State.IMPORTING
     }
 
-    /** 进度推进：暂停时保持 `PAUSED`；传输视图已关闭时保持当前视图，不抢回传输屏。 */
-    fun updateProgress(doneFiles: Int, totalFiles: Int, doneBytes: Long, totalBytes: Long, bps: Long) {
+    /**
+     * 进度推进：暂停时保持 `PAUSED`；传输视图已关闭时保持当前视图，不抢回传输屏。
+     *
+     * 只接收文件计数。字节 / 速率参数已移除（issue #70）：#177 证明 `getPartialObject` 的 offset
+     * 真机不生效，「已落盘字节」不可信，任何字节级进度都不能上屏。
+     */
+    fun updateProgress(doneFiles: Int, totalFiles: Int) {
         importDoneFiles = doneFiles
         importTotalFiles = totalFiles
-        importDoneBytes = doneBytes
-        importTotalBytes = totalBytes
-        bytesPerSecond = bps
         if (!transferViewClosed && state != UiState.State.PAUSED) state = UiState.State.IMPORTING
     }
 
@@ -495,9 +497,6 @@ class AppModel {
             UiState.State.IMPORTING, UiState.State.PAUSED -> {
                 importDoneFiles = p.doneFiles
                 importTotalFiles = p.totalFiles
-                importDoneBytes = p.doneBytes
-                importTotalBytes = p.totalBytes
-                bytesPerSecond = p.bytesPerSecond
                 state = p.state
             }
             UiState.State.DONE -> showDone(p.donePhotos, p.resultBytes)
