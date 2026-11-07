@@ -252,7 +252,7 @@ class AppModel {
 
     /**
      * 渐进发布（issue #60）：把已发现的照片先送上照片墙，扫描继续在后台补齐。
-     * 只在已发现 ARW 时调用；首次调用会从 `SCANNING` 切到 `CATALOG_READY`。
+     * 已发现第一批照片单元（ARW 或 JPG，issue #96）时调用；首次调用会从 `SCANNING` 切到 `CATALOG_READY`。
      */
     fun showPartialCatalog(c: Catalog, s: Selection, done: Int, total: Int) {
         catalog = c

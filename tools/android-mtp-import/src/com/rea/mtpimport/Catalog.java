@@ -77,6 +77,8 @@ public final class Catalog {
     private final Map<Integer, Entry> byHandle = new LinkedHashMap<>();
     private final Map<Integer, List<Entry>> byParent = new LinkedHashMap<>();
     private boolean built;
+    /** 已发现的照片对象数（ARW + JPG，按对象计、不按照片单元合并）。issue #96。 */
+    private int photoFiles;
 
     public void add(Entry e) {
         if (built) throw new IllegalStateException("build() 之后不能再 add");
@@ -84,6 +86,9 @@ public final class Catalog {
         entries.add(e);
         byHandle.put(e.handle, e);
         byParent.computeIfAbsent(e.parent, k -> new ArrayList<>()).add(e);
+        // issue #96：渐进发布不再等 ARW。这里随 add 增量计数（O(1)），
+        // 避免扫描热循环为每个对象重扫全表（isJpeg() 内部还有 toUpperCase）。
+        if (!e.isFolder() && (e.isRaw() || e.isJpeg())) photoFiles++;
     }
 
     /** 解析 relPath、把子节点按「文件夹在前、再按名字」排序；返回 this 便于链式调用。 */
@@ -236,6 +241,17 @@ public final class Catalog {
 
     public int fileCount() {
         return entries.size() - folderCount();
+    }
+
+    /**
+     * 是否已发现至少一张照片（ARW 或 JPG）。渐进发布门槛（issue #96）。
+     *
+     * 口径必须与 {@link PhotoWall#of} 的入选集合一致：只要有一张照片被计入，
+     * 照片墙就至少有一个单元，发布出的快照不会被 `showPartialCatalog` 拽回 `SCANNING`。
+     * 「有任一照片对象」与「有一个照片单元」等价，所以这里按对象计、不做单元合并。
+     */
+    public boolean hasPhotoFile() {
+        return photoFiles > 0;
     }
 
     /** 所有非文件夹对象的字节数之和。 */

@@ -23,9 +23,9 @@ public final class CatalogScanner {
         void onScan(int scanned, int total);
 
         /**
-         * 渐进发布（issue #60）：已发现至少一张 ARW 后，首张立即发布，之后每
-         * {@link #PARTIAL_EVERY} 个对象发布一次。快照是深拷贝，调用点可以安全地
-         * 投递给 UI 线程继续扫描。
+         * 渐进发布（issue #60）：已发现至少一张照片（ARW 或 JPG，门槛见
+         * {@link Catalog#hasPhotoFile()}）后，首张立即发布，之后每 {@link #PARTIAL_EVERY}
+         * 个对象发布一次。快照是深拷贝，调用点可以安全地投递给 UI 线程继续扫描。
          */
         void onPartial(Catalog snapshot, int scanned, int total);
     }
@@ -64,7 +64,6 @@ public final class CatalogScanner {
         }
         log.line("待扫描对象共 " + total + " 个（" + storageIds.length + " 个存储）");
 
-        int rawSeen = 0;
         boolean published = false;
         for (int i = 0; i < storageIds.length; i++) {
             for (int handle : perStorage[i]) {
@@ -82,7 +81,6 @@ public final class CatalogScanner {
                     dropped++;
                     continue;
                 }
-                boolean existed = catalog.get(handle) != null;
                 Catalog.Entry entry = new Catalog.Entry(
                         handle,
                         oi.getParent(),
@@ -91,9 +89,10 @@ public final class CatalogScanner {
                         oi.getName(),
                         storageIds[i]);   // #54：只用于判别同名冲突，不进 relPath
                 catalog.add(entry);
-                if (!existed && entry.isRaw()) rawSeen++;
-                // 没发现 ARW 之前不发布：照片墙为空只会把界面从 SCANNING 拽回去。
-                if (progress != null && rawSeen > 0
+                // 门槛是「已发现至少一张照片」（ARW 或 JPG），不是「发现 ARW」：纯 JPG 拍摄时
+                // 旧口径 rawSeen 恒为 0，首屏要等整轮扫描结束（约 59 秒，issue #96）。
+                // 门槛口径与 PhotoWall 的入选集合一致，发布出的快照至少有一个照片单元。
+                if (progress != null && catalog.hasPhotoFile()
                         && (!published || scanned % PARTIAL_EVERY == 0)) {
                     published = true;
                     progress.onPartial(catalog.snapshot(), scanned, total);
