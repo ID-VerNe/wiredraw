@@ -5,6 +5,8 @@
 
 ## 一、总览
 
+下图是**示意，非穷举**：类名只挑有代表性的，完整归属以代码与 Gradle 清单为准（见第三节）。
+
 ```
                          ┌──────────────────────────────┐
                          │  tools/android-mtp-probe     │  一次性验证：先证明 MTP 走得通
@@ -30,8 +32,8 @@
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
-│  门禁层：scripts/gates.json（唯一清单） → scripts/run_gates.py      │
-│  static（5） / manual（2） / support（3）；本机与 CI 共用           │
+│  门禁层：scripts/gates.json（唯一清单） → scripts/run_gates.py   │
+│  档位与条数以清单为准，本图不重复计数                            │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -53,8 +55,8 @@ PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 
 | 层 | 模块 | 约束 |
 |---|---|---|
-| Android 边界 | `Main`、`MtpSession`、`CatalogScanner`、`MtpTransfer`、`ThumbnailStore` | 唯一允许碰 `android.*` 与 MTP 原生调用的地方 |
-| 纯逻辑 | `Catalog`、`Selection`、`ImportPlan`、`TransferProgress`、`Journal`、`SpaceCheck`、`ImportGate`、`ImportService`、`UiState`、`UiText` 等 | 不允许 `import android.*`；由 Gradle 的 `compilePureJdkJava` 在编译期强制 |
+| Android 边界 | 代表性模块：`Main`、`MtpSession`、`CatalogScanner`、`MtpTransfer`、`ThumbnailStore` 等（**非穷举**） | 真源是 Gradle 的 `pureJdkClasses` 清单：**不在**该清单里的模块才允许 `import android.*`，由 `compilePureJdkJava` 在编译期强制、`checkPureJdkList` 兜底（清单在 [`build.gradle.kts`](../tools/android-mtp-import/build.gradle.kts)） |
+| 纯逻辑 | 代表性模块：`Catalog`、`Selection`、`ImportPlan`、`TransferProgress`、`Journal`、`SpaceCheck`、`ImportGate`、`ImportService`、`UiState`、`UiText` 等（**非穷举**） | 不允许 `import android.*`；完整清单与编译期强制同上一行，避免两处手抄漂移 |
 | UI | `ui/`（Compose） | 只做界面与状态映射，不承载业务规则 |
 
 纯逻辑层能在普通 JVM 上跑 `test/SelfTest.java`，这是 `manual` 档的一部分；断言数量随用例增加，

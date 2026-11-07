@@ -55,6 +55,9 @@
 
 ## 类职责
 
+> **非穷举**，只给职责视角；`[android]` / `[纯 JDK]` 标签以 `build.gradle.kts` 的
+> `pureJdkClasses` 与 `checkPureJdkList` 为准，新类漏标时以构建门禁的红为准，不以本树为准。
+
 ```
 Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图 → 传输 → 进度/暂停/取消
 ├─ MtpSession        USB 连接 + MtpDevice 生命周期 + 唤醒重试          [android]

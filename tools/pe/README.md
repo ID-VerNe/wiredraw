@@ -23,6 +23,8 @@ python tools/pe/pe_inspect.py strings   <path-to-dll> [minlen]
 python tools/pe/pe_inspect.py whoimports <dllname> <path-to-pe>...
 ```
 
+子命令清单以 `python tools/pe/pe_inspect.py --help` 的输出为准；下表是输出形态说明，可能滞后于脚本。
+
 | 子命令 | 输出 |
 |---|---|
 | `exports` | 文件头（machine / imagebase / sections）+ 导出表，逐项 `[序号] RVA 名称` |
