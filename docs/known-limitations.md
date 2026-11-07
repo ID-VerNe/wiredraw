@@ -21,10 +21,18 @@
 
 | 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
-| `getPartialObject` 的 `offset` 在真机上不生效 | 传非 0 offset 仍返回对象起点数据；把它追加到 `.part` 会得到「字节数对、内容错、日志打 OK」的坏文件 | 2026-11-07 真机实测（E2 MI 9 / Android 15 / USB MTP，见 issue #177 诊断评论）。**止血方案 B：续传已停用**，遗留 `.part` 一律作废、从 0 重传。[探针 README](../tools/android-mtp-probe/README.md) 里 #67 的「绝对偏移」结论已由 #179 撤回，不可作为实现依据 |
+| 非零 `offset` 只有在恰好等于相机内部游标时才被采纳；对不上时忽略 offset、从对象头返回 | 把非零 offset 拿回的内容追加到 `.part`，会得到「字节数对、内容错、日志打 OK」的坏文件；跳读 / 续传一定错，且**续读不省带宽**（要先从 0 读到该位置） | 2026-11-07 真机实测（E2 MI 9 / Android 15 / USB MTP）：R0–R3 判别（R1 @2 MiB、R2 @8 KiB 判定行 `实际内容位置=0`）+ 同轮 25 次顺序拼接 MD5 与整文件一致，两者合解得到该语义。「游标」是相机侧读流的位置（见本节末注）。**止血方案 B：续传已停用**，遗留 `.part` 一律作废、从 0 重传。[探针 README](../tools/android-mtp-probe/README.md) 里 #67 的「绝对偏移」结论已由 #179 撤回，不可作为实现依据 |
 | 完成只做尺寸核对 | 尺寸相等不代表内容正确；日志与结果文案必须写明「内容未校验」 | [MtpTransfer.java](../tools/android-mtp-import/src/com/rea/mtpimport/MtpTransfer.java) 的 `finish()`；内容摘要校验尚未实现（issue #177 的修复候选 2） |
-| `ThumbnailStore.fetchFull()` 仍按 offset 分块读 | 同名 JPG 预览可能被拼成「尺寸对、内容错」的图且不报错 | [ThumbnailStore.java](../tools/android-mtp-import/src/com/rea/mtpimport/ThumbnailStore.java):294-301；导入路径已停用续传（#177），缩略图路径待改，见 issue #188 |
+| `ThumbnailStore.fetchFull()` 仍按分块 `offset` 读 | **残余风险（未验证）**：若进入 `fetchFull` 时相机游标已非 0，后续块可能与游标对不上、拼成「尺寸对、内容错」的图且不报错；解码失败也只保留缩略图，用户无感知。**无真机观察** | [ThumbnailStore.java](../tools/android-mtp-import/src/com/rea/mtpimport/ThumbnailStore.java):294-301；导入路径已停用续传（#177），缩略图路径待改，见 issue #188（`needs-repro`） |
 | `length` 超剩余 / `offset` 越界的探针结论未复测 | 不能把 #67 的边界观察当成稳定契约 | [探针 README](../tools/android-mtp-probe/README.md) 的 PC 探针节；续传停用后导入路径（`MtpTransfer`）已不再发 `getPartialObject`（缩略图路径仍发，见上一行 #188），恢复前必须重新实测 |
+
+> **关于 `offset` 的读法**：非零 `offset` 只有在恰好等于相机内部游标时才被采纳；对不上时
+> 忽略 offset、从对象头返回。这里的「游标」是**相机侧读流的位置**（相机在本次会话里维护，
+> 不是客户端变量；是否按对象独立维护未验证）。实际后果：从 0 起逐块顺读永远对（此时每步
+> `offset` 恰好等于游标）；跳读与续传一定错；而且**续读不省带宽**——要让 `offset` 对上相机
+> 游标，得先把前一段从 0 读一遍。证据是 R0–R3 判别与同轮 25 次顺序拼接 MD5 与整文件一致的
+> 合解（E2 MI 9 / Android 15 (API 35) / ILCE-7C fw2.00 / USB MTP，2026-11-07，`main@261942b`，
+> 见[探针 README](../tools/android-mtp-probe/README.md) 的 PC 探针节）。
 
 ## 三、PTP / PTP-IP 路线
 
@@ -42,7 +50,7 @@
 |---|---|---|
 | MSC 直拷 | **未验证** | 安卓侧需要额外库，且只适用于 FAT32 卡；不要当成可用方案 |
 | `getThumbnail` 对 ARW | **真机未验** | 拿不到时回退同名 JPG，再退回灰块；不得崩溃 |
-| 断点续传 | **已停用（#177）** | 真机实测 `getPartialObject` 的 offset 不生效，续传会产出坏文件；遗留 `.part` 一律作废、从 0 重传。恢复前需先解决 offset 语义或改用可校验的分段方案 |
+| 断点续传 | **已停用（#177）** | 非零 `offset` 只有在恰好等于相机内部游标时才被采纳；续传起点与游标对不上时拿回的是对象头，会产出坏文件。要让 offset 对上相机游标得先从 0 读到该位置，**不省带宽**。证据同 §二（R0–R3 判别 + 25 次顺序拼接 MD5）。遗留 `.part` 一律作废、从 0 重传 |
 | 其他机型 / 固件 | **未验证** | 本仓库所有真机结论都绑定 ILCE-7C 固件 2.00 / 2.02 与指定手机 |
 
 ## 相关文档
