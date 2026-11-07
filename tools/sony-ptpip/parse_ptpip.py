@@ -25,7 +25,7 @@ OP_NAMES = {
     0x1001: "GetDeviceInfo", 0x1002: "OpenSession", 0x1003: "CloseSession",
     0x1004: "GetStorageIDs", 0x1005: "GetStorageInfo", 0x1006: "GetNumObjects",
     0x1007: "GetObjectHandles", 0x1008: "GetObjectInfo", 0x1009: "GetObject",
-    0x100A: "GetThumb", 0x100B: "GetPartialObject", 0x100C: "GetDevicePropDesc",
+    0x100A: "GetThumb", 0x100B: "DeleteObject", 0x100C: "GetDevicePropDesc",
     0x100D: "GetDevicePropValue", 0x100E: "SetDevicePropValue", 0x100F: "ResetDevice",
     0x101B: "GetPartialObject", 0x1014: "GetDevicePropDescEx", 0x1015: "GetDevicePropValueEx", 0x1016: "SetDevicePropValueEx",
     0x9001: "GetDeviceInfoEx", 0x9002: "GetObjectInfoEx", 0x9003: "GetObjectEx",
@@ -46,6 +46,17 @@ RESP_NAMES = {
     0x2013: "AccessDenied", 0x2019: "DeviceBusy", 0x201D: "InvalidParentObject",
     0x201E: "NoThumbnailPresent",
     0xA001: "Sony_GenericError", 0xA002: "Sony_SessionAlreadyOpened",
+    0xA003: "Sony_SessionNotOpened",
+}
+
+# 帧类型 1..14 的规范名；probe.py:27-29 只定义到 1..12（13/14 的 Ping/Pong 探针不发）。
+# describe() 与离线排障都从这里取，避免两处各写一套后漏项（#224）。
+FRAME_NAMES = {
+    1: "Init_Command_Request", 2: "Init_Command_Ack",
+    3: "Init_Event_Request", 4: "Init_Event_Ack", 5: "Init_Fail",
+    6: "Operation_Request", 7: "Operation_Response", 8: "Event",
+    9: "Start_Data", 10: "Data", 11: "Cancel", 12: "End_Data",
+    13: "Ping", 14: "Pong",
 }
 
 
@@ -130,15 +141,13 @@ def _friendly(body, base):
 
 
 def describe(ptype, body, length):
+    if ptype in (3, 4, 11, 13, 14):
+        return FRAME_NAMES[ptype]
     if ptype == 1:
         return f"Init_Command_Request  name={_friendly(body, 16)!r}"
     if ptype == 2:
         conn = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else -1
         return f"Init_Command_Ack  connection={conn} name={_friendly(body, 20)!r}"
-    if ptype == 3:
-        return "Init_Event_Request"
-    if ptype == 4:
-        return "Init_Event_Ack"
     if ptype == 5:
         return f"Init_Fail reason={struct.unpack_from('<I', body, 0)[0] if len(body) >= 4 else -1}"
     if ptype == 6:
@@ -173,15 +182,9 @@ def describe(ptype, body, length):
         return f"DATA-START tid={tid} 总长={total:,} 字节 ({total / 1048576:.2f} MB)"
     if ptype == 10:
         return None
-    if ptype == 11:
-        return "Cancel"
     if ptype == 12:
         tid = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else -1
         return f"DATA-END   tid={tid}"
-    if ptype == 13:
-        return "Ping"
-    if ptype == 14:
-        return "Pong"
     return f"type={ptype} len={length}"
 
 
