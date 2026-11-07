@@ -53,7 +53,8 @@ git config core.hooksPath .githooks
 ## issue 与 PR 的最小要求
 
 完整细则见 [docs/contributing/ISSUE_GUIDE.md](docs/contributing/ISSUE_GUIDE.md) 与
-[docs/contributing/PR_GUIDE.md](docs/contributing/PR_GUIDE.md)；流程总览见 [AGENTS.md](AGENTS.md) §0。最小要求：
+[docs/contributing/PR_GUIDE.md](docs/contributing/PR_GUIDE.md)；流程总览见 [AGENTS.md](AGENTS.md) §0。
+下面的 7 条是那五步流程的**对外最小版**（两者冲突时以 `AGENTS.md` 为准）。最小要求：
 
 1. **先发 issue**：现象（行为类必须带一条可直接粘贴的复现命令）/ 证据链（`文件:行号`）/
    影响面（P0–P2）/ 修复候选，四要素齐全。
