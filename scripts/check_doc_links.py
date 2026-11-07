@@ -17,9 +17,10 @@ from __future__ import annotations
 import argparse
 import posixpath
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+from _common import ENV_FAIL, EnvProblem, git_ls_files
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,17 +41,8 @@ SLUG_DROP = re.compile(r"[`*_\[\]()#.,:;!?/\\'\"|<>《》，。：；！？、�
 
 
 def tracked_markdown() -> list[Path]:
-    out = subprocess.run(
-        ["git", "ls-files", "*.md"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if out.returncode != 0:
-        raise SystemExit("[红] git ls-files 失败")
-    return [ROOT / line for line in out.stdout.splitlines() if line.strip()]
+    """被跟踪的 `.md`；`-z` 保证中文文件名不被 `core.quotePath` 转义成假路径（#204）。"""
+    return [ROOT / name for name in git_ls_files("*.md")]
 
 
 def _resolve(md_rel: str, target: str) -> str:
@@ -259,7 +251,11 @@ def self_test() -> int:
 def main() -> int:
     problems: list[str] = []
     checked = 0
-    md_files = tracked_markdown()
+    try:
+        md_files = tracked_markdown()
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        return ENV_FAIL
 
     for md in md_files:
         rel = md.relative_to(ROOT).as_posix()

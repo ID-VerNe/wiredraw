@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
+
+from _common import ENV_FAIL, EnvProblem, git_ls_files
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,22 +42,17 @@ MAX_BYTES = 5 * 1024 * 1024
 
 
 def tracked_files() -> list[str]:
-    out = subprocess.run(
-        ["git", "ls-files"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if out.returncode != 0:
-        raise SystemExit("[红] git ls-files 失败，确认当前目录是 git 仓库")
-    return [line for line in out.stdout.splitlines() if line.strip()]
+    """被跟踪文件清单；`-z` 与失败语义统一由 `_common.git_ls_files` 负责（#204）。"""
+    return git_ls_files()
 
 
 def main() -> int:
     problems: list[str] = []
-    files = tracked_files()
+    try:
+        files = tracked_files()
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        return ENV_FAIL
 
     for name in VENDORED:
         hits = [f for f in files if f == name or f.startswith(name + "/")]
