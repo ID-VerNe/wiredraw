@@ -41,9 +41,11 @@ from _common import CONTENT_FAIL, ENV_FAIL, EnvProblem, git_ls_files, strip_fenc
 ROOT = Path(__file__).resolve().parent.parent
 # 冻结证据目录：见模块 docstring「不扫什么」。
 SKIP_PREFIXES = ("docs/archive/",)
-# 扩范围后真正被扫的类型。改这里等于改门禁覆盖，自检会断言它恰好是这五种。
-SCAN_PATTERNS = ("*.md", "*.java", "*.kt", "*.kts", "*.py")
+# 被扫类型只有这一份真清单：`SCAN_PATTERNS` 与 `LINE_REF` 都由它派生，
+# 新增 / 删除类型只改这里。自检会断言它恰好是这五种、派生结果逐项对应、
+# 且每种类型都能被行号正则识别。
 EXTENSIONS = ("md", "java", "kt", "kts", "py")
+SCAN_PATTERNS = tuple(f"*.{ext}" for ext in EXTENSIONS)
 # 路径级排除：精确相对路径 → 具体理由。理由必须说明「为什么这个文件必须存在违规文本」，
 # 不接受「历史原因」「暂时放行」这类模板话。新增排除必须同时改自检（长度断言为 1）。
 EXCLUDED = {
@@ -53,7 +55,10 @@ EXCLUDED = {
     ),
 }
 # `[)]*` 覆盖 `[ImportGate.java](path/ImportGate.java):17` 这种链接尾巴的写法。
-LINE_REF = re.compile(r"\.(?:kts|java|kt|py|md)[)]*[:：][0-9]+")
+# 扩展名分支同样由 EXTENSIONS 派生，避免出现第三份手写清单。
+LINE_REF = re.compile(
+    r"\.(?:" + "|".join(re.escape(ext) for ext in EXTENSIONS) + r")[)]*[:：][0-9]+"
+)
 
 
 def skipped(rel: str) -> bool:
@@ -148,9 +153,27 @@ def self_test() -> int:
     if not problems or "docs/x.md:5 " not in problems[0]:
         failures.append(f"[FAIL] 定位行号：期望 docs/x.md:5，实际 {problems}")
 
-    # 结构断言：扩范围后「扫哪些类型」与「谁能被排除」都必须可验证。
-    if tuple(SCAN_PATTERNS) != ("*.md", "*.java", "*.kt", "*.kts", "*.py"):
-        failures.append(f"[FAIL] 扫描入口：应恰好五种扩展名，实际 {SCAN_PATTERNS}")
+    # 结构断言：「扫哪些类型」只有一个真清单，派生形态与排除清单都必须可验证。
+    # 期望值手写、实际值取模块常量：有人在 EXTENSIONS 里增删一类，这里立刻红。
+    expected_extensions = ("md", "java", "kt", "kts", "py")
+    if tuple(EXTENSIONS) != expected_extensions:
+        failures.append(
+            f"[FAIL] 扫描类型清单：应为 {expected_extensions}，实际 {tuple(EXTENSIONS)}"
+        )
+    # 派生必须保持「*. + 扩展名」这一形态；被改成带目录 / 后缀时 `git ls-files` 会换目标。
+    derived_ok = len(SCAN_PATTERNS) == len(EXTENSIONS) and all(
+        pattern == f"*.{ext}" for pattern, ext in zip(SCAN_PATTERNS, EXTENSIONS)
+    )
+    if not derived_ok:
+        failures.append(
+            f"[FAIL] 扫描入口派生：应为 EXTENSIONS 逐项拼接 `*.` + 扩展名，实际 {SCAN_PATTERNS}"
+        )
+    # 正则分支同为派生：每种类型都必须能被 `<文件名>.<ext>:<数字>` 命中，
+    # 防止只改 EXTENSIONS 而正则漏掉新类型（门禁主体的静默漏检就出在这里）。
+    if not all(LINE_REF.search(f"x.{ext}:12") for ext in EXTENSIONS):
+        failures.append(
+            f"[FAIL] 行号正则覆盖：EXTENSIONS 中有类型未被 LINE_REF 识别，实际 {LINE_REF.pattern}"
+        )
     if len(EXCLUDED) != 1 or "scripts/check_line_refs.py" not in EXCLUDED:
         failures.append(
             f"[FAIL] 路径排除清单：应恰好 1 条且只含门禁自身，实际 {sorted(EXCLUDED)}"
@@ -167,7 +190,7 @@ def self_test() -> int:
         for f in failures:
             print(f)
         return ENV_FAIL
-    print("[绿] 自检通过：正样本 10 条、负样本 10 条、定位行号 1 条、结构 5 条")
+    print("[绿] 自检通过：正样本 10 条、负样本 10 条、定位行号 1 条、结构 7 条")
     return 0
 
 
