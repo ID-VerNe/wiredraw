@@ -3903,7 +3903,7 @@ public final class SelfTest {
 
     // ---------------- relPath 兜底收口（G9b / A12，#219） ----------------
 
-    /** `Entry.path()` 是 `relPath == null ? name : relPath` 的唯一出处，替代六处散落表达式。 */
+    /** `Entry.path()` 是 `relPath == null ? name : relPath` 的唯一出处，替代七处散落表达式。 */
     static void entryPathCases() {
         Catalog.Entry withPath = new Catalog.Entry(3, 2, Catalog.FMT_ARW, 300, "DSC02183.ARW");
         withPath.relPath = "DCIM/100MSDCF/DSC02183.ARW";

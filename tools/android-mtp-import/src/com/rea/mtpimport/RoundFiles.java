@@ -18,8 +18,11 @@ import java.io.IOException;
  */
 public final class RoundFiles {
 
-    /** 账本文件名；同时是 `run()` 里 `.part` 路径的落点目录名字来源。 */
-    private static final String JOURNAL_NAME = "import-journal.txt";
+    /**
+     * 账本文件名。包内可见：{@link ImportedIndex} 要按同名排除它，
+     * 字面量只能有这一处，否则两边改名不同步就会把账本误算成成品。
+     */
+    static final String JOURNAL_NAME = "import-journal.txt";
 
     private RoundFiles() { }
 
