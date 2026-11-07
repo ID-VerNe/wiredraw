@@ -94,8 +94,9 @@ def git_ls_files(*patterns: str, runner=None) -> list[str]:
     """`git ls-files` 的被跟踪文件清单，**固定带 `-z`**。
 
     不带 `-z` 时 git 会按 `core.quotePath` 把中文文件名转义成 `"\\344\\270\\255.md"`，
-    拼回磁盘路径必然 `is_file() == False`；`check_doc_links.py` 以前就因为这种路径
-    被静默跳过，最后照常打印「全部可达」（#204、复核报告 §3.4）。
+    拼回磁盘路径必然 `is_file() == False`。`check_doc_links.py` 的 #203 守卫会把这种
+    **确实存在**的文件报成「被跟踪 md 读不到」，即一条假红——在 `core.quotePath=true`
+    的机器上对任何中文名文档都必现。本单直接消掉误报源头（#204）。
     """
     proc = run(["git", "ls-files", "-z", *patterns], runner=runner)
     if proc.returncode != 0:

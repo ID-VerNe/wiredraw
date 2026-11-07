@@ -56,7 +56,8 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 [`scripts/_common.py`](../scripts/_common.py)；扫什么、算不算命中仍留在各门禁脚本里。
 
 `git ls-files` 一律带 `-z`：不带时中文文件名会被 `core.quotePath` 转义成假路径，
-`check_doc_links.py` 曾因此静默少扫仍打印「全部可达」（#204）。
+`check_doc_links.py` 会把**确实存在**的中文名文档报成「被跟踪 md 读不到」——这是
+`core.quotePath=true` 机器上的固定假红，不是漏检（#204）。
 
 
 写成用例时先写「能红」的用例，再改实现；变异必须替换断言瞄准的子串，前面加无意义前缀不算变异。
