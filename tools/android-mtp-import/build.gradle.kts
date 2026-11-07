@@ -140,6 +140,7 @@ val pureJdkClasses = listOf(
     "ScanResult.java",
     "ScanRun.java",
     "Selection.java",
+    "SkipRule.java",
     "SpaceCheck.java",
     "SpaceGate.java",
     "StorageRetry.java",

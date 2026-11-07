@@ -27,8 +27,8 @@ import java.util.Map;
  *
  * 注意：句柄是**单次会话内**有效的（MTP 的 object handle 不跨会话稳定），而且下一次会话
  * 里同一个 handle 可能指向另一个文件。所以索引主键是 `relPath`，`size` 留在 {@link Rec}
- * 里做同路径不同文件的判别；handle 只作为文件格式的一列保留，不再作索引。
- * `doneBytes(int)` / `isComplete(int,long)` 仍保留给同会话内的快路径，内部改成扫描。
+ * 里做同路径不同文件的判别；handle 只作为文件格式的一列保留，不再作索引，也没有任何
+ * 按句柄查询的 API（#209 删掉了 `doneBytes(int)` / `isComplete(int,long)` 这两条死路径）。
  */
 public final class Journal {
 
@@ -42,14 +42,6 @@ public final class Journal {
     }
 
     private final Map<String, Rec> recs = new LinkedHashMap<>();
-
-    /** 已落盘字节数；未知返回 0。同会话快路径：扫描记录里的 handle。 */
-    public long doneBytes(int handle) {
-        for (Rec r : recs.values()) {
-            if (r.handle == handle) return r.done;
-        }
-        return 0;
-    }
 
     /**
      * 按「大小 + 相对路径」查已落盘字节数。
@@ -81,19 +73,9 @@ public final class Journal {
         r.relPath = safePath;
     }
 
-    /** 已传字节数已达预期大小，整个文件可跳过。同会话快路径：扫描 handle。 */
-    public boolean isComplete(int handle, long size) {
-        for (Rec r : recs.values()) {
-            if (r.handle != handle) continue;
-            if (size > 0 && r.size != size) continue;   // 大小变了（同名不同文件）就不算完成
-            if (r.done >= r.size && r.size > 0) return true;
-        }
-        return false;
-    }
-
     /**
      * 跨会话完成判定：按「大小 + 相对路径」找记录，不依赖 handle。
-     * 导入编排层应优先用这条；handle 版本只作同会话内的快路径。
+     * 编排层不要直接用它决定跳过——账本说了完成，成品仍可能没了，统一走 {@link SkipRule}。
      *
      * **#177**：本方法只看日志。调用方必须再确认成品仍在磁盘且长度吻合，才能据此跳过。
      */

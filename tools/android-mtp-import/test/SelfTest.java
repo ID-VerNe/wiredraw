@@ -93,6 +93,7 @@ public final class SelfTest {
         dirsCases();
         roundFilesCases();
         entryPathCases();
+        skipRuleCases();
 
         System.out.println();
         if (failed == 0) {
@@ -973,13 +974,17 @@ public final class SelfTest {
         j.markDone(12345, 7340032, 24389632, "DCIM/100MSDCF/DSC02183.ARW");
         j.markDone(22222, 1024, 1024, "DCIM/100MSDCF/DSC02184.ARW");
 
-        check("doneBytes 记住已落盘字节",
-                j.doneBytes(12345) == 7340032, "实际 " + j.doneBytes(12345));
-        check("未知句柄的 doneBytes 为 0", j.doneBytes(999) == 0, "实际 " + j.doneBytes(999));
-        check("isComplete：已传满为 true",
-                j.isComplete(22222, 1024), "实际 " + j.isComplete(22222, 1024));
-        check("isComplete：未传满为 false",
-                !j.isComplete(12345, 24389632), "实际 " + j.isComplete(12345, 24389632));
+        check("doneBytes(relPath,size) 记住已落盘字节",
+                j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632) == 7340032,
+                "实际 " + j.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632));
+        check("未知路径的 doneBytes 为 0",
+                j.doneBytes("DCIM/100MSDCF/DSC99999.ARW", 1024) == 0,
+                "实际 " + j.doneBytes("DCIM/100MSDCF/DSC99999.ARW", 1024));
+        check("isComplete(relPath,size)：size<=0 一律不算完成",
+                !j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 0),
+                "实际 " + j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 0));
+        check("isComplete(relPath,size)：空 relPath 一律不算完成",
+                !j.isComplete("", 1024), "实际 " + j.isComplete("", 1024));
         check("isComplete(relPath,size)：跨会话按路径+大小也认完成",
                 j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024),
                 "实际 " + j.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024));
@@ -1027,8 +1032,9 @@ public final class SelfTest {
         }
         check("save → load 往返保留条数", reloaded.size() == 2, "实际 " + reloaded.size());
         check("save → load 往返保留已传字节与大小",
-                reloaded.doneBytes(12345) == 7340032 && reloaded.isComplete(22222, 1024),
-                "done=" + reloaded.doneBytes(12345));
+                reloaded.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632) == 7340032
+                        && reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024),
+                "done=" + reloaded.doneBytes("DCIM/100MSDCF/DSC02183.ARW", 24389632));
         check("save → load 后仍可按 relPath+size 跳过（跨会话）",
                 reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 1024)
                         && !reloaded.isComplete("DCIM/100MSDCF/DSC02184.ARW", 2048),
@@ -3803,6 +3809,55 @@ public final class SelfTest {
                         && !stalled.contains("传输") && !stalled.contains("搬运")
                         && !stalled.contains("拷贝") && !stalled.contains("同步"),
                 "实际「" + stalled + "」长度 " + stalled.length());
+    }
+
+    // ---------------- 跳过判据单一入口（#209 / G1） ----------------
+
+    /**
+     * 「可跳过」= 账本完成 **且** 磁盘成品尺寸一致；两个条件只在这里拼。
+     * 账本完成但成品缺失 / 截断 / 路径越界都归 STALE（重新导入），不许静默跳过。
+     */
+    static void skipRuleCases() throws Exception {
+        File out = Files.createTempDirectory("wiredraw-skiprule").toFile();
+        String rel = "DCIM/100MSDCF/DSC02183.ARW";
+        File dest = new File(out, "DCIM/100MSDCF/DSC02183.ARW");
+        writeSizedFile(dest, 300);
+        Journal j = new Journal();
+
+        check("SkipRule：账本无记录 → TODO（#209）",
+                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.TODO,
+                "实际 " + SkipRule.check(j, out, rel, 300));
+
+        j.markDone(3, 300, 300, rel);
+        check("SkipRule：账本完成 + 磁盘同尺寸 → SKIP（#209）",
+                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.SKIP,
+                "实际 " + SkipRule.check(j, out, rel, 300));
+
+        // #177：账本说完成，但成品被截断 → 必须重新导入。
+        writeSizedFile(dest, 299);
+        check("SkipRule：账本完成 + 成品截断 → STALE（#177）",
+                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.STALE,
+                "实际 " + SkipRule.check(j, out, rel, 300));
+
+        // 成品整个不在 → 也必须重新导入。
+        deleteTree(dest.getParentFile());
+        check("SkipRule：账本完成 + 成品缺失 → STALE（#209）",
+                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.STALE,
+                "实际 " + SkipRule.check(j, out, rel, 300));
+
+        // relPath 越界时 resolve 返回 null，不许因为账本有记录就跳过。
+        Journal jTrav = new Journal();
+        jTrav.markDone(9, 300, 300, "../../etc/passwd");
+        check("SkipRule：relPath 越界 → STALE（#209）",
+                SkipRule.check(jTrav, out, "../../etc/passwd", 300) == SkipRule.Verdict.STALE,
+                "实际 " + SkipRule.check(jTrav, out, "../../etc/passwd", 300));
+
+        // 同名但大小变了：账本主键含 size，新尺寸查不到记录 → TODO。
+        check("SkipRule：同名但大小变了 → TODO（账本键含 size）",
+                SkipRule.check(j, out, rel, 301) == SkipRule.Verdict.TODO,
+                "实际 " + SkipRule.check(j, out, rel, 301));
+
+        deleteTree(out);
     }
 
     // ---------------- 目录创建收口（G9b / A14，#219） ----------------
