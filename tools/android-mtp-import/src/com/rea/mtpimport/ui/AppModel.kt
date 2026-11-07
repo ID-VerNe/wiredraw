@@ -176,37 +176,39 @@ class AppModel {
     val allUnits: List<PhotoWall.Unit> get() = wall?.units() ?: emptyList()
 
     /**
-     * 当前 filter 可见的照片单元集合。
+     * 当前 filter 可见的照片单元集合——**唯一派生源**（#214 / F-02）。
      *
      * 这是「所见即所得」的唯一分母来源（issue #83）：导出计划、CTA 文案、顶栏胶囊都取它；
      * 已勾选但被 filter 隐藏的项保留在 [selection] 里，只是不计入本轮可见集合。
+     * [visibleGroups] 从它的 key 集合重建，不再另起一条过滤链。
      */
     val visibleUnits: List<PhotoWall.Unit>
         get() = when (filterKind) {
             FilterKind.ALL -> allUnits
             FilterKind.RAW -> allUnits.filter { it.hasArw() }
             FilterKind.JPG -> allUnits.filter { it.hasJpg() }
-            FilterKind.DATE -> visibleGroups.flatMap { it.photos }
+            FilterKind.DATE -> allGroups.firstOrNull { it.key == filterDate }?.photos ?: emptyList()
         }
 
     /** 可见集合的导出文件数（每单元恒 1 个文件）；顶栏胶囊与主 CTA 同分母（`C-08`）。 */
     val visibleExportCount: Int get() = visibleUnits.size
 
-    /** 可见已选数（CTA 的 `N`，`C-10`）；隐藏的已选项不计。 */
-    val visibleSelectedCount: Int get() = visibleUnits.count { it.isChecked(selection) }
+    /** 可见已选数（CTA 的 `N`，`C-10`）；隐藏的已选项不计。读版本号订阅勾选变化（F-20）。 */
+    val visibleSelectedCount: Int
+        get() = selectionVersion.let { visibleUnits.count { u -> u.isChecked(selection) } }
 
     val allGroups: List<PhotoWall.Group> get() = wall?.groups() ?: emptyList()
 
+    /**
+     * 可见组：由 [visibleUnits] 的 key 集合从 [allGroups] 重建（#214 / F-02）。
+     *
+     * 组头计数因此恒等于条目数；没剪掉任何单元时（`All` 档）直接返回原组，不复制。
+     */
     val visibleGroups: List<PhotoWall.Group>
-        get() = when (filterKind) {
-            FilterKind.ALL -> allGroups
-            FilterKind.DATE -> allGroups.filter { it.key == filterDate }
-            FilterKind.RAW -> allGroups.mapNotNull { g ->
-                g.select(PhotoWall.UnitFilter { u -> u.hasArw() })
-            }
-            FilterKind.JPG -> allGroups.mapNotNull { g ->
-                g.select(PhotoWall.UnitFilter { u -> u.hasJpg() })
-            }
+        get() {
+            val units = visibleUnits
+            if (units.size == allUnits.size) return allGroups
+            return PhotoWall.restrict(allGroups, units.map { it.key }.toSet())
         }
 
     /** 顶栏 filter 芯片（`V-31`）：`All` 档不显示；日期档取组标签（如 `Jun 7`）。 */
@@ -218,7 +220,17 @@ class AppModel {
             FilterKind.DATE -> allGroups.firstOrNull { it.key == filterDate }?.label
         }
 
-    fun isUnitChecked(unit: PhotoWall.Unit): Boolean = unit.isChecked(selection)
+    /**
+     * 单格勾选状态的唯一读取入口（#214 / F-20）：读版本号订阅变更，再给结果。
+     * 页面不再自己 `val version = model.selectionVersion`。
+     */
+    fun isUnitChecked(unit: PhotoWall.Unit): Boolean =
+        selectionVersion.let { unit.isChecked(selection) }
+
+    /** 日期组「是否已全选」的唯一读取入口（#214 / F-20），同样在内部读版本号。 */
+    fun isGroupChecked(group: PhotoWall.Group): Boolean = selectionVersion.let {
+        selection?.allCheckedHandles(group.photos.flatMap { u -> u.handles() }) == true
+    }
 
     // 名字不能叫 `setDeviceName` / `setLocationPath`：这两个 property 的 setter 已经占用
     // `setDeviceName(Ljava/lang/String;)V` 这个 JVM 签名，再写同名方法会平台声明冲突。

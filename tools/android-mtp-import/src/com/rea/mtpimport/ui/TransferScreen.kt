@@ -32,7 +32,7 @@ import com.rea.mtpimport.UiText
 fun TransferScreen(model: AppModel) {
     val done = model.importDoneFiles
     val total = model.importTotalFiles
-    val progress = if (total > 0) done.toFloat() / total.toFloat() else 0f
+    val progress = UiText.progressFraction(done, total)
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         // 顶栏常驻（#44 决策 2）：传输页沿用返回 + `topBar` 容器。

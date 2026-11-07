@@ -71,9 +71,7 @@ fun StatusScreen(model: AppModel) {
             },
             customCenter = {
                 ProgressRing(
-                    progress = if (model.scanTotal > 0) {
-                        model.scanDone.toFloat() / model.scanTotal.toFloat()
-                    } else 0f,
+                    progress = UiText.progressFraction(model.scanDone, model.scanTotal),
                     stateText = null,
                     diameter = 180.dp,
                     stroke = 2.dp

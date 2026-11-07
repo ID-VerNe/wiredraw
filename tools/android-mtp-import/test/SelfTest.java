@@ -80,6 +80,8 @@ public final class SelfTest {
         backNavCases();
         uiTextCases();
         photoWallCases();
+        derivedValueCases();
+        derivedSourceCases();
         demoTreesCases();
         demoTransferCases();
         commentRefCases();
@@ -3189,6 +3191,81 @@ public final class SelfTest {
                 "实际 " + PhotoWall.labelOf("20260607"));
         check("非日期目录名原样保留", "100MSDCF".equals(PhotoWall.labelOf("100MSDCF")),
                 "实际 " + PhotoWall.labelOf("100MSDCF"));
+    }
+
+    // ---------------- 派生量与聚合口径（G6 / issue #214） ----------------
+
+    /**
+     * F-07：进度分数只有一个定义——分母 ≤0 记 0，越界夹紧。
+     * F-09：组头视觉/读屏两种呈现共用一次聚合。
+     * F-02：可见组由可见单元的 key 集合从全部组重建（组头计数恒等于条目数）。
+     */
+    static void derivedValueCases() {
+        check("进度分数：分母为 0 记 0", UiText.progressFraction(3, 0) == 0f,
+                "实际 " + UiText.progressFraction(3, 0));
+        check("进度分数：分母为负记 0", UiText.progressFraction(3, -1) == 0f,
+                "实际 " + UiText.progressFraction(3, -1));
+        check("进度分数：完成数超过总数夹到 1", UiText.progressFraction(40, 36) == 1f,
+                "实际 " + UiText.progressFraction(40, 36));
+        check("进度分数：负数进度夹到 0", UiText.progressFraction(-2, 36) == 0f,
+                "实际 " + UiText.progressFraction(-2, 36));
+        check("进度分数：12/36 = 1/3", Math.abs(UiText.progressFraction(12, 36) - 1f / 3f) < 1e-6f,
+                "实际 " + UiText.progressFraction(12, 36));
+
+        PhotoWall wall = PhotoWall.of(sample());
+        PhotoWall.Group jun = null;
+        for (PhotoWall.Group g : wall.groups()) {
+            if ("100MSDCF".equals(g.label)) jun = g;
+        }
+        check("组头摘要的计数等于组内条目数",
+                jun != null && jun.summary(PhotoWall.Export.JPG_FIRST).count == jun.photos.size(),
+                "实际 " + (jun == null ? "null" : jun.summary(PhotoWall.Export.JPG_FIRST).count));
+        check("视觉组头与读屏组头同源（视觉）",
+                jun != null && jun.summary(PhotoWall.Export.JPG_FIRST).header()
+                        .equals(UiText.groupHeader("100MSDCF", jun.photos.size(),
+                                jun.bytes(PhotoWall.Export.JPG_FIRST))),
+                "实际 " + (jun == null ? "null" : jun.summary(PhotoWall.Export.JPG_FIRST).header()));
+        check("视觉组头与读屏组头同源（读屏）",
+                jun != null && jun.summary(PhotoWall.Export.JPG_FIRST).spoken()
+                        .equals("Date group 100MSDCF, " + jun.photos.size() + " photos, "
+                                + UiText.capacity(jun.bytes(PhotoWall.Export.JPG_FIRST))),
+                "实际 " + (jun == null ? "null" : jun.summary(PhotoWall.Export.JPG_FIRST).spoken()));
+
+        // F-02：restrict 用可见单元 key 剪枝；组头计数 == 条目数，且不漏不重。
+        List<String> rawKeys = new ArrayList<>();
+        for (PhotoWall.Unit u : wall.units()) {
+            if (u.hasArw()) rawKeys.add(u.key);
+        }
+        List<PhotoWall.Group> restricted = PhotoWall.restrict(wall.groups(), rawKeys);
+        int unitTotal = 0;
+        boolean allKeysVisible = true;
+        for (PhotoWall.Group g : restricted) {
+            unitTotal += g.count();
+            for (PhotoWall.Unit u : g.photos) {
+                if (!rawKeys.contains(u.key)) allKeysVisible = false;
+            }
+        }
+        check("restrict：RAW key 剪枝后组内单元总数一致", unitTotal == rawKeys.size(),
+                "实际 " + unitTotal + " / " + rawKeys.size());
+        check("restrict：不可见组不出现（纯 JPG 组被剪掉）", restricted.size() == 2,
+                "实际 " + restricted.size());
+        check("restrict：只含可见单元", allKeysVisible, "混入了不可见单元");
+        check("restrict：空 key 返回空",
+                PhotoWall.restrict(wall.groups(), new ArrayList<String>()).isEmpty(),
+                "实际 " + PhotoWall.restrict(wall.groups(), new ArrayList<String>()).size());
+    }
+
+    /** F-09/F-20 的结构守卫：聚合与勾选订阅不得在页面里各写一份。 */
+    static void derivedSourceCases() {
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> hits = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "group.count()", null, hits);
+        check("组头聚合只在 PhotoWall：src 里 group.count() 0 命中", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "selectionVersion", "src/com/rea/mtpimport/ui/AppModel.kt", hits);
+        check("勾选订阅只在 AppModel：页面不得裸读 selectionVersion", scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
     }
 
     // ---------------- 假数据模式（DemoTree，U-54） ----------------

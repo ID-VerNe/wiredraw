@@ -74,6 +74,21 @@ public final class UiText {
         return done + "/" + total;
     }
 
+    /**
+     * 进度环的分数（0f～1f）：分母 ≤0 记 0，越界一律夹紧（#214 / F-07）。
+     *
+     * 扫描环 / 传输环 / 照片墙细线都只调这一个函数，页面不再各写一份
+     * 「`if (total > 0) done/total else 0f`」；`{@link Widgets}` 的控件侧夹紧仍保留，
+     * 因为 `ProgressRing` 是通用控件，入参不保证已归一。
+     */
+    public static float progressFraction(int done, int total) {
+        if (total <= 0) return 0f;
+        float f = done / (float) total;
+        if (f < 0f) return 0f;
+        if (f > 1f) return 1f;
+        return f;
+    }
+
     /** 环内百分比：`round(done/total×100)`，与环下 a/b 严格自洽（U-45）。 */
     public static int percent(int done, int total) {
         if (total <= 0) return 0;
