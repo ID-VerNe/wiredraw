@@ -21,9 +21,9 @@
 
 ### Changed
 
-- 导片工具停用 MTP 断点续传（#177）：真机实测 `getPartialObject` 的 `offset` 不生效，
-  遗留 `.part` 一律作废、每次从 0 重传；完成状态只做尺寸核对（内容未校验），不再把
-  「尺寸凑够」当成校验通过。
+- 导片工具停用 MTP 断点续传（#177）：非零 `offset` 只有在恰好等于相机内部游标时才被采纳，
+  对不上时从对象头返回；续传起点与游标对不上且续读不省带宽，遗留 `.part` 一律作废、
+  每次从 0 重传。完成状态只做尺寸核对（内容未校验），不再把「尺寸凑够」当成校验通过。
 - 构建文档补齐 Windows PowerShell 等价命令：PowerShell 里的 `bash` 会落到 WSL，
   改用 `python scripts/run_gates.py manual`、Git for Windows 的 `bash.exe` 与 `gradlew.bat`。
 - `.gitignore` 按扩展名兜底 RAW 与抓包：`*.ARW` / `*.arw` / `*.pcap` / `*.pcapng` / `*.pcap.gz`。
