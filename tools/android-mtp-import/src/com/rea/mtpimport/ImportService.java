@@ -94,8 +94,8 @@ public final class ImportService {
      * 最后一次「进入文件传输」的时刻（issue #63）；0 表示本轮还没进入过任何文件。
      *
      * 只按文件边界刷新：`transfer.transfer(...)` 调用前记一次，返回后不记——
-     * 于是一次整文件 `importFile`、或续传路径里一段 `getPartialObject` 分块循环持续多久，
-     * 都能被 {@link #isStalledAt(long)} 看出。
+     * 于是一次整文件 `importFile` 持续多久，都能被 {@link #isStalledAt(long)} 看出
+     * （#177 续传停用后只剩整文件路径）。
      * #70 的块级进度回调存在，但**不参与**挂起判定，所以这里仍是文件边界语义
      * （见 README「无进展挂起（#63）」）。
      */

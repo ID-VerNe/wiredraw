@@ -21,9 +21,10 @@
 
 | 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
-| `getPartialObject` 的 `offset` 在真机上不生效 | 传非 0 offset 仍返回对象起点数据；把它追加到 `.part` 会得到「字节数对、内容错、日志打 OK」的坏文件 | 2026-11-07 真机实测（E2 MI 9 / Android 15 / USB MTP，见 issue #177 诊断评论）。**止血方案 B：续传已停用**，遗留 `.part` 一律作废、从 0 重传。[探针 README](../tools/android-mtp-probe/README.md) 里 #67 的「绝对偏移」结论已不可作为实现依据，另有会话在纠正 |
+| `getPartialObject` 的 `offset` 在真机上不生效 | 传非 0 offset 仍返回对象起点数据；把它追加到 `.part` 会得到「字节数对、内容错、日志打 OK」的坏文件 | 2026-11-07 真机实测（E2 MI 9 / Android 15 / USB MTP，见 issue #177 诊断评论）。**止血方案 B：续传已停用**，遗留 `.part` 一律作废、从 0 重传。[探针 README](../tools/android-mtp-probe/README.md) 里 #67 的「绝对偏移」结论已由 #179 撤回，不可作为实现依据 |
 | 完成只做尺寸核对 | 尺寸相等不代表内容正确；日志与结果文案必须写明「内容未校验」 | [MtpTransfer.java](../tools/android-mtp-import/src/com/rea/mtpimport/MtpTransfer.java) 的 `finish()`；内容摘要校验尚未实现（issue #177 的修复候选 2） |
-| `length` 超剩余 / `offset` 越界的探针结论未复测 | 不能把 #67 的边界观察当成稳定契约 | [探针 README](../tools/android-mtp-probe/README.md) 的 PC 探针节；续传停用后 App 已不再发 `getPartialObject`，恢复前必须重新实测 |
+| `ThumbnailStore.fetchFull()` 仍按 offset 分块读 | 同名 JPG 预览可能被拼成「尺寸对、内容错」的图且不报错 | [ThumbnailStore.java](../tools/android-mtp-import/src/com/rea/mtpimport/ThumbnailStore.java):294-301；导入路径已停用续传（#177），缩略图路径待改，见 issue #188 |
+| `length` 超剩余 / `offset` 越界的探针结论未复测 | 不能把 #67 的边界观察当成稳定契约 | [探针 README](../tools/android-mtp-probe/README.md) 的 PC 探针节；续传停用后导入路径（`MtpTransfer`）已不再发 `getPartialObject`（缩略图路径仍发，见上一行 #188），恢复前必须重新实测 |
 
 ## 三、PTP / PTP-IP 路线
 
