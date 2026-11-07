@@ -349,9 +349,8 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 1. **format 过滤不可信**：`getObjectHandles(sid, 0xB101, 0)` 返回 754 个而全量只有
    511 个真 ARW（探针 README 坑 2）。`CatalogScanner` 一律全量枚举 + 逐个
    `getObjectInfo()` 自己分类，不做这个「优化」。
-2. **相机会挂起 USB**：会话结束后约 1 分钟，`getStorageIds()` 返回空、`open()` 卡 10 秒。
-   `MtpSession.storageIds()` 重试 8 次 / 每次 3 秒；仍失败就提示用户拔插线
-   —— 实测重试唤不醒，只有拔插有效。
+2. **相机会挂起 USB**（现象、重试次数与实测结论以 `AGENTS.md` §4 为准）：`MtpSession.storageIds()`
+   做唤醒重试，仍失败就提示用户拔插线。本文件不再复制实测数字。
 3. **扫描要 59 秒**：1526 个对象 × 39 ms。所以扫描必须回调进度，且扫描结果要缓存成
    `Catalog` 复用——每次勾选都重扫的交互没法用。issue #60 起不再等全量：首批 ARW
    一出现就发布快照（之后每 200 个对象一次），照片墙先可用，剩余对象在后台静默补齐；
