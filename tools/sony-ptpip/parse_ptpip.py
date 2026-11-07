@@ -25,9 +25,9 @@ OP_NAMES = {
     0x1001: "GetDeviceInfo", 0x1002: "OpenSession", 0x1003: "CloseSession",
     0x1004: "GetStorageIDs", 0x1005: "GetStorageInfo", 0x1006: "GetNumObjects",
     0x1007: "GetObjectHandles", 0x1008: "GetObjectInfo", 0x1009: "GetObject",
-    0x100A: "GetThumb", 0x100B: "GetPartialObject", 0x100C: "GetDevicePropDesc",
+    0x100A: "GetThumb", 0x100B: "DeleteObject", 0x100C: "GetDevicePropDesc",
     0x100D: "GetDevicePropValue", 0x100E: "SetDevicePropValue", 0x100F: "ResetDevice",
-    0x101B: "SendPartialObject", 0x1014: "GetDevicePropDescEx", 0x1015: "GetDevicePropValueEx", 0x1016: "SetDevicePropValueEx",
+    0x101B: "GetPartialObject", 0x1014: "GetDevicePropDescEx", 0x1015: "GetDevicePropValueEx", 0x1016: "SetDevicePropValueEx",
     0x9001: "GetDeviceInfoEx", 0x9002: "GetObjectInfoEx", 0x9003: "GetObjectEx",
     0x9201: "Sony_SDIOConnect", 0x9202: "Sony_GetExtDeviceInfo",
     0x9203: "Sony_SetDevicePropValue", 0x9204: "Sony_GetDevicePropDesc",
@@ -49,8 +49,8 @@ RESP_NAMES = {
     0xA003: "Sony_SessionNotOpened",
 }
 
-# 帧类型 1..14 的名字与 probe.py 的常量一一对应；describe() 与离线排障都从这里取，
-# 避免两处各写一套后漏项（#224）。
+# 帧类型 1..14 的规范名；probe.py:27-29 只定义到 1..12（13/14 的 Ping/Pong 探针不发）。
+# describe() 与离线排障都从这里取，避免两处各写一套后漏项（#224）。
 FRAME_NAMES = {
     1: "Init_Command_Request", 2: "Init_Command_Ack",
     3: "Init_Event_Request", 4: "Init_Event_Ack", 5: "Init_Fail",

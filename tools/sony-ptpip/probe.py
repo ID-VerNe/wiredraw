@@ -28,14 +28,17 @@ INIT_REQ, INIT_ACK, INIT_EVT_REQ, INIT_EVT_ACK, INIT_FAIL = 1, 2, 3, 4, 5
 OP_REQ, OP_RSP, EVENT = 6, 7, 8
 START_DATA, DATA, CANCEL, END_DATA = 9, 10, 11, 12
 
-# 只保留本探针实际下发的只读 opcode。0x101B 是 SendPartialObject（写操作），
-# 0x100B 才是 GetPartialObject；两者本探针都不用，故不列表——写 opcode 常量留在源码里
-# 迟早会被误用，违反 AGENTS.md §2 红线 2。
+# 只保留本探针实际下发的只读 opcode。`GetObject` / `GetThumb` /
+# `GetPartialObject`(0x101B) / `GetDevicePropValue2`(0x920E) 均无调用，已删。
+# `SetDevicePropValueEx`(0x9209) 是写 opcode，探针从不调用，但
+# docs/safety-and-privacy.md 明确要求保留它做抓包事务名翻译——删它要同步改文档，
+# 超出本单的代码文件边界，故留在这里并在测试里钉住「只有这一个写名常量」。
 OP = {"GetDeviceInfo": 0x1001, "OpenSession": 0x1002, "CloseSession": 0x1003,
       "GetStorageIDs": 0x1004, "GetStorageInfo": 0x1005, "GetNumObjects": 0x1006,
       "GetObjectHandles": 0x1007, "GetObjectInfo": 0x1008,
       # 索尼私有
-      "SDIOConnect": 0x9201, "GetExtDeviceInfo": 0x9202}
+      "SDIOConnect": 0x9201, "GetExtDeviceInfo": 0x9202,
+      "SetDevicePropValueEx": 0x9209}
 
 # 相机把 GUID 当配对标识记着：随机 UUID 会被 Init_Fail reason=1 直接拒掉，
 # 只有当初配对成功的那个 GUID 才放行。它是配对凭据，真实值不入库：

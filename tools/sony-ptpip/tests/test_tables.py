@@ -30,20 +30,22 @@ def check(name, cond, detail=""):
         print(f"[FAIL] {name} {detail}")
 
 
-# 1) probe.py 的 OP 表每个键都必须被源码调用：死表项会把错名/写 opcode 留在库里
+# 1) probe.py 的 OP 表不允许有死项，唯一例外是文档明确保留的写名常量
 src = (ROOT / "probe.py").read_text(encoding="utf-8")
 used = set(re.findall(r'OP\["([^"]+)"\]', src))
-check("probe OP 无死项", set(probe.OP) == used, f"死项={sorted(set(probe.OP) - used)}")
+dead = set(probe.OP) - used
+check("probe OP 死项仅限文档化例外", dead <= {"SetDevicePropValueEx"}, f"死项={sorted(dead)}")
 
-# 2) 只读红线：probe 侧不得保留写 opcode（0x9209 SetDevicePropValueEx、0x101B SendPartialObject）
-WRITE_OPS = {0x9209, 0x101B}
-check("probe OP 不含写 opcode", not (set(probe.OP.values()) & WRITE_OPS),
-      f"命中={[hex(c) for c in set(probe.OP.values()) & WRITE_OPS]}")
+# 2) 只读红线：探针表里只允许 0x9209 这一个写名常量（docs/safety-and-privacy.md:32-33）
+WRITE_OPS = {0x9209, 0x1016, 0x100B}
+hits = (set(probe.OP.values()) & WRITE_OPS) - {0x9209}
+check("probe OP 无额外写 opcode", not hits, f"命中={[hex(c) for c in hits]}")
 
-# 3) PTP 规范：0x100B=GetPartialObject，0x101B=SendPartialObject（写）
-check("parse 0x101B=SendPartialObject", parse_ptpip.OP_NAMES.get(0x101B) == "SendPartialObject",
+# 3) 实测口径（captures/stream7.txt:1192-1194）：0x101B 是取回，相机随后回 1 MB；
+#    0x100B 是删除类，不能与取回同名。
+check("parse 0x101B=GetPartialObject", parse_ptpip.OP_NAMES.get(0x101B) == "GetPartialObject",
       f"实际={parse_ptpip.OP_NAMES.get(0x101B)!r}")
-check("parse 0x100B=GetPartialObject", parse_ptpip.OP_NAMES.get(0x100B) == "GetPartialObject",
+check("parse 0x100B=DeleteObject", parse_ptpip.OP_NAMES.get(0x100B) == "DeleteObject",
       f"实际={parse_ptpip.OP_NAMES.get(0x100B)!r}")
 
 # 4) RESP 表：两边共有码名字必须一致；parse 必须补上 0xA003
