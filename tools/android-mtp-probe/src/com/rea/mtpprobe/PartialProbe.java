@@ -57,9 +57,9 @@ final class PartialProbe {
      * @param size   相机侧 ObjectInfo 的字节数
      * @param name   文件名（只用于日志与临时文件名）
      * @param full   手机侧整文件下载结果，用来做 MD5 / 字节对照
-     * @param others 其它普通对象样本 {handle, size, name}，各读首块验证支持面
+     * @param others 其它普通对象样本，各读首块验证支持面
      */
-    void run(int handle, long size, String name, File full, List<Object[]> others) {
+    void run(int handle, long size, String name, File full, List<ObjectRef> others) {
         report("---- [PC 探针] getPartialObject 语义（" + name + "，" + size + " 字节）----");
         // 非零 offset 判别必须排在该对象的第一条 partial 读：它的四步依赖「游标没有被其它读扰动」。
         // 也排在普通对象支持面之前——按对象分游标是乐观假设，全局游标的 responder 会被别的句柄带跑。
@@ -71,10 +71,10 @@ final class PartialProbe {
         // 再测普通对象支持面：越界测试会主动制造 IOException；若它真会让会话进入错误态，
         // 后续读取都会被误判成「不支持」，所以越界测试一律排在最后。
         if (others != null) {
-            for (Object[] e : others) {
-                int h = (Integer) e[0];
-                long sz = (Long) e[1];
-                String nm = (String) e[2];
+            for (ObjectRef e : others) {
+                int h = e.handle;
+                long sz = e.size;
+                String nm = e.name;
                 try {
                     byte[] buf = new byte[FIRST_BLOCK];
                     long n = mtp.getPartialObject(h, 0, buf.length, buf);
@@ -334,17 +334,11 @@ final class PartialProbe {
             }
             double sec = (System.nanoTime() - t0) / 1e9;
             long got = tmp.length();
-            String md5Got = md5(tmp);
-            String md5Full = md5(full);
-            byte[] head = new byte[16];
-            int hn = 0;
-            try (FileInputStream in = new FileInputStream(tmp)) {
-                hn = Math.max(in.read(head), 0);
-            }
-            StringBuilder hx = new StringBuilder();
-            for (int i = 0; i < hn; i++) hx.append(String.format("%02X ", head[i]));
-            boolean tiff = hn >= 4 && head[0] == 0x49 && head[1] == 0x49
-                    && head[2] == 0x2A && head[3] == 0x00;
+            String md5Got = ProbeFiles.md5(tmp);
+            String md5Full = ProbeFiles.md5(full);
+            byte[] head = new byte[ProbeFiles.HEAD_BYTES];
+            int hn = ProbeFiles.readHead(tmp, head);
+            boolean tiff = ProbeFiles.isTiffArw(head, hn);
             report(String.format(Locale.US,
                     "[PC] 拼接结果: %d 字节 / %d 次调用 / %.2f 秒 = %.2f MB/s",
                     got, calls, sec, (got / Main.MB) / (sec <= 0 ? 1 : sec)));
@@ -352,7 +346,8 @@ final class PartialProbe {
                     "[PC] 顺序拼接结果: 字节数 %s（相机 %d / 拼接 %d）；MD5 %s（拼接 %s / 整文件 %s）—— 只证顺序完整性，不判 offset 语义",
                     got == size ? "一致 ✅" : "不一致 ❌", size, got,
                     md5Got.equals(md5Full) ? "一致 ✅" : "不一致 ❌", md5Got, md5Full));
-            report("[PC] 文件头: " + hx + (tiff ? "✅ 合法 ARW(TIFF)" : "❌ 头部不对"));
+            report("[PC] 文件头: " + ProbeFiles.hexHead(head, hn)
+                    + (tiff ? "✅ 合法 ARW(TIFF)" : "❌ 头部不对"));
         } finally {
             // 拼接用的临时文件在手机私有目录，最大 24.4 MB；正常结束与中途异常都要收尾，避免残留。
             if (tmp.exists() && !tmp.delete()) {
@@ -428,17 +423,5 @@ final class PartialProbe {
     private static double rate(long bytes, long nanos) {
         if (nanos <= 0) return 0;
         return (bytes / Main.MB) / (nanos / 1e9);
-    }
-
-    static String md5(File f) throws Exception {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        try (FileInputStream in = new FileInputStream(f)) {
-            byte[] buf = new byte[1 << 20];
-            int n;
-            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
-        }
-        StringBuilder s = new StringBuilder();
-        for (byte x : md.digest()) s.append(String.format("%02x", x));
-        return s.toString();
     }
 }

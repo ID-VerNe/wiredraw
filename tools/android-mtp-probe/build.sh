@@ -107,6 +107,13 @@ done
 [ -n "$JAVAC" ] || JAVAC="$(command -v javac)"
 [ -n "$JAVAC" ] || die "JDK 里找不到 javac：$JDK"
 
+JAVA=""
+for cand in "$JDK/bin/java$EXE" "$JDK/bin/java"; do
+  if [ -x "$cand" ]; then JAVA="$cand"; break; fi
+done
+[ -n "$JAVA" ] || JAVA="$(command -v java || true)"
+[ -n "$JAVA" ] || die "JDK 里找不到 java（纯 JDK 自检需要）：$JDK"
+
 KEYTOOL="$JDK/bin/keytool$EXE"
 [ -x "$KEYTOOL" ] || KEYTOOL="$(command -v keytool || true)"
 
@@ -153,6 +160,25 @@ if ! "$JAVAC" -encoding UTF-8 -nowarn \
   exit 1
 fi
 [ -n "$(find "$OUT/classes" -name '*.class' -print -quit)" ] || { echo "javac 没有产出任何 class"; exit 1; }
+
+echo "== 3.5 纯 JDK 自检（ProbeFiles / ObjectRef）=="
+# 这三个文件不 import android，必须能脱离 android.jar 单独编译并跑在 JVM 上；
+# 跑不起来说明它们混进了 Android 依赖，或 md5 / 文件头逻辑被改坏。
+mkdir -p "$OUT/jvm"
+if ! "$JAVAC" -encoding UTF-8 -nowarn -d "$OUT/jvm" \
+      src/com/rea/mtpprobe/ProbeFiles.java \
+      src/com/rea/mtpprobe/ObjectRef.java \
+      test/com/rea/mtpprobe/ProbeFilesTest.java > "$OUT/jvm-javac.log" 2>&1; then
+  echo "纯 JDK 自检编译失败："
+  cat "$OUT/jvm-javac.log"
+  exit 1
+fi
+if ! "$JAVA" -cp "$OUT/jvm" com.rea.mtpprobe.ProbeFilesTest > "$OUT/jvm-test.log" 2>&1; then
+  echo "纯 JDK 自检失败："
+  cat "$OUT/jvm-test.log"
+  exit 1
+fi
+cat "$OUT/jvm-test.log"
 
 echo "== 4. d8 =="
 find "$OUT/classes" -name '*.class' > "$OUT/classes.txt"
