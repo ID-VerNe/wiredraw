@@ -352,7 +352,7 @@ public final class ImportService {
                         skipped++;
                         progress.onBytes(item.size);
                         progress.onFileDone();
-                        l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, "Skipped existing");
+                        l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, UiText.fileSkippedNote());
                         l.onProgress(progress, item);
                         continue;
                     }
@@ -458,10 +458,7 @@ public final class ImportService {
             worker = null;
         }
 
-        String summary = String.format(
-                "完成 %d / 跳过 %d / 失败 %d（共 %d 个）%s",
-                ok, skipped, failed, plan.count(),
-                stop.isEmpty() ? "" : " · " + stop);
+        String summary = UiText.runSummary(ok, skipped, failed, plan.count(), stop);
         log.line("本轮结束：" + summary);
         l.onFinished(cancelled, ok, skipped, failed, summary);
     }

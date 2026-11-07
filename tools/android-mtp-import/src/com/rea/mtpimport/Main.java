@@ -732,9 +732,8 @@ public final class Main extends ComponentActivity {
                 log.line("扫描已取消，丢弃本轮结果（不上照片墙）");
                 return;
             }
-            log.line(String.format(Locale.US, "扫描完成：文件夹 %d 个、文件 %d 个（合计 %.2f GB，其中 ARW %.2f GB）",
-                    scan.catalog.folderCount(), scan.catalog.fileCount(),
-                    scan.catalog.fileBytes() / 1073741824.0, scan.catalog.rawBytes() / 1073741824.0));
+            // 明细只由 CatalogScanner 打一条（issue #211 / A7）；这里只标阶段，避免一次扫描两条同格式。
+            log.line("扫描收尾：进入 CATALOG_READY");
             if (!scan.complete) {
                 // issue #52：残缺目录仍可显示，但不能当 `.part` 保留集；把原因提前说清。
                 log.line(scan.skipReason());

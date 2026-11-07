@@ -83,6 +83,7 @@ public final class SelfTest {
         demoTransferCases();
         commentRefCases();
         skippedSourceCases();
+        duplicateTextCases();
         pauseSwitchCases();
         stuckErrorCases();
 
@@ -842,9 +843,6 @@ public final class SelfTest {
         stalled.start(t0);
         check("速度为 0 时 eta 返回 -1 而不是无穷大",
                 stalled.etaSeconds(t0) == -1, "实际 " + stalled.etaSeconds(t0));
-
-        check("humanBytes 用 1024 进制",
-                "1.0 MB".equals(p.humanBytes(1048576)), "实际 " + p.humanBytes(1048576));
 
         // ---------------- #58：暂停时长不得计入速率/ETA ----------------
         // 场景：10 MB 已传、实际传输 1 s、随后暂停 100 s。
@@ -2974,6 +2972,27 @@ public final class SelfTest {
         check("skippedLine 负数按 0 处理", "".equals(UiText.skippedLine(-3)),
                 "实际 " + UiText.skippedLine(-3));
 
+        // issue #211：逐文件跳过 / 取消 / 字节对账 / 同尺寸跳过 / 本轮摘要都收进 UiText。
+        check("fileSkippedNote 与 skippedLine 同一词表（P-07 / U-21）",
+                "Skipped existing".equals(UiText.fileSkippedNote()),
+                "实际 " + UiText.fileSkippedNote());
+        check("transferCancelled 句写明「从 0 重来」",
+                "已取消，整个半成品已删除（从 0 重来）".equals(UiText.transferCancelled()),
+                "实际 " + UiText.transferCancelled());
+        check("sizeMismatch 带期望与实际",
+                "字节数不符：期望 1024，实际 1000".equals(UiText.sizeMismatch(1024, 1000)),
+                "实际 " + UiText.sizeMismatch(1024, 1000));
+        check("sameSizeExists 必须写明「内容未校验」（#177）",
+                UiText.sameSizeExists().contains("内容未校验")
+                        && UiText.sameSizeExists().contains("未覆盖"),
+                "实际 " + UiText.sameSizeExists());
+        check("runSummary 形如 `完成 7 / 跳过 2 / 失败 1（共 10 个）`",
+                "完成 7 / 跳过 2 / 失败 1（共 10 个）".equals(UiText.runSummary(7, 2, 1, 10, "")),
+                "实际 " + UiText.runSummary(7, 2, 1, 10, ""));
+        check("runSummary 带停止原因与中点分隔",
+                "完成 1 / 跳过 0 / 失败 0（共 1 个） · 已取消".equals(UiText.runSummary(1, 0, 0, 1, "已取消")),
+                "实际 " + UiText.runSummary(1, 0, 0, 1, "已取消"));
+
         String summary = UiText.doneSummary(36, 871L * mb);
         check("doneSummary 形如 `36 · 871 MB`（U-47）", summary.matches("\\d+ \u00B7 \\d+ MB"),
                 "实际 " + summary);
@@ -3334,8 +3353,8 @@ public final class SelfTest {
                 src != null && src.contains("尺寸核对通过") && src.contains("内容未校验"),
                 src == null ? "读不到 " + mtp : "文案仍在暗示校验通过");
         check("完成口径：同尺寸已存在文件记 SKIPPED，不冒充 OK（#177）",
-                src != null && src.contains("Kind.SKIPPED, \"已存在同尺寸文件")
-                        && !src.contains("Kind.OK, \"已存在同尺寸文件"),
+                src != null && src.contains("Kind.SKIPPED, UiText.sameSizeExists()")
+                        && !src.contains("Kind.OK, UiText.sameSizeExists()"),
                 src == null ? "读不到 " + mtp : "同尺寸分支仍可能记 OK");
 
     }
@@ -3369,6 +3388,30 @@ public final class SelfTest {
         check("轮次入口仍会清零 skippedLine（issue #127）",
                 scannedClears > 0 && !clears.isEmpty(),
                 "扫描 " + scannedClears + " 个文件，0 处清零");
+    }
+
+    /**
+     * 同一句用户可见文案只能由 {@link UiText} 产出（issue #211 / G3）。
+     *
+     * 只锁「整句重复」的三族：取消、字节不符、同尺寸跳过，外加逐文件跳过 note；
+     * `Failed: ` / `[Skipped]` 等状态前缀不在此列。扫描面是 `src/` 全目录，
+     * 拆类或改名不会让守卫误红。
+     */
+    static void duplicateTextCases() {
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        String allow = "src/com/rea/mtpimport/UiText.java";
+        checkOnlyFromUiText(srcRoot, allow, "已取消，整个半成品已删除");
+        checkOnlyFromUiText(srcRoot, allow, "字节数不符：期望 ");
+        checkOnlyFromUiText(srcRoot, allow, "已存在同尺寸文件，未覆盖");
+        checkOnlyFromUiText(srcRoot, allow, "Skipped existing");
+    }
+
+    /** 断言 `needle` 只在 `allow` 一个文件里出现；其它文件命中即红。 */
+    static void checkOnlyFromUiText(File srcRoot, String allow, String needle) {
+        List<String> hits = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, needle, allow, hits);
+        check("文案只由 UiText 产出：" + needle, scanned > 0 && hits.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
     }
 
     /**

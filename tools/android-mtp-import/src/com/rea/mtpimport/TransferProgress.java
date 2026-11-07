@@ -1,7 +1,5 @@
 package com.rea.mtpimport;
 
-import java.util.Locale;
-
 /**
  * 进度数学，纯 JDK 类型，时钟由外部注入（测试可控，不依赖 System.nanoTime）。
  *
@@ -165,24 +163,5 @@ public final class TransferProgress {
         double bps = bytesPerSec(nowNanos);
         if (bps <= 0) return -1;
         return (long) Math.ceil(remain / bps);
-    }
-
-    public String humanBytes(long n) {
-        if (n >= 1L << 30) return String.format(Locale.US, "%.1f GB", n / (double) (1L << 30));
-        if (n >= 1L << 20) return String.format(Locale.US, "%.1f MB", n / (double) (1L << 20));
-        if (n >= 1L << 10) return String.format(Locale.US, "%.1f KB", n / (double) (1L << 10));
-        return n + " B";
-    }
-
-    public String humanRate(long nowNanos) {
-        return humanBytes((long) bytesPerSec(nowNanos)) + "/s";
-    }
-
-    /** 界面/日志用的一行摘要，避免每个调用点各写一套格式。 */
-    public String summary(long nowNanos) {
-        long eta = etaSeconds(nowNanos);
-        return String.format(Locale.US, "%d/%d 个 · %s / %s (%.1f%%) · %s · 剩余 %s",
-                filesDone, totalFiles, humanBytes(bytesDone()), humanBytes(totalBytes),
-                fraction() * 100.0, humanRate(nowNanos), eta < 0 ? "未知" : eta + "s");
     }
 }
