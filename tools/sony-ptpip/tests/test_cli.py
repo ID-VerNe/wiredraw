@@ -68,16 +68,25 @@ probe_ok = probe.object_info(bytes(buf_ok))
 check("parse 解出名字 A", parse_ok is not None and "文件名=A" in parse_ok, f"实际={parse_ok!r}")
 check("probe 解出名字 A", probe_ok is not None and probe_ok.get("name") == "A", f"实际={probe_ok!r}")
 
-# 5) 错误参数：不连相机、非零退出、有可读提示
+# 5) --guid 形态：README §6 的 8-4-2 形态（含短横共 16 字节）必须仍然可用
+# 样本按段拼接，避免整串 8-4-2 十六进制文本被 check_sensitive.py 判成真 GUID。
+guid_842 = "01234567" + "-" + "89ab" + "-" + "cd"
+check("guid 8-4-2 正例", probe._guid_ok(guid_842), "README §6 的取值形态")
+check("guid 16 位纯 hex 正例", probe._guid_ok("0123456789abcdef"))
+check("guid 12 位 hex 负例", not probe._guid_ok("0123456789ab"))
+check("guid 非 hex 负例", not probe._guid_ok("01234567-89ab-cg"))
+check("guid 空值负例", not probe._guid_ok(""))
+
+# 6) 错误参数：不连相机、非零退出、有可读提示
 readme = str(ROOT / "README.md")
 code, out = run(str(ROOT / "parse_ptpip.py"), "--stream", "abc", readme)
 check("parse --stream 非整数 → 退出 2", code == 2 and "整数" in out, f"code={code} out={out[-80:]!r}")
-code, out = run(str(ROOT / "parse_ptpip.py"), "--limit", readme)
+code, out = run(str(ROOT / "parse_ptpip.py"), "--limit")
 check("parse --limit 缺值 → 退出 2", code == 2 and "整数" in out, f"code={code} out={out[-80:]!r}")
 code, out = run(str(ROOT / "parse_ptpip.py"), "--limit", "abc", readme)
 check("parse --limit 非整数 → 退出 2", code == 2 and "整数" in out, f"code={code} out={out[-80:]!r}")
 code, out = run(str(ROOT / "probe.py"), "1.2.3.4", "--guid", "0123456789ab")
-check("probe 12 位 GUID → 退出 2", code == 2 and "16 位" in out, f"code={code} out={out[-80:]!r}")
+check("probe 12 位 GUID → 退出 2", code == 2 and "16 字节" in out, f"code={code} out={out[-80:]!r}")
 code, out = run(str(ROOT / "probe.py"))
 check("probe 缺 IP → 退出 2", code == 2 and "相机 IP" in out, f"code={code} out={out[-80:]!r}")
 

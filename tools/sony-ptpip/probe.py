@@ -61,6 +61,15 @@ def frame(ptype, body=b""):
     return struct.pack("<II", len(body) + 8, ptype) + body
 
 
+def _guid_ok(s):
+    """`--guid` 的合法形态：握手 body 前 16 字节就是 GUID 的 ASCII 文本，
+    索尼把它截断成 `xxxxxxxx-xxxx-xx`（8-4-2，含短横共 16 字符）；
+    名称必须从第 16 字节开始（见 PtpIp.init 注释），所以这里按原始字符串判长度，
+    不能去横线后数六进制位数（去横线只有 14 位）。
+    """
+    return bool(s) and len(s) == 16 and re.fullmatch(r"[0-9A-Fa-f-]+", s) is not None
+
+
 class Chan:
     """一条 PTP/IP 连接（命令通道或事件通道，二者帧格式同构）。"""
 
@@ -116,11 +125,12 @@ class PtpIp:
         else:
             if not guid:
                 raise ValueError("缺少配对 GUID：请用 --guid 传入，获取方法见 README §6")
-            g = guid.replace("-", "")
-            if len(g) != 16 or not re.fullmatch(r"[0-9A-Fa-f]{16}", g):
-                raise ValueError(f"配对 GUID 去横线后必须是 16 位十六进制，实际 {len(g)} 位：{guid!r}")
+            if not _guid_ok(guid):
+                raise ValueError(
+                    f"配对 GUID 必须是 16 字节 ASCII（形如 xxxxxxxx-xxxx-xx），"
+                    f"实际 {len(guid)} 字节：{guid!r}")
             nm = name.encode("utf-16-le") + b"\x00\x00"
-            self.cmd.send(INIT_REQ, g.encode("ascii") + nm + struct.pack("<I", 0x00010000))
+            self.cmd.send(INIT_REQ, guid.encode("ascii") + nm + struct.pack("<I", 0x00010000))
         ptype, body = self.cmd.recv_frame()
         if ptype != INIT_ACK:
             reason = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else -1
@@ -350,9 +360,9 @@ def main():
             print("--guid 必须显式给值：它就是你本机 IED 首次配对时用过的 GUID，获取方法见 README §6。")
             return 2
         guid = argv[i + 1]
-        body = guid.replace("-", "")
-        if len(body) != 16 or not re.fullmatch(r"[0-9A-Fa-f]+", body):
-            print(f"--guid 形态不对：{guid!r}。去掉短横后必须是 16 位十六进制（实际 {len(body)} 位）。")
+        if not _guid_ok(guid):
+            print(f"--guid 形态不对：{guid!r}。必须是 16 字节 ASCII（形如 xxxxxxxx-xxxx-xx，"
+                  f"实际 {len(guid)} 字节）。")
             print("获取方法见 README §6；真实值不要写进仓库。")
             return 2
 
