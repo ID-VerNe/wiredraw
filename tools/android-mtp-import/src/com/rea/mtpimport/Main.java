@@ -123,15 +123,14 @@ public final class Main extends ComponentActivity {
      * 只在 `demoActive()` 分支使用；真实传输仍走 {@link ImportService}。
      */
     private DemoRun demoTransfer;
-    private long demoBytesPerSecond;
     private final Handler demoTicker = new Handler(Looper.getMainLooper());
     private final Runnable demoStep = new Runnable() {
         @Override
         public void run() {
             if (demoTransfer == null) return;
             boolean finished = demoTransfer.advance();
-            model.updateProgress(demoTransfer.doneFiles(), demoTransfer.totalFiles(),
-                    demoTransfer.doneBytes(), demoTransfer.totalBytes(), demoBytesPerSecond);
+            // 进度只送文件计数：字节不建界面状态、不上屏（issue #70；#177 证 offset 不可信）。
+            model.updateProgress(demoTransfer.doneFiles(), demoTransfer.totalFiles());
             if (finished) {
                 model.showDone(demoTransfer.doneFiles(), demoTransfer.doneBytes());
                 log.line("[demo] 传输完成：" + demoTransfer.doneFiles() + " 张 / "
@@ -240,8 +239,7 @@ public final class Main extends ComponentActivity {
                 }
                 if (model.getState() == UiState.State.PAUSED) {
                     demoTicker.postDelayed(demoStep, DEMO_TICK_MS);
-                    model.showImport(demoTransfer.doneFiles(), demoTransfer.totalFiles(),
-                            demoTransfer.doneBytes(), demoTransfer.totalBytes(), demoBytesPerSecond);
+                    model.showImport(demoTransfer.doneFiles(), demoTransfer.totalFiles());
                 } else {
                     demoTicker.removeCallbacks(demoStep);
                     model.showPaused();
@@ -575,10 +573,9 @@ public final class Main extends ComponentActivity {
         long perFile = payload.totalBytes / payload.totalFiles;
         int total = model.getVisibleSelectedCount() > 0
                 ? model.getVisibleSelectedCount() : payload.totalFiles;
-        demoBytesPerSecond = payload.bytesPerSecond;
         // 实现类 DemoTransfer 只在 debug 源集，release 编译期不引用（DemoRun 是 main 侧接口）
         demoTransfer = demoBridge.newRun(total, perFile * total);
-        model.showImport(0, total, 0, demoTransfer.totalBytes(), demoBytesPerSecond);
+        model.showImport(0, total);
         demoTicker.postDelayed(demoStep, DEMO_TICK_MS);
         log.line("[demo] Import → 模拟传输 " + total + " 张");
     }
@@ -1054,7 +1051,7 @@ public final class Main extends ComponentActivity {
         lastProgress = null;
         // PD：失败明细属于「本轮」；新一轮开始时清空，避免上一轮的失败混进本次 Details。
         model.clearFailedLines();
-        model.showImport(0, plan.count(), 0, plan.totalBytes(), 0);
+        model.showImport(0, plan.count());
         round.start(plan, new ImportListener() {
             @Override
             public void onPlanReady(ImportPlan p) {
@@ -1072,11 +1069,8 @@ public final class Main extends ComponentActivity {
                     progressUiPending.set(false);
                     TransferProgress p = lastProgress;
                     if (p == null) return;
-                    long now = System.nanoTime();
-                    model.updateProgress(
-                            p.filesDone(), p.totalFiles(),
-                            p.bytesDone(), p.totalBytes(),
-                            (long) p.bytesPerSec(now));
+                    // 只送文件计数：字节 / 速率不上屏（issue #70；#177 证 offset 不可信）。
+                    model.updateProgress(p.filesDone(), p.totalFiles());
                 });
             }
 
@@ -1262,10 +1256,7 @@ public final class Main extends ComponentActivity {
         TransferProgress p = lastProgress;
         model.showImport(
                 p == null ? 0 : p.filesDone(),
-                p == null ? 0 : p.totalFiles(),
-                p == null ? 0 : p.bytesDone(),
-                p == null ? 0 : p.totalBytes(),
-                0);
+                p == null ? 0 : p.totalFiles());
     }
 
     // ---------------- 日志 ----------------

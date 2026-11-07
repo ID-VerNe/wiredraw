@@ -34,12 +34,8 @@ public final class DemoTransfer implements DemoRun {
         return totalFiles;
     }
 
-    public long totalBytes() {
-        return totalBytes;
-    }
-
     /**
-     * 推进一个文件；最后一步把字节数补齐到 {@link #totalBytes()}，保证完成时数值自洽。
+     * 推进一个文件；最后一步把字节数补齐到总字节，保证完成时数值自洽。
      * 到顶后继续调用返回 true 且不再变化（ticker 竞争时不会越界）。
      */
     public boolean advance() {

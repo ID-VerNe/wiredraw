@@ -33,8 +33,6 @@ public final class DemoTree {
 
     /** 传输屏的假批次：36 张，与定稿屏的 `33%` + `12/36` 同源（U-45 要求两者自洽）。 */
     public static final int BATCH_PHOTOS = 36;
-    /** 假速率 3.4 MB/s（只进 Details 抽屉，P-03 不允许进主视觉）。 */
-    public static final long FAKE_RATE = 3_567_104L;
 
     /** `ERROR` 的一行原因（≤20 字，C-01 / T-ERROR）。 */
     public static final String ERROR_REASON = "相机连接已断开，请拔插数据线";
@@ -117,11 +115,11 @@ public final class DemoTree {
             case SCANNING:
                 // 1526 只作扫描进度分母（U-43 / C-09）；顶栏此时不渲染计数胶囊。
                 return new DemoPayload(state, null, 320, OBJECT_COUNT,
-                        0, 0, 0, 0, 0, "", 0, 0);
+                        0, 0, 0, 0, "", 0, 0);
             case CATALOG_READY:
                 // #83：照片单元数 = 512，默认载荷 JPG 优先 → 512 个文件 / 923 408 256 字节。
                 return new DemoPayload(state, catalog(), 0, 0,
-                        0, JPEG_COUNT, 0, JPEG_BYTES, 0, "", 0, 0);
+                        0, JPEG_COUNT, 0, JPEG_BYTES, "", 0, 0);
             case IMPORTING:
             case PAUSED: {
                 long per = arwSize();
@@ -129,22 +127,22 @@ public final class DemoTree {
                 return new DemoPayload(state, catalog(), 0, 0,
                         done, BATCH_PHOTOS,
                         per * done, per * BATCH_PHOTOS,
-                        FAKE_RATE, "", 0, 0);
+                        "", 0, 0);
             }
             case DONE: {
                 long total = arwSize() * BATCH_PHOTOS;
                 return new DemoPayload(state, catalog(), 0, 0,
-                        BATCH_PHOTOS, BATCH_PHOTOS, total, total, 0, "",
+                        BATCH_PHOTOS, BATCH_PHOTOS, total, total, "",
                         BATCH_PHOTOS, total);
             }
             case ERROR:
                 // 必须带假树：`ERROR` 的返回键口径是「回照片墙且选择还在」（§1.3），
                 // 没有树时 `AppModel.backToCatalog()` 只能落到 `COLD`，这条口径无处可验。
-                return new DemoPayload(state, catalog(), 0, 0, 0, 0, 0, 0, 0,
+                return new DemoPayload(state, catalog(), 0, 0, 0, 0, 0, 0,
                         ERROR_REASON, 0, 0);
             default:
                 // COLD / PERMISSION_PENDING / EMPTY_CATALOG / UNAVAILABLE：不带假树。
-                return new DemoPayload(state, null, 0, 0, 0, 0, 0, 0, 0, "", 0, 0);
+                return new DemoPayload(state, null, 0, 0, 0, 0, 0, 0, "", 0, 0);
         }
     }
 

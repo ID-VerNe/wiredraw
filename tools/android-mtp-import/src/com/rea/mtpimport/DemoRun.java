@@ -14,8 +14,6 @@ public interface DemoRun {
 
     int totalFiles();
 
-    long totalBytes();
-
     /** 推进一个文件；到顶返回 true。 */
     boolean advance();
 }
