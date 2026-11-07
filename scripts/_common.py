@@ -2,7 +2,8 @@
 """门禁脚本共享层（issue #204）：只放跨脚本逐字重复的机械能力。
 
 分工：
-- **本模块**：子进程 / `gh` JSON / `git ls-files -z` / 门禁链判定 / 命中行格式化 / 退出码常量。
+- **本模块**：子进程 / `gh` JSON / `git ls-files -z` / 门禁链判定 / 命中行格式化 /
+  围栏代码块剥除 / 退出码常量。
 - **各门禁脚本**：扫什么、算不算命中、报告什么文案。策略不往这里搬。
 
 退出码契约（全仓统一，`docs/testing.md` 有同一张表）：
@@ -16,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -113,6 +115,35 @@ def git_ls_files(*patterns: str, runner=None) -> list[str]:
 def gate_hits(files: list[str]) -> list[str]:
     """改动文件里命中门禁链的那些（前缀或精确名匹配）。"""
     return [f for f in files if any(f.startswith(t) or f == t for t in GATE_TRIGGERS)]
+
+
+FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def strip_fences(text: str) -> str:
+    """把围栏代码块的内容替换成空行（保留行号），未闭合则吃到文末。
+
+    围栏里是示例，不是正文：`check_doc_links.py` 用它避免把示例链接当断链，
+    `check_line_refs.py` 用它避免把 issue / PR 模板里的行号示例当违规。
+    闭围栏须与开围栏同字符、长度不短于开围栏；混合围栏（开 ``` 闭 ~~~）不算闭合。
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    out: list[str] = []
+    char = ""
+    width = 0
+    for line in normalized.split("\n"):
+        m = FENCE_OPEN.match(line)
+        if not char:
+            if m:
+                char, width = m.group(1)[0], len(m.group(1))
+                out.append("")
+            else:
+                out.append(line)
+        else:
+            if m and m.group(1)[0] == char and len(m.group(1)) >= width:
+                char, width = "", 0
+            out.append("")
+    return "\n".join(out)
 
 
 def format_hit(hit, *, tag: str = "红", where: str = "") -> str:
