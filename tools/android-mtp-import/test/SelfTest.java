@@ -2837,6 +2837,32 @@ public final class SelfTest {
         check("scanCounter 只给进度分母", "320/1526".equals(UiText.scanCounter(320, 1526)),
                 "实际 " + UiText.scanCounter(320, 1526));
 
+        // issue #70（剩下一半）：环是导入进度的唯一载体（T-IMPORTING / V-22 / A-04），
+        // 续传期间必须按字节推进；环下 `12/36` 仍按 P-03 的字面用文件计数。
+        long twoFiles = 24L * mb;                 // 2 个 12 MB 文件
+        check("ringFraction 按字节：文件 0/2 时环已走一半（#70）",
+                Math.abs(UiText.ringFraction(0, 2, 12L * mb, twoFiles) - 0.5) < 1e-9,
+                "实际 " + UiText.ringFraction(0, 2, 12L * mb, twoFiles));
+        check("ringPercentText 与 ringFraction 同源（34% 四舍五入）",
+                "34%".equals(UiText.ringPercentText(0, 1, 8_388_608L, 24_804_096L)),
+                "实际 " + UiText.ringPercentText(0, 1, 8_388_608L, 24_804_096L));
+        check("ringFraction 字节总量为 0 时退回文件数口径（P-03）",
+                Math.abs(UiText.ringFraction(1, 4, 0, 0) - 0.25) < 1e-9,
+                "实际 " + UiText.ringFraction(1, 4, 0, 0));
+        check("ringFraction 字节总量为负也退回文件数口径",
+                Math.abs(UiText.ringFraction(2, 4, -5, -5) - 0.5) < 1e-9,
+                "实际 " + UiText.ringFraction(2, 4, -5, -5));
+        check("ringFraction 越界字节钳到 1（不出现 >100%）",
+                UiText.ringFraction(0, 1, 30L * mb, twoFiles) == 1.0
+                        && "100%".equals(UiText.ringPercentText(0, 1, 30L * mb, twoFiles)),
+                "实际 " + UiText.ringFraction(0, 1, 30L * mb, twoFiles));
+        check("ringFraction 负字节钳到 0（不出现负进度）",
+                UiText.ringFraction(0, 1, -1, twoFiles) == 0.0,
+                "实际 " + UiText.ringFraction(0, 1, -1, twoFiles));
+        check("ringPercentText 极端 Long.MAX_VALUE 不溢出",
+                "100%".equals(UiText.ringPercentText(0, 1, Long.MAX_VALUE, Long.MAX_VALUE)),
+                "实际 " + UiText.ringPercentText(0, 1, Long.MAX_VALUE, Long.MAX_VALUE));
+
         // issue #53：P-07 / U-21 要求续传跳过数进 Details 抽屉；字面量在这里钉住。
         check("skippedLine 形如 `Skipped N existing`（P-07 / U-21）",
                 "Skipped 12 existing".equals(UiText.skippedLine(12)),

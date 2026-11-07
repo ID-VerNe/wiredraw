@@ -25,14 +25,19 @@ import com.rea.mtpimport.UiText
 /**
  * 传输屏（`IMPORTING` / `PAUSED`）。
  *
- * 一屏只有一个焦点：环里的主数字。环下 `12/36` 是同一批次的另一种写法，
- * 速率与 ETA 一律进 Details 抽屉（P-03 / U-45），不在这里出现。
+ * 一屏只有一个焦点：环里的主数字。环下 `12/36` 是同一批次的文件计数（P-03），
+ * 与环的字节口径不同源但同属一份计划；速率与 ETA 一律进 Details 抽屉（P-03 / U-45），
+ * 不在这里出现。
  */
 @Composable
 fun TransferScreen(model: AppModel) {
     val done = model.importDoneFiles
     val total = model.importTotalFiles
-    val progress = if (total > 0) done.toFloat() / total.toFloat() else 0f
+    // #70：环是导入进度的唯一载体（A-04 / V-22），续传期间按字节推进；
+    // 字节总量未知时由 UiText 退回文件数口径（P-03），不在这里另造第二种写法。
+    val progress = UiText.ringFraction(
+        done, total, model.importDoneBytes, model.importTotalBytes
+    ).toFloat()
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         // 顶栏常驻（#44 决策 2）：传输页沿用返回 + `topBar` 容器。
@@ -56,7 +61,13 @@ fun TransferScreen(model: AppModel) {
                 progress = progress,
                 stateText = UiText.fraction(done, total).replace("/", " of ")
             ) {
-                BasicText(UiText.percentText(done, total), style = TextDisplay)
+                // #70：环内百分比与环弧同源（字节口径），环下 `12/36` 仍是文件计数。
+                BasicText(
+                    UiText.ringPercentText(
+                        done, total, model.importDoneBytes, model.importTotalBytes
+                    ),
+                    style = TextDisplay
+                )
             }
             Spacer(Modifier.height(16.dp))
             BasicText(UiText.fraction(done, total), style = TextLabel.copy(color = UiColors.secondary))

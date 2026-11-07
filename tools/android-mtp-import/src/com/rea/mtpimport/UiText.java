@@ -87,6 +87,35 @@ public final class UiText {
         return percent(done, total) + "%";
     }
 
+    /**
+     * issue #70（剩下一半）：传输环的进度口径（`T-IMPORTING` / `V-22` / `A-04`）。
+     *
+     * UI-SPEC 只规定环内是百分比、环下是 `12/36`（`P-03`），没有规定百分比按什么口径算。
+     * #70 要求续传期间环也随字节推进，所以字节总量已知时用「已落盘字节 / 计划字节」；
+     * 字节总量未知（<= 0，例如计划里全是大小未知的对象）时才退回文件数口径（P-03 的分母）。
+     *
+     * 钳在 [0,1] 是界面唯一的降级：失败 / 取消会 `rollbackFile()` 让 `bytesDone()` 往回走
+     * （#70 的预期语义，不在这里修正单调性）；MTP 上报大小与对账大小可能不一致（探针实测两种都出现过）；
+     * `getPartialObject` 的 offset 语义到 #67 仍无真机定论。界面只保证不出现负数、不超 100%。
+     */
+    public static double ringFraction(int doneFiles, int totalFiles, long doneBytes, long totalBytes) {
+        double f;
+        if (totalBytes > 0) {
+            f = doneBytes / (double) totalBytes;
+        } else if (totalFiles > 0) {
+            f = doneFiles / (double) totalFiles;
+        } else {
+            return 0.0;
+        }
+        if (Double.isNaN(f) || f <= 0.0) return 0.0;
+        return f >= 1.0 ? 1.0 : f;
+    }
+
+    /** 环内主数字：与 {@link #ringFraction} 同源，避免环弧与数字各说各话（`V-22` / `A-04`）。 */
+    public static String ringPercentText(int doneFiles, int totalFiles, long doneBytes, long totalBytes) {
+        return Math.round(ringFraction(doneFiles, totalFiles, doneBytes, totalBytes) * 100.0) + "%";
+    }
+
     /** `DONE` 的 `36 · 871 MB`（U-47 的正则口径，容量按 C-05）。 */
     public static String doneSummary(int count, long bytes) {
         return count + " · " + capacity(bytes);

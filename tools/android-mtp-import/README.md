@@ -36,7 +36,7 @@
 | 日期组一键全选（#62） | ✅ 实现（组头整行长按 ≥500 ms：组内未全选→全选、已全选→全不选；折叠组自动展开；复用 `V-11` 与 `Import N`，无新增常驻控件；自检 8 项） |
 | 假数据模式（`--es demo_state <状态>`，release 编不进去） | ✅ 实现（`src/debug`，见下） |
 | 勾选 → 下载清单 + 总量（`ImportPlan`） | ✅ 实现（空勾选等价于全选：只收照片墙的 ARW，同名 JPG / 顶层非 ARW 不进计划，issue #80） |
-| 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖） |
+| 进度数学：百分比 / 速度 / ETA | ✅ 实现（纯逻辑，JVM 自检覆盖；#70 起传输环按字节推进，`UiText.ringFraction` / `ringPercentText`） |
 | 续传日志读写（按 `relPath` + 大小判定完成/已落盘字节） | ✅ 实现（纯逻辑，JVM 自检覆盖） |
 | 线程 / 逐文件回调 | ✅ 实现 |
 | **暂停（文件边界）/ 取消（关 fd 尝试中断 `importFile`）/ 恢复本轮** | ✅ 实现（PB / issue #50；2026-11-06 真机已验：`Pause`→`Resume`、`Cancel` 约 0.6 s 返回并重传；打断没有跨机型保证。issue #57 补：恢复前按 `relPath + size` 比较暂停轮次的清单，计划变了就取消旧轮次、按新计划重开——真机未验） |
@@ -225,9 +225,16 @@ import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`�
 - `rollbackFile()` 失败 / 取消时丢掉当前文件的进度，已完成文件不动。
 
 `bytesDone()` 是两者之和并钳在计划总量，`fraction` / `bytesPerSec` / `etaSeconds` / `summary`
-全部改用 `bytesDone()`。**界面呈现不改**：仍受 `UI-SPEC.md` 约束（图标 + 短英文，环内一个
-主数字），不新增百分比大字或进度条样式。失败回退会让界面数字**往回走**，属预期行为
-（失败的文件没有被传完），不是进度抖动。真机**未验**。
+全部改用 `bytesDone()`。
+
+界面（#70 剩下一半）：传输环是导入进度的唯一载体（`UI-SPEC.md` 的 A-04 / V-22 / T-IMPORTING），
+环弧与环内百分比改为「已落盘字节 / 计划字节」（`UiText.ringFraction` / `ringPercentText`），
+字节总量未知时才退回文件数口径；环下 `12/36` 仍按 P-03 的字面用文件计数。速率与 ETA 不进主视觉，
+`IMPORTING` / `PAUSED` 也没有 Details 入口（`L-05`），所以 `bytesPerSecond` 仍不参与渲染。
+`getPartialObject` 的 offset 语义（#67）与失败回退都可能让比例倒退或越界，界面只在 `UiText`
+里钳到 `[0,1]`：失败回退让数字**往回走**属预期行为（失败的文件没有被传完），不是进度抖动；
+暂停时 `AppModel.updateProgress` 不再写数值（U-46「数值冻结」），避免 worker 传完当前文件的窗口里
+环继续往前跳。真机**未验**。
 
 ## 构建与自检
 

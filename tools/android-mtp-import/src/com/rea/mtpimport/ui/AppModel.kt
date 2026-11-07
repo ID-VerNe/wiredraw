@@ -311,8 +311,11 @@ class AppModel {
         state = UiState.State.IMPORTING
     }
 
-    /** 进度推进：暂停时保持 `PAUSED`；传输视图已关闭时保持当前视图，不抢回传输屏。 */
+    /** 进度推进：暂停时保持 `PAUSED` 且数值冻结；传输视图已关闭时保持当前视图，不抢回传输屏。 */
     fun updateProgress(doneFiles: Int, totalFiles: Int, doneBytes: Long, totalBytes: Long, bps: Long) {
+        // U-46 / T-PAUSED（同一环，数值冻结）：暂停落在文件边界，worker 仍会把当前文件传完，
+        // 块级回调会继续送来字节；这里只挡界面显示，不改暂停 / 传输语义。
+        if (state == UiState.State.PAUSED) return
         importDoneFiles = doneFiles
         importTotalFiles = totalFiles
         importDoneBytes = doneBytes
