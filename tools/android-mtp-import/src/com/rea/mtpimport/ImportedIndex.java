@@ -103,9 +103,7 @@ public final class ImportedIndex {
     }
 
     private void write(File outDir) throws IOException {
-        if (outDir != null && !outDir.exists() && !outDir.mkdirs()) {
-            throw new IOException("建目录失败：" + outDir);
-        }
+        Dirs.ensure(outDir);
         File target = new File(outDir, FILE_NAME);
         File tmp = new File(outDir, TMP_NAME);
         List<String> keys = new ArrayList<>(sizes.keySet());

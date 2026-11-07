@@ -19,6 +19,7 @@ import com.rea.mtpimport.ui.ComposeHost;
 import androidx.activity.ComponentActivity;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Locale;
 
 /**
@@ -1043,8 +1044,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         File out = destination().root;
 
         // 目标目录按 relPath 建子目录这一步在 MtpTransfer 里做（要处理重名/覆盖与路径越界）。
-        if (!out.exists() && !out.mkdirs()) {
-            log.line("建目标目录失败：" + out);
+        try {
+            Dirs.ensure(out);
+        } catch (IOException e) {
+            log.line(e.getMessage());
             model.showError("无法创建导入目录");
             return;
         }

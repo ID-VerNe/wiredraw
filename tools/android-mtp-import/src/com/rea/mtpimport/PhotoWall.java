@@ -57,7 +57,7 @@ public final class PhotoWall {
             this.arw = arw;
             this.jpg = jpg;
             Catalog.Entry base = arw != null ? arw : jpg;
-            this.relPath = base.relPath == null ? base.name : base.relPath;
+            this.relPath = base.path();
         }
 
         public boolean hasArw() {
@@ -243,7 +243,7 @@ public final class PhotoWall {
 
     /** relPath 的倒数第二段；没有父目录时返回空串。 */
     static String parentFolderOf(Catalog.Entry e) {
-        String path = e.relPath != null ? e.relPath : e.name;
+        String path = e.path();
         int slash = path.lastIndexOf('/');
         if (slash < 0) return "";
         String parent = path.substring(0, slash);
