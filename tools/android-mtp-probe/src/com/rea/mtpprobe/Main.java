@@ -9,7 +9,6 @@ import android.content.IntentFilter;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
-import android.mtp.MtpDevice;
 import android.mtp.MtpDeviceInfo;
 import android.mtp.MtpObjectInfo;
 import android.mtp.MtpStorageInfo;
@@ -43,6 +42,21 @@ public class Main extends Activity {
     static final String TAG = "MTPPROBE";
     static final String ACTION_PERM = "com.rea.mtpprobe.USB_PERM";
     static final int SONY_VID = 1356;
+
+    /** MTP 格式码：Association（文件夹）。 */
+    static final int FMT_FOLDER = 0x3001;
+    /** MTP 格式码：索尼 ARW。 */
+    static final int FMT_ARW = 0xB101;
+    /** MTP 格式码：JPEG。 */
+    static final int FMT_JPEG = 0x3801;
+    /** 1 MiB = 2^20。运行文案沿用 README 的 "MB" 写法；改文案属文档线。 */
+    static final double MB = 1048576.0;
+    /** 1 GiB = 2^30。运行文案沿用 README 的 "GB" 写法（二进制换算）；改文案属文档线。 */
+    static final double GB = 1073741824.0;
+    /** 样例清单的文本上限（字符），超过后不再追加，避免报告膨胀。 */
+    static final int SAMPLE_TEXT_LIMIT = 1200;
+    /** 差集样例的文本上限（字符）。 */
+    static final int DIFF_SAMPLE_LIMIT = 400;
 
     TextView tv;
     final StringBuilder sb = new StringBuilder();
@@ -149,8 +163,8 @@ public class Main extends Activity {
             return;
         }
 
-        MtpDevice mtp = new MtpDevice(dev);
-        if (!mtp.open(conn)) {
+        ReadOnlyMtp mtp = ReadOnlyMtp.open(dev, conn);
+        if (mtp == null) {
             out("MtpDevice.open() 失败 —— 相机可能不是 MTP 模式，或被别的 App 占用。");
             conn.close();
             flushReport();
@@ -188,14 +202,14 @@ public class Main extends Activity {
         out("拿到 " + sids.length + " 个存储");
 
         List<int[]> allHandles = new ArrayList<>();
-        int[] arwProbe = null;   // format=0xB101 过滤出来的句柄，用于和全量枚举做差集
+        int[] arwProbe = null;   // FMT_ARW 过滤出来的句柄，用于和全量枚举做差集
         for (int sid : sids) {
             MtpStorageInfo si = mtp.getStorageInfo(sid);
             if (si != null) {
                 out(String.format(Locale.US,
                         "存储 0x%08X  \"%s\"  卷=%s  容量=%.1f GB  可用=%.1f GB",
                         sid, si.getDescription(), si.getVolumeIdentifier(),
-                        si.getMaxCapacity() / 1073741824.0, si.getFreeSpace() / 1073741824.0));
+                        si.getMaxCapacity() / GB, si.getFreeSpace() / GB));
             }
             int[] hs = mtp.getObjectHandles(sid, 0, 0);
             int n = hs == null ? 0 : hs.length;
@@ -206,12 +220,12 @@ public class Main extends Activity {
             // MTP 的 GetObjectHandles 支持 format / parent 两个过滤参数，
             // 用上它就不用把卡里每个对象都拉一遍 ObjectInfo。
             long tf = System.nanoTime();
-            int[] arwOnly = mtp.getObjectHandles(sid, 0xB101, 0);
+            int[] arwOnly = mtp.getObjectHandles(sid, FMT_ARW, 0);
             double ft = (System.nanoTime() - tf) / 1e9;
             int arwOnlyN = arwOnly == null ? -1 : arwOnly.length;
             out(String.format(Locale.US,
-                    "  [优化] getObjectHandles(format=0xB101) → %d 个 ARW，耗时 %.2f 秒",
-                    arwOnlyN, ft));
+                    "  [优化] getObjectHandles(format=0x%04X) → %d 个 ARW，耗时 %.2f 秒",
+                    FMT_ARW, arwOnlyN, ft));
 
             // 校验这个 format 过滤到底靠不靠谱：抽样取 ObjectInfo 看真实格式分布
             if (arwOnly != null && arwOnlyN > 0) {
@@ -253,27 +267,27 @@ public class Main extends Activity {
             int fmt = oi.getFormat();
             long size = oi.getCompressedSizeLong();
             String name = oi.getName() == null ? "" : oi.getName();
-            if (fmt == 0x3001) {
+            if (fmt == FMT_FOLDER) {
                 folders++;
-            } else if (fmt == 0xB101 || name.toUpperCase(Locale.US).endsWith(".ARW")) {
+            } else if (fmt == FMT_ARW || name.toUpperCase(Locale.US).endsWith(".ARW")) {
                 arw++;
                 arwBytes += size;
                 arwList.add(new Object[]{sh[1], size, name});
-            } else if (fmt == 0x3801 || name.toUpperCase(Locale.US).endsWith(".JPG")) {
+            } else if (fmt == FMT_JPEG || name.toUpperCase(Locale.US).endsWith(".JPG")) {
                 jpeg++;
                 jpegList.add(new Object[]{sh[1], size, name});
             } else {
                 other++;
             }
-            if (samples.length() < 1200 && fmt != 0x3001) {
+            if (samples.length() < SAMPLE_TEXT_LIMIT && fmt != FMT_FOLDER) {
                 samples.append(String.format(Locale.US, "  h=0x%08X %-14s %6.2f MB  fmt=0x%04X %dx%d%n",
-                        sh[1], name, size / 1048576.0, fmt,
+                        sh[1], name, size / MB, fmt,
                         oi.getImagePixWidth(), oi.getImagePixHeight()));
             }
         }
         out("已读取 " + scanned + " 个对象的 ObjectInfo");
         out(String.format(Locale.US, "分类: 文件夹=%d  ARW=%d (合计 %.1f GB)  JPEG=%d  其它=%d",
-                folders, arw, arwBytes / 1073741824.0, jpeg, other));
+                folders, arw, arwBytes / GB, jpeg, other));
 
         // 差集：format 过滤看到的 vs 全量枚举看到的，两边是否同一个集合
         if (arwProbe != null) {
@@ -284,7 +298,7 @@ public class Main extends Activity {
             for (int h : arwProbe) {
                 if (!fullSet.contains(h)) {
                     missing++;
-                    if (ex.length() < 400) {
+                    if (ex.length() < DIFF_SAMPLE_LIMIT) {
                         MtpObjectInfo oi3 = mtp.getObjectInfo(h);
                         ex.append(String.format(Locale.US, "h=0x%08X %s; ",
                                 h, oi3 == null ? "?" : oi3.getName()));
@@ -341,8 +355,8 @@ public class Main extends Activity {
             totalBytes += got;
             out(String.format(Locale.US,
                     "  [%d/%d] h=0x%08X %-14s %6.2f MB / %.2f 秒 = %5.2f MB/s  大小%s",
-                    i + 1, batch, handle, name, got / 1048576.0, sec,
-                    (got / 1048576.0) / (sec <= 0 ? 1 : sec),
+                    i + 1, batch, handle, name, got / MB, sec,
+                    (got / MB) / (sec <= 0 ? 1 : sec),
                     size == got ? "✅一致" : "❌期望" + size));
 
             if (i == 0) {
@@ -368,8 +382,8 @@ public class Main extends Activity {
         double batchSec = (System.nanoTime() - batchStart) / 1e9;
         out(String.format(Locale.US,
                 "批量合计: %.2f MB / %.2f 秒 = %.2f MB/s（含文件系统写入）",
-                totalBytes / 1048576.0, batchSec,
-                (totalBytes / 1048576.0) / (batchSec <= 0 ? 1 : batchSec)));
+                totalBytes / MB, batchSec,
+                (totalBytes / MB) / (batchSec <= 0 ? 1 : batchSec)));
 
         // PC 探针：验证 getPartialObject 的 offset / length 语义（issue #67，#50 PC 分节）。
         // 只读：只对已枚举到的对象分块读取，不发任何写 opcode。

@@ -1,7 +1,5 @@
 package com.rea.mtpprobe;
 
-import android.mtp.MtpDevice;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -37,11 +35,15 @@ final class PartialProbe {
     static final long DISC_FORWARD = 2L * 1024 * 1024;
     /** 回跳请求的 offset：8 KiB。明显小于游标，忽略 offset 时必然拿不到这一片段。 */
     static final long DISC_BACK = 8L * 1024;
+    /** offset 越界用例的请求长度：4 KiB。 */
+    static final int OVERFLOW_LEN = 4096;
+    /** length 越界用例从对象末尾回退的字节数，保证还剩一点尾巴可读。 */
+    static final long TAIL_BYTES = 100;
 
-    private final MtpDevice mtp;
+    private final ReadOnlyMtp mtp;
     private final Reporter reporter;
 
-    PartialProbe(MtpDevice mtp, Reporter reporter) {
+    PartialProbe(ReadOnlyMtp mtp, Reporter reporter) {
         this.mtp = mtp;
         this.reporter = reporter;
     }
@@ -345,7 +347,7 @@ final class PartialProbe {
                     && head[2] == 0x2A && head[3] == 0x00;
             report(String.format(Locale.US,
                     "[PC] 拼接结果: %d 字节 / %d 次调用 / %.2f 秒 = %.2f MB/s",
-                    got, calls, sec, (got / 1048576.0) / (sec <= 0 ? 1 : sec)));
+                    got, calls, sec, (got / Main.MB) / (sec <= 0 ? 1 : sec)));
             report(String.format(Locale.US,
                     "[PC] 顺序拼接结果: 字节数 %s（相机 %d / 拼接 %d）；MD5 %s（拼接 %s / 整文件 %s）—— 只证顺序完整性，不判 offset 语义",
                     got == size ? "一致 ✅" : "不一致 ❌", size, got,
@@ -361,9 +363,9 @@ final class PartialProbe {
 
     /** 3) length 超过剩余字节：截断到 EOF 还是抛异常。非零 offset 但只比长度，内容判别见 testOffsetDiscrimination。 */
     private void testLengthOverflow(int handle, long size) throws Exception {
-        byte[] buf = new byte[64 * 1024];
-        long offset = Math.max(0, size - 100);
-        long remaining = size - offset;  // size < 100 时剩余会小于 100，按实际值算
+        byte[] buf = new byte[FIRST_BLOCK];
+        long offset = Math.max(0, size - TAIL_BYTES);
+        long remaining = size - offset;  // size 很小时剩余会小于 TAIL_BYTES，按实际值算
         long n = mtp.getPartialObject(handle, offset, buf.length, buf);
         report(String.format(Locale.US,
                 "[PC] length 越界: offset=%d（剩余 %d）、请求 %d → 返回 %d（%s）",
@@ -373,7 +375,7 @@ final class PartialProbe {
 
     /** 4) offset 越界：offset == size 与 offset == size + 1 分别记录。 */
     private void testOffsetOverflow(int handle, long size) throws Exception {
-        byte[] buf = new byte[4096];
+        byte[] buf = new byte[OVERFLOW_LEN];
         try {
             long n = mtp.getPartialObject(handle, size, buf.length, buf);
             report("[PC] offset=size（恰好 EOF）返回 " + n);
@@ -425,7 +427,7 @@ final class PartialProbe {
 
     private static double rate(long bytes, long nanos) {
         if (nanos <= 0) return 0;
-        return (bytes / 1048576.0) / (nanos / 1e9);
+        return (bytes / Main.MB) / (nanos / 1e9);
     }
 
     static String md5(File f) throws Exception {

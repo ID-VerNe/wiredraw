@@ -3,6 +3,26 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# ---- 0. 只读红线静态检查（#222）--------------------------------------------
+# AGENTS.md §2 红线 2：探针不得下发写操作。这里把它变成结构约束：MtpDevice 只允许
+# 出现在只读门面 ReadOnlyMtp.java 里，其余源码拿不到设备句柄；写 / 破坏性 API 全包禁止。
+# 只认「import 语句」「声明」「new」「泛型 / 数组」几种真实用法，注释与日志文案里提到
+# MtpDevice 不算；`MtpDeviceInfo` 等类型名也不会命中。
+REDLINE_LEAK="$(grep -rlE --include='*.java' 'android\.mtp\.MtpDevice([^A-Za-z]|$)|new[[:space:]]+[A-Za-z.]*MtpDevice([^A-Za-z]|$)|MtpDevice[[:space:]]+[A-Za-z_]|MtpDevice[[:space:]]*[\[>]' src | grep -v 'ReadOnlyMtp.java' || true)"
+if [ -n "$REDLINE_LEAK" ]; then
+  echo "[错误] 只读红线：MtpDevice 只允许出现在 ReadOnlyMtp.java，以下文件越界：" >&2
+  printf '%s\n' "$REDLINE_LEAK" | while IFS= read -r f; do printf '       %s\n' "$f" >&2; done
+  exit 1
+fi
+# 写 / 破坏性 API：API 35 的 android.mtp.MtpDevice 上只有这三个（javap 实测），
+# 只认「方法调用」形态，注释里提名字不会误伤。
+REDLINE_WRITE="$(grep -rnE --include='*.java' '\.(deleteObject|sendObject|sendObjectInfo)[[:space:]]*\(' src || true)"
+if [ -n "$REDLINE_WRITE" ]; then
+  echo "[错误] 只读红线：探针源码出现写 / 破坏性 API：" >&2
+  printf '%s\n' "$REDLINE_WRITE" | while IFS= read -r line; do printf '       %s\n' "$line" >&2; done
+  exit 1
+fi
+
 # 构建版本写死：同一 commit 在任何机器上都应产出相同的 APK。
 # 找不到对应组件时见下方报错里的「安装 / 改哪两行」提示。
 BT_VER="35.0.1"
