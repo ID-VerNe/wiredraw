@@ -16,7 +16,8 @@ import sys
 class PE:
     def __init__(self, path):
         self.path = path
-        self.data = open(path, "rb").read()
+        with open(path, "rb") as f:
+            self.data = f.read()
         d = self.data
         if d[:2] != b"MZ":
             raise ValueError("not a PE")
@@ -50,6 +51,13 @@ class PE:
                 return rawptr + (rva - vaddr)
         return None
 
+    def _require_off(self, rva, what):
+        """需要真实偏移的地方用它：映射失败时给出带用途与 RVA 的 ValueError。"""
+        off = self.rva2off(rva)
+        if off is None:
+            raise ValueError(f"{what} RVA 0x{rva:X} 不在任何节内")
+        return off
+
     def cstr(self, rva):
         off = self.rva2off(rva)
         if off is None:
@@ -62,14 +70,17 @@ class PE:
         rva, size = self.dirs[0]
         if not rva:
             return []
-        off = self.rva2off(rva)
+        off = self._require_off(rva, "导出表")
         (_, _, _, _, name_rva, base, nfunc, nname,
          addr_funcs, addr_names, addr_ordinals) = struct.unpack_from("<IIHHIIIIIII", self.data, off)
         out = []
         for i in range(nname):
-            nrva = struct.unpack_from("<I", self.data, self.rva2off(addr_names) + 4 * i)[0]
-            ordinal = struct.unpack_from("<H", self.data, self.rva2off(addr_ordinals) + 2 * i)[0]
-            frva = struct.unpack_from("<I", self.data, self.rva2off(addr_funcs) + 4 * ordinal)[0]
+            names_off = self._require_off(addr_names, "导出名表")
+            ordinals_off = self._require_off(addr_ordinals, "导出序号表")
+            funcs_off = self._require_off(addr_funcs, "导出函数表")
+            nrva = struct.unpack_from("<I", self.data, names_off + 4 * i)[0]
+            ordinal = struct.unpack_from("<H", self.data, ordinals_off + 2 * i)[0]
+            frva = struct.unpack_from("<I", self.data, funcs_off + 4 * ordinal)[0]
             out.append((base + ordinal, self.cstr(nrva), frva))
         return out
 
@@ -78,7 +89,7 @@ class PE:
         rva, size = self.dirs[1]
         if not rva:
             return {}
-        off = self.rva2off(rva)
+        off = self._require_off(rva, "导入表")
         result = {}
         i = 0
         while True:
@@ -88,7 +99,7 @@ class PE:
             oft, _, _, name_rva, ft = desc
             dll = self.cstr(name_rva)
             thunk_rva = oft or ft
-            toff = self.rva2off(thunk_rva)
+            toff = self._require_off(thunk_rva, "导入 thunk 表")
             names = []
             j = 0
             step = 8 if self.is64 else 4

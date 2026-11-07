@@ -48,7 +48,6 @@ public class Main extends Activity {
     final StringBuilder sb = new StringBuilder();
     final CountDownLatch permLatch = new CountDownLatch(1);
     volatile boolean permGranted = false;
-    volatile boolean permAnswered = false;
 
     final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -56,7 +55,6 @@ public class Main extends Activity {
             String a = i.getAction();
             if (ACTION_PERM.equals(a)) {
                 permGranted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                permAnswered = true;
                 out("权限回调: granted=" + permGranted);
                 permLatch.countDown();
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
