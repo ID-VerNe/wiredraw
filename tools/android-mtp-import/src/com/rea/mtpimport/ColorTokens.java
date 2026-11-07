@@ -6,7 +6,7 @@ package com.rea.mtpimport;
  * 这里是**唯一事实来源**：`ui/Theme.kt` 的 Compose `Color` 从本类取 ARGB 值，
  * `Pill` 的底色/前景也走 {@link #pillBackground(boolean)} / {@link #pillForeground(boolean)}。
  * 把数值留在 Kotlin 里、断言另抄一份，改一处漏一处就是本轮要修的坑
- * （`ui/Theme.kt:18` 的白色 `canvas` 与规范的画布黑同名反向）。
+ * （`ui/Theme.kt` 的 `val canvas` 上方注释记录了这个同名反向：白色页面底以前也叫 `canvas`）。
  *
  * 对比度口径：WCAG 2.1 相对亮度，2026-11-06 实算。深色面（{@link #CANVAS}）上的
  * 文字/图标**只能**用 {@link #SURFACE_WHITE}（16.83:1）；{@link #INK} 压 `#1d1d1f`

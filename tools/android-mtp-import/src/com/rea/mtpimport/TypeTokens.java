@@ -3,7 +3,7 @@ package com.rea.mtpimport;
 /**
  * 排版基线（G7a / issue #215 / F-11）。
  *
- * 唯一事实来源是 `UI-SPEC.md:422-434` 的 §3.1 表；这里只登记**实际在用**的五档，
+ * 唯一事实来源是 `UI-SPEC.md` 的 §3.1 排版基线表；这里只登记**实际在用**的五档，
  * 未使用的 `display` / `headline-*` / `body-lg` / `label-sm` 不搬（避免第二份死数据）。
  * `ui/Theme.kt` 的五个 `TextStyle` 从这里取字号 / 行高 / 字重 / 字距，`SelfTest` 逐项断言。
  *
