@@ -7,22 +7,16 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 无主 `.part` 清理（issue #52，S1 的 A 版）。
+ * 无主 `.part` 清理（issue #52；#177 续传停用后改口径）。
  *
- * 保留集与 {@link Journal#partPath} 同口径：`relPath + size`。
- *
- * - 合法保留 = `relPath` 仍在本次目录、且 size 能对上某个对象的 `.part`
- *   （含异尺寸拒绝留下的那只——它的 size 就是当前对象 size，每项至多一个，由 {@link DestPolicy} 保证）；
- * - 可删 = `relPath` 已完全不在目录，或同 `relPath` 但 size 已不被任何对象认领的 `.part`
- *   （换卡 / 编号复用 / 文件替换留下的旧尺寸残留，接不上）。
- *
- * 为什么不用 Journal 判定：{@link Journal} 只在成功时写 `done = size`，失败轮次从不记部分进度，
- * 用它当依据会把所有可续传的 `.part` 判成无主。
+ * **保留集恒空**：续传已停用（#177），`.part` 不再承载「已传前缀」，磁盘上任何残留都不可信。
+ * 因此 `relPath + size` 对得上也不再保留——它们只可能是上一轮的残渣，留着不会被读取，
+ * 只会白占空间。清理的前提仍是「枚举完整成功 + 没有活动写者」。
  *
  * 只扫 `outDir` 顶层：{@link Journal#partPath} 把半成品平铺在这里，成品在子目录。
  *
  * **调用前提（由调用方保证）**：本类不做并发保护。调用方必须在「没有活动写者」时调用，
- * 且只在该相机枚举**完整成功**时调用——用不完整的目录当保留集，会把仍可续传的 `.part` 误删。
+ * 且只在该相机枚举**完整成功**时调用——用不完整的目录当依据，可能把本轮仍在用的 `.part` 误删。
  * 完整性判定不要由调用方自己拼：{@link #cleanIfComplete} 直接吃 {@link ScanResult}，
  * `complete == false` 或结果缺失时一个都不删，并留一行给用户看的原因。
  * 当前实现由 `Main.cleanupPartResidue()` 负责「没有活动写者」这个前提。
@@ -32,15 +26,13 @@ public final class PartResidue {
     private PartResidue() {
     }
 
-    /** 合法保留集：本次目录里每个对象的 `relPath + size`（与 {@link Journal#partPath} 同口径）。 */
+    /**
+     * 合法保留集：恒空（#177 续传停用后没有可续传的半成品）。
+     *
+     * `entries` 参数保留是为了不改调用方签名；续传停用后它不参与判定。
+     */
     public static Set<String> keepNames(Iterable<Catalog.Entry> entries) {
-        Set<String> keep = new HashSet<>();
-        if (entries == null) return keep;
-        for (Catalog.Entry e : entries) {
-            if (e == null || e.relPath == null || e.relPath.isEmpty()) continue;
-            keep.add(Journal.partName(e.relPath) + "." + e.size + ".part");
-        }
-        return keep;
+        return new HashSet<>();
     }
 
     /** 名字是否是 `<任意>.<十进制 size>.part` 的半成品。 */
@@ -60,7 +52,7 @@ public final class PartResidue {
      * 顶层里无人认领的半成品（不递归）。
      *
      * `keepNames == null` 一律返回空列表：保留集缺失时**一个都不删**。
-     * 这是安全默认值——宁可留下残留，也不能因为 API 误用把可续传的半成品全删掉。
+     * 这是安全默认值——宁可留下残留，也不能因为 API 误用把正在写的半成品全删掉。
      */
     public static List<File> orphans(File outDir, Set<String> keepNames) {
         List<File> dead = new ArrayList<>();

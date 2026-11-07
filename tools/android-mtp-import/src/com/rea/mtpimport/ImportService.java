@@ -23,14 +23,16 @@ import java.util.function.LongConsumer;
  *   给界面出路。返回 {@link ResumableTransfer.Kind#CANCELLED} 的文件不记完成、不计失败，
  *   本次半成品由传输层删掉（失败残留仍归 #52）。
  * - **恢复只恢复本轮**：`resume()` 只清暂停标志，让活着的 worker 从下一个文件继续。
- * - **真续传（PC / issue #50）**：上一轮失败/断线残留的 `.part` 会按它的实际长度
- *   （{@link Journal#resumeFrom}）作为 `resumeFrom` 传给传输层，由传输层用
- *   `getPartialObject` 从该偏移续读；成功后才 rename 并记完成，失败继续保留 `.part`。
- *   半成品名带 `size`（`<relPath 压平>.<size>.part`），与跳过判定同口径，异 size 的旧残留
- *   不会把旧前缀续进同路径的新对象。取消会删除整个半成品（用户取消 = 从 0 重来），与 PB 一致。
+ * - **续传已停用（止血，issue #177）**：真机实测 MI 9 上 `getPartialObject` 的 offset 不生效，
+ *   reader 会忽略偏移、从对象起点顺序给数据。把遗留 `.part` 当可信前缀续写会得到
+ *   「字节数对、内容错、却报 OK」的文件。因此本层 `resumeFrom` 恒为 0，旧 `.part` 一律
+ *   视为不可信：传输层先删除残留，再从 0 整段重写；成功后才 rename 并记完成。
+ *   半成品名仍带 `size`（`<relPath 压平>.<size>.part`），但不再作为续传起点。
+ * - **完成必须对到磁盘**：Journal 只是上一轮的记录，跳过前还要确认成品存在且长度吻合；
+ *   成品缺失 / 尺寸不符时记一行日志并重新导入，不静默跳过。
  * - **失败重试（PD / issue #50）**：单文件首次 FAILED 后同步重试，上限
- *   {@link #MAX_FILE_ATTEMPTS}（首次 + 1 次）；每次尝试前按 `.part` 实际长度重算 `resumeFrom`。
- *   **不做整轮自动重跑**，用户再点 Import 时 Journal 跳过已完成、`.part` 续传。
+ *   {@link #MAX_FILE_ATTEMPTS}（首次 + 1 次）；每次尝试都从 0 重写（#177）。
+ *   **不做整轮自动重跑**，用户再点 Import 时 Journal 跳过已完成。
  */
 public final class ImportService {
 
@@ -60,8 +62,8 @@ public final class ImportService {
      * 单个文件的最多尝试次数（首次 + 1 次同步重试，PD / issue #50）。
      *
      * 有上限，绝不无限循环：MTP 断线/失步不会靠重试自愈，重试一次足够覆盖偶发失败；
-     * 仍失败就累计到本轮 `failed` 并保留 `.part`，由用户再点 Import（Journal 跳过已完成、
-     * `.part` 从断点续传），**不做整轮自动重跑**。
+     * 仍失败就累计到本轮 `failed` 并保留 `.part`，由用户再点 Import（Journal 跳过已完成；
+     * 续传已停用 #177，残留 `.part` 下次从 0 重写），**不做整轮自动重跑**。
      */
     static final int MAX_FILE_ATTEMPTS = 2;
 
@@ -92,8 +94,8 @@ public final class ImportService {
      * 最后一次「进入文件传输」的时刻（issue #63）；0 表示本轮还没进入过任何文件。
      *
      * 只按文件边界刷新：`transfer.transfer(...)` 调用前记一次，返回后不记——
-     * 于是一次整文件 `importFile`、或续传路径里一段 `getPartialObject` 分块循环持续多久，
-     * 都能被 {@link #isStalledAt(long)} 看出。
+     * 于是一次整文件 `importFile` 持续多久，都能被 {@link #isStalledAt(long)} 看出
+     * （#177 续传停用后只剩整文件路径）。
      * #70 的块级进度回调存在，但**不参与**挂起判定，所以这里仍是文件边界语义
      * （见 README「无进展挂起（#63）」）。
      */
@@ -257,7 +259,7 @@ public final class ImportService {
     }
 
     /**
-     * 标记本轮已被调用方放弃：worker 之后退出时不再覆写续传日志（三审 B-3）。
+     * 标记本轮已被调用方放弃：worker 之后退出时不再覆写导入日志（三审 B-3）。
      *
      * 只由调用方在「已放弃该轮」时调用。**代价**：{@link Journal} 只在 `run()` 开始时加载一次，
      * `markDone` 只改内存，`saveJournal()` 只在 `finally` 整文件覆写；放弃后跳过保存意味着
@@ -340,36 +342,34 @@ public final class ImportService {
                     continue;
                 }
 
+                // #177：Journal 只说明上一轮记过完成，不能单独证明成品还在。续传停用后
+                // 尺寸对账必须落到实际文件：成品缺失 / 尺寸不符都重新导入，不许静默跳过。
                 if (journal.isComplete(item.relPath, item.size)) {
-                    skipped++;
-                    progress.onBytes(item.size);
-                    progress.onFileDone();
-                    l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, "Skipped existing");
-                    l.onProgress(progress, item);
-                    continue;
+                    if (targetMatches(item)) {
+                        skipped++;
+                        progress.onBytes(item.size);
+                        progress.onFileDone();
+                        l.onFileFinished(item, ResumableTransfer.Kind.SKIPPED, "Skipped existing");
+                        l.onProgress(progress, item);
+                        continue;
+                    }
+                    log.line("导入记录显示已完成，但成品缺失或尺寸不符，本轮重新导入："
+                            + item.relPath);
                 }
 
-                // PC（issue #50）：续传起点以磁盘上的 `.part` 实际长度为准。Journal 只在成功时
-                // 写 `done = size`，失败轮次从不记部分进度；拿 journal 的 doneBytes 会让
-                // resumeFrom 恒为 0，真续传永远不生效。
+                // #177：续传已停用。旧 `.part` 一律视为不可信，起点恒为 0；传输层负责先删除
+                // 残留再整段重写。重试也从 0 开始，不能拿失败轮次写下的长度当新起点，否则
+                // 真机「忽略 offset、从 0 给数据」的 reader 会把 0 前缀追加到残留后面。
                 String part = journal.partPath(outDir.getAbsolutePath(), item.relPath, item.size);
-                File partFile = new File(part);
 
                 // PD（issue #50）：单文件失败后同步重试，上限 MAX_FILE_ATTEMPTS。
-                // 每次尝试前都按磁盘实际长度重算 resumeFrom —— 失败可能已经写进部分字节，
-                // 第二次会走续传而不是从 0 重写。取消优先：已取消就不再重试、也不计失败。
+                // 每次尝试都从 0 重写（#177），取消优先：已取消就不再重试、也不计失败。
                 int attempts = 0;
                 long resumeFrom = 0L;
                 ResumableTransfer.Result r;
                 for (;;) {
                     attempts++;
-                    resumeFrom = Journal.resumeFrom(
-                            partFile.isFile() ? partFile.length() : 0L, item.size);
-                    if (resumeFrom > 0 && attempts == 1) {
-                        log.line("发现半成品：" + item.relPath + " 已有 " + resumeFrom
-                                + " 字节，从断点续传");
-                    }
-                    // #70：进入本次尝试前重设当前文件进度（续传从磁盘实际长度开始；
+                    // #70：进入本次尝试前重设当前文件进度（从 0 开始；
                     // 失败后重试会再走一次，重设而非累加，保证同一段字节不被记两遍）。
                     progress.beginFile(resumeFrom, item.size);
                     // #70：传输层按块回调绝对偏移，这里同时刷新监听器——界面能拿到文件内进度。
@@ -407,6 +407,9 @@ public final class ImportService {
                         break;
                     case SKIPPED:
                         skipped++;
+                        // #177 复审：同尺寸成品也必须落账，否则下一轮会再整文件重下再丢弃（不收敛）。
+                        // 账本只记 relPath + size，与 targetMatches 的判定口径一致，不放宽校验。
+                        journal.markDone(item.handle, item.size, item.size, item.relPath);
                         progress.onBytes(item.size);
                         progress.onFileDone();
                         l.onFileFinished(item, r.kind, r.note);
@@ -444,7 +447,7 @@ public final class ImportService {
         } finally {
             // 三审 B-3：被放弃的轮次不写日志，避免迟到的整文件覆写冲掉新一轮的记录。
             if (abandoned) {
-                log.line("本轮已被放弃：跳过续传日志保存（不覆盖磁盘上的现有记录）");
+                log.line("本轮已被放弃：跳过导入日志保存（不覆盖磁盘上的现有记录）");
             } else {
                 saveJournal(journal);
                 saveImportedIndex();
@@ -458,6 +461,19 @@ public final class ImportService {
                 stop.isEmpty() ? "" : " · " + stop);
         log.line("本轮结束：" + summary);
         l.onFinished(cancelled, ok, skipped, failed, summary);
+    }
+
+    /**
+     * #177：Journal 记完成时，必须能在磁盘上看到尺寸吻合的成品才允许跳过。
+     * 越界 relPath 解析失败按「不匹配」处理，交给传输层报路径错误，不在预检阶段冒充跳过。
+     */
+    private boolean targetMatches(ImportPlan.Item item) {
+        try {
+            File dest = DestPolicy.resolve(outDir, item.relPath);
+            return dest != null && dest.isFile() && dest.length() == item.size;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private File journalFile() {
@@ -489,9 +505,9 @@ public final class ImportService {
         if (!f.isFile()) return j;
         try (FileInputStream in = new FileInputStream(f)) {
             j.load(in);
-            log.line("续传日志已载入：" + j.size() + " 条记录（" + f.getAbsolutePath() + "）");
+            log.line("导入日志已载入：" + j.size() + " 条记录（" + f.getAbsolutePath() + "）");
         } catch (IOException e) {
-            log.line("续传日志读取失败，按空日志继续：" + e);
+            log.line("导入日志读取失败，按空日志继续：" + e);
         }
         return j;
     }
@@ -500,14 +516,14 @@ public final class ImportService {
         File f = journalFile();
         File parent = f.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            log.line("建目录失败，续传日志未保存：" + parent);
+            log.line("建目录失败，导入日志未保存：" + parent);
             return;
         }
         try (FileOutputStream out = new FileOutputStream(f)) {
             j.save(out);
-            log.line("续传日志已保存：" + f.getAbsolutePath());
+            log.line("导入日志已保存：" + f.getAbsolutePath());
         } catch (IOException e) {
-            log.line("续传日志保存失败：" + e);
+            log.line("导入日志保存失败：" + e);
         }
     }
 }

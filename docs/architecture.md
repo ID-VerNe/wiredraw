@@ -40,11 +40,12 @@
 | 链路 | 落点 | 职责 | 只读边界 |
 |---|---|---|---|
 | MTP 探针 | [`tools/android-mtp-probe/`](../tools/android-mtp-probe/README.md) | 找 Sony 设备、开 MTP 会话、枚举、下载、验证 `importFile` 与 `getPartialObject` 语义 | 不删除、不格式化、不改设置、不触发快门 |
-| 导片工具 | [`tools/android-mtp-import/`](../tools/android-mtp-import/README.md) | 扫描 → 照片墙 → 勾选 → 导入计划 → 传输（暂停 / 取消 / 续传）→ 缩略图与预览 | 同上；所有原生调用都走只读或下载接口 |
+| 导片工具 | [`tools/android-mtp-import/`](../tools/android-mtp-import/README.md) | 扫描 → 照片墙 → 勾选 → 导入计划 → 传输（暂停 / 取消；续传已停用 #177）→ 缩略图与预览 | 同上；所有原生调用都走只读或下载接口 |
 | PTP/IP 工具 | [`tools/sony-ptpip/`](../tools/sony-ptpip/README.md) | 直连相机 TCP 15740，复刻 IED 握手，逐条验证枚举被拒的事实；解析抓包 | 只发会话与取值类 opcode |
 
 **依赖方向**：探针先验证语义，导片工具把结论产品化；导片工具不反向依赖探针的实验代码，
-只复用已验证的结论（format 过滤不可信、会话挂起、分块语义）。
+只复用已验证的结论（format 过滤不可信、会话挂起）；`getPartialObject` 的分块语义因
+真机 offset 失效已被停用（#177），不再作为依赖。
 PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 
 ## 三、导片工具的内部分层
