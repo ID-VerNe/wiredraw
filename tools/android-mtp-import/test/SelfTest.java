@@ -3213,8 +3213,8 @@ public final class SelfTest {
                 "实际 " + UiText.capacity(mb + mb / 2));
         check("capacity: 284 MB（组头口径）", "284 MB".equals(UiText.capacity(284L * mb)),
                 "实际 " + UiText.capacity(284L * mb));
-        check("capacity: ≥100 MB 取整", "871 MB".equals(UiText.capacity(871L * mb)),
-                "实际 " + UiText.capacity(871L * mb));
+        check("capacity: ≥100 MB 取整", "858 MB".equals(UiText.capacity(858L * mb)),
+                "实际 " + UiText.capacity(858L * mb));
         check("capacity: 999 MB 仍是 MB", UiText.capacity(999L * mb).endsWith(" MB"),
                 "实际 " + UiText.capacity(999L * mb));
         check("capacity: 1 GB → 2 位小数", "1.00 GB".equals(UiText.capacity(gb)),
@@ -3283,8 +3283,8 @@ public final class SelfTest {
                 "完成 1 / 跳过 0 / 失败 0（共 1 个） · 已取消".equals(UiText.runSummary(1, 0, 0, 1, "已取消")),
                 "实际 " + UiText.runSummary(1, 0, 0, 1, "已取消"));
 
-        String summary = UiText.doneSummary(36, 871L * mb);
-        check("doneSummary 形如 `36 · 871 MB`（U-47）", summary.matches("\\d+ \u00B7 \\d+ MB"),
+        String summary = UiText.doneSummary(36, 858L * mb);
+        check("doneSummary 形如 `36 · 858 MB`（U-47）", summary.matches("\\d+ \u00B7 \\d+ MB"),
                 "实际 " + summary);
         check("doneSummary GB 口径也合法",
                 UiText.doneSummary(511, (long) (11.89 * gb)).matches("\\d+ \u00B7 \\d+\\.\\d{2} GB"),
