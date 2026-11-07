@@ -952,7 +952,8 @@ public final class Main extends ComponentActivity {
                     // issue #124：取消前先做空间预检。否则用户改选到更大的集合、空间却不够时，
                     // 旧暂停轮已经被取消，剩余待传列表白丢（Journal 只能保住已落盘的文件）。
                     // 空间不足时保留暂停轮次并落 Low space，补足空间后再点 Import 才取消旧轮。
-                    if (!precheckSpace(plan)) return;
+                    // issue #124：先预检、再取消——不足时保留旧暂停轮（PauseSwitch 固化这个取舍）。
+                    if (PauseSwitch.of(precheckSpace(plan)) == PauseSwitch.Action.KEEP_PAUSED) return;
                     // 暂停本身落在文件边界，但暂停时刻可能仍有文件在传（`.part` 尚未落定）；
                     // 取消若落在传输中，半成品由传输层整体删除（从 0 重来）。已完成文件由
                     // Journal 按 `relPath + size` 跳过，不会丢。
@@ -969,7 +970,7 @@ public final class Main extends ComponentActivity {
                         // 暂停中 worker 停在文件边界，正常 200 ms 内退出；打不断时给 ERROR 出路，
                         // 不放行新一轮（旧 worker 可能仍占着同一个 MtpDevice）。
                         orphanService = pausedRound;
-                        model.showError("相机连接可能已失步，请拔插数据线");
+                        model.showError(StuckError.SESSION_LOST);
                         return;
                     }
                     // 继续往下走：按新 plan 探活并新建一轮。
@@ -985,7 +986,7 @@ public final class Main extends ComponentActivity {
                         // 回调会因 `service != round` 被丢弃，ERROR 不会被 leaveTransferView 冲掉。
                         orphanService = pausedRound;
                         service = null;
-                        model.showError("相机连接可能已失步，请拔插数据线");
+                        model.showError(StuckError.SESSION_LOST);
                         return;
                     }
                     // Pause & exit 之后从照片墙回来：恢复同一轮，Journal 已记账的文件不会重传。
@@ -995,16 +996,14 @@ public final class Main extends ComponentActivity {
                     return;
                 }
             } else {
-                StuckKind stuck = abandonStuckService();
-                if (stuck != StuckKind.NONE) {
+                StuckError.Kind stuck = abandonStuckService();
+                if (stuck != StuckError.Kind.NONE) {
                     // 二审 B-1 的死路：pfd.close 若打不断原生 importFile（未验），worker 永不退出，
                     // 这里静默 return 会让 Import 变成死键（CATALOG_READY 没有 Cancel 入口）。
                     // 放弃该轮 + 落 ERROR（ERROR 有 Connect camera），用户拔插数据线后可重扫。
                     // issue #116：两种成因在日志里已分开，屏幕也要能区分——挂起是「长时间无响应」，
                     // 取消卡住才说「可能已失步」。两句都满足 UI-SPEC T-ERROR / C-01 / C-14。
-                    model.showError(stuck == StuckKind.STALLED
-                            ? "相机长时间无响应，请拔插数据线"
-                            : "相机连接可能已失步，请拔插数据线");
+                    model.showError(StuckError.message(stuck));
                     return;
                 }
                 log.line("已有一轮在跑，先等它结束或取消");
@@ -1025,7 +1024,7 @@ public final class Main extends ComponentActivity {
         // 复用前先用一次**只读** getObjectInfo 试一下；失败立刻落现有 ERROR 路径，
         // 不要把失步会话带进新一轮（否则要整轮全失败才发现）。只读：不删、不改设置、不触发快门。
         if (!probeSession(plan.items().get(0).handle, "新一轮导入前探活")) {
-            model.showError("相机连接可能已失步，请拔插数据线");
+            model.showError(StuckError.SESSION_LOST);
             return;
         }
 
@@ -1162,11 +1161,11 @@ public final class Main extends ComponentActivity {
      * 返回值给出成因（issue #116）：调用方据此在屏幕上区分文案——这两种成因用户能观察到
      * （自己点过 `Cancel` vs 什么都没做就卡住），不该共用一个 `ERROR` 句子。
      */
-    private StuckKind abandonStuckService() {
-        if (service == null || !service.isRunning()) return StuckKind.NONE;
+    private StuckError.Kind abandonStuckService() {
+        if (service == null || !service.isRunning()) return StuckError.Kind.NONE;
         boolean cancelStuck = service.isCancelStuck();
         boolean stalled = !cancelStuck && service.isStalled();
-        if (!cancelStuck && !stalled) return StuckKind.NONE;
+        if (!cancelStuck && !stalled) return StuckError.Kind.NONE;
         log.line(cancelStuck
                 ? "本轮取消后传输线程仍未退出：放弃该轮（会话可能已失步，需拔插数据线）"
                 : "本轮传输长时间无进展：放弃该轮（会话可能已失步，需拔插数据线）");
@@ -1176,11 +1175,8 @@ public final class Main extends ComponentActivity {
         // 保留引用：worker 未退出前不放行扫描/新导入，避免 session.close() 撞上原生调用。
         orphanService = dead;
         service = null;
-        return cancelStuck ? StuckKind.CANCEL_STUCK : StuckKind.STALLED;
+        return cancelStuck ? StuckError.Kind.CANCEL_STUCK : StuckError.Kind.STALLED;
     }
-
-    /** 放弃卡死轮次的成因（issue #116）：日志与屏幕文案都按它区分，`NONE` = 无需放弃。 */
-    private enum StuckKind { NONE, CANCEL_STUCK, STALLED }
 
     /**
      * 被放弃的上一轮 worker 是否还活着（三审 B-3）。
@@ -1198,7 +1194,7 @@ public final class Main extends ComponentActivity {
             return false;
         }
         log.line("上一轮传输线程仍未退出：暂不重建会话（请拔插数据线后重试）");
-        model.showError("相机连接可能已失步，请拔插数据线");
+        model.showError(StuckError.SESSION_LOST);
         return true;
     }
 
