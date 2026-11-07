@@ -263,7 +263,7 @@ public final class ImportService {
      * 标记本轮已被调用方放弃：worker 之后退出时不再覆写导入日志（三审 B-3）。
      *
      * 只由调用方在「已放弃该轮」时调用。**代价**：{@link Journal} 只在 `run()` 开始时加载一次，
-     * `markDone` 只改内存，`saveJournal()` 只在 `finally` 整文件覆写；放弃后跳过保存意味着
+     * `markDone` 只改内存，{@link RoundFiles#save} 只在 `finally` 整文件覆写；放弃后跳过保存意味着
      * **本轮所有已完成文件的记录都会丢**，下次全部重传（不会产生假完成，但比「记录已在旧日志里」
      * 的代价大）。
      */
