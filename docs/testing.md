@@ -35,8 +35,8 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 
 1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
    `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
-   `check_commit_messages.py` / `review_prompt.py` / `_common.py` 带 `--self-test`
-   （`_common.py` 直接运行即跑自检），改门禁先改用例；
+   `check_commit_messages.py` / `review_prompt.py` 带 `--self-test`，改门禁先改用例；
+   `_common.py` 没有参数入口，**直接运行即跑自检，带任何参数一律退 2**；
    `check_no_vendored.py` 与 `py_compile` 没有自检入口。
    导片工具有独立的 JVM 自检（`manual` 档的 `selfTest`；项数随用例增加，
    以输出末行 `== 自检全绿：N 项 ==` 为准），

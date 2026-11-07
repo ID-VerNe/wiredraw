@@ -132,8 +132,8 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
 门禁是这套协作里唯一的第三方校验，**被测方却可以在同一个 PR 里改门禁**。
 所以 diff 触及门禁执行链时，验收标准加两条。
 
-触发范围（任一命中）：`scripts/check_*.py`、`scripts/gates.json`、`scripts/run_gates.py`、
-`.github/workflows/ci.yml`、`.githooks/` 下全部钩子。
+触发范围（任一命中）：`scripts/check_*.py`、`scripts/_common.py`、`scripts/gates.json`、
+`scripts/run_gates.py`、`.github/workflows/ci.yml`、`.githooks/` 下全部钩子。
 
 1. **正文必须有 `## 门禁改动` 段**，逐个文件交代：断言改了什么（改前/改后）、
    为什么必须改（原始症状如何要求这条改动，不能是「为了变绿」）、

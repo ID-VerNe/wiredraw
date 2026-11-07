@@ -29,8 +29,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # 命中任一前缀即视为「动了门禁链」，要求 PR 走 `docs/contributing/PR_GUIDE.md` 的独立复核。
 # 曾经在 `review_prompt.py` 与 `check_pr_sections.py` 里各抄一份；两份一起改才不漂移，
 # 所以收敛到这里（#204）。
+# 本文件自己也在范围内：它现在存着门禁链判定表与退出码常量，改它等于改门禁。
 GATE_TRIGGERS = (
     "scripts/check_",
+    "scripts/_common.py",
     "scripts/gates.json",
     "scripts/run_gates.py",
     ".github/workflows/ci.yml",
@@ -166,6 +168,14 @@ def self_test() -> int:
     expected = [_legacy_gate_hits(s) for s in samples]
     actual = [gate_hits(s) for s in samples]
     check("同一输入下新旧 gate_hits 结果一致", expected == actual, f"新={actual} 旧={expected}")
+
+    # 新增触发器必须单独断言：共享层自己存着门禁规则，改它等于改门禁，
+    # 不能因为「迁移前没这条」而被上面的对照用例漏掉（评审阻断项）。
+    check(
+        "共享层自身命中门禁链",
+        gate_hits(["scripts/_common.py"]) == ["scripts/_common.py"],
+        f"实际 {gate_hits(['scripts/_common.py'])}",
+    )
 
     # 2/3. 环境问题统一抛 EnvProblem（由上层映射成退出码 2），不许裸抛 JSONDecodeError
     #     或 FileNotFoundError —— 那两种都会以退出码 1 结束，把「没做成」记成「内容不合格」。
