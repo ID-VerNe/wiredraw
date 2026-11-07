@@ -51,7 +51,7 @@
 
 **目标**：总点击 **2 次**（系统授权 1 + 应用内 1）、**0 次目录理解**、**0 次手动全选**。
 按实测速率 21.43 MB/s 推算（21.43 是 1024 进制 MB/s，即 2^20；`docs/research/a7c-usb-raw-2026-11.md` §12.3；ILCE-7C fw2.00 / Android 15 / USB MTP）：
-默认 `All`（JPG 优先）511 个文件 / 约 753 MB（折算 0.73 GB；单位分界按 `UiText.capacity` 的「1 GB 以下一律 MB」；由总量 12.75 GB 减 ARW 11.89 GB 与 MP4 128.01 MB 推得，三项输入均为两位小数、误差约 ±10 MB，**JPEG 合计未单独实测**）≈ **35 秒**；切 `RAW` 档 511 个 ARW / 11.89 GB ≈ **9.5 分钟**
+默认 `All`（JPG 优先）511 个文件 / 约 753 MB（折算 0.73 GB；单位分界按 §4.2 `C-05` 的「1 GB 以下一律 MB」；由总量 12.75 GB 减 ARW 11.89 GB 与 MP4 128.01 MB 推得，三项输入均为两位小数、误差约 ±10 MB，**JPEG 合计未单独实测**）≈ **35 秒**；切 `RAW` 档 511 个 ARW / 11.89 GB ≈ **9.5 分钟**
 （只计传输，含文件系统写入，不含枚举）。
 
 - 「自动开始扫描」**已落地（#17）**：`Main.java` 的 `onNewIntent` 接前台插线、`receiver` 的
@@ -661,8 +661,10 @@
 
 - **默认基线**：未标注「假数据 / 假树」的**容量与耗时**数值一律指真机基线（ILCE-7C fw2.00 / Android 15 / USB MTP 的实测值）；假树值**必须**显式标注，其常量以 §8.3 `U-54` 与 `DemoTree.java` 为准。进度类示例（`320/1526`、`12/36`、`33%`）是界面示意，不受本条约束。
 
+- **归属（#216）**：本组 `C-05`～`C-10` 是**容量与计数文案规则**（什么时候出现、什么口径、禁用写法）的唯一权威；`tools/android-mtp-import/src/com/rea/mtpimport/UiText.java` 只是**实现载体**，只能按编号实现并在注释里引用 `C-xx` / `W-xx`，**不得**反向定义口径或另起字面量。
+
 - **C-05** 容量**必须**按 1024 进制换算（1 GB = 1024 MB），单位写 `GB` / `MB`；
-  **GB 保留 2 位小数，MB 最多 1 位小数**（`23.8 MB` / `284 MB` 均为格式示例；≥100 MB 按整数展示（`UiText.capacity`）；与实测/推算口径的四处数值 `0.73 GB` / `753 MB`（真机 JPG 载荷，同一推算值的 GB 与界面显示形态；由总量减 ARW 与 MP4 推得，误差约 ±10 MB）/ `0.86 GB`（假树 512 张 JPEG 载荷，`DemoTree.java` 常量）/ `11.89 GB`（ARW 载荷）/ `12.75 GB`（扫描文件总量）一致）。
+  **GB 保留 2 位小数，MB 最多 1 位小数**（`23.8 MB` / `284 MB` 均为格式示例；≥100 MB 按整数展示（实现载体 `UiText.java` 的 `capacity`，口径以本条为准）；与实测/推算口径的四处数值 `0.73 GB` / `753 MB`（真机 JPG 载荷，同一推算值的 GB 与界面显示形态；由总量减 ARW 与 MP4 推得，误差约 ±10 MB）/ `0.86 GB`（假树 512 张 JPEG 载荷，`DemoTree.java` 常量）/ `11.89 GB`（ARW 载荷）/ `12.75 GB`（扫描文件总量）一致）。
   定稿组头的 `11.9 GB` 是 1 位，**不得**照抄，落成 `11.89 GB`。
 - **C-06** 小于 0.1 GB **必须**自动降级为 MB（例：`1.2 MB`）；**不得**出现 `0.00 GB`（当前见 F15）。
 - **C-07** **不得**在用户区显示原始字节值、`double` 精度尾数或科学计数法。
@@ -706,6 +708,9 @@ Next:    <一个可执行动作>
 
 > **本表是用户可见文案的唯一定义处。** §1.2 状态表、P-06、§8 的断言以及任何 UI PR 只许写「见 `T-xx`」，
 > 不得在此之外复述全文（§8 断言里的字面量只用于判定，不构成第二份定义）。
+> **归属裁决（#216）**：本节（状态文案 `T-xx` + 按钮词表 `W-xx`）是界面文案的**唯一权威**；
+> `tools/android-mtp-import/src/com/rea/mtpimport/UiText.java` 只是**实现载体**，只能引用本节编号，
+> **不得**反向定义或另起字面量；代码注释引编号（如 `W-07`），不抄字面量。
 > 与 §0.10 的分工：§0.10 登记**用词**（术语对应的英文写法），本表登记**用法**（出现在哪个状态/位置、
 > 字面量是什么）；同一个词两处都出现时，界面字面量以本表为准。
 > 表中数字**只是样例占位**，生成规则统一见 §4.2（C-05～C-10），本表不复述口径。
@@ -728,33 +733,33 @@ Next:    <一个可执行动作>
   「新片」不可计算，CTA 同为 `Import all N`——这是唯一允许的降级写法，其余位置不得另造。
 - **`T-CATALOG` 的「主文案」列**只列 CTA：**CTA 不属于状态主文案**（`C-01` 只约束状态主文案的一行 ≤20 字符），
   本状态的主表达是照片墙首行；`U-03` 在该状态判「主按钮 + 照片墙首行同屏」。
-- **按钮词表（本文件唯一出处）**：状态模板与 `U-xx` 出现的按钮名一律以本表为准，其他章节直接引用、不复述。
+- **按钮词表（本文件唯一出处）**：状态模板与 `U-xx` 出现的按钮名一律以本表为准，其他章节直接引用、不复述。编号 `W-xx` 供代码注释引用，不复述字面量。
 
-  | 动作（文档内） | 按钮/图标文案 | 用在哪 |
-  |---|---|---|
-  | 连接相机（首次）/ 重新检测 | `Connect camera` | `COLD` 主按钮（点击行为等同原重新检测，含重扫）；`EMPTY_CATALOG` 的次按钮图标（USB 插头 / 重连语义，**不得**用循环箭头，`contentDescription` = `Connect camera`） |
-  | 错误后重连（`ERROR`） | `Reconnect` | `ERROR` 顶栏右侧的 12 sp 可点标签（`V-29`）与内容区插头图标（`contentDescription` = `Reconnect`）；两个入口复用同一个重连函数，不另起并发路径 |
-  | 允许 | `Allow` | `PERMISSION_PENDING` 主按钮 |
-  | 取消（扫描/导入） | `Cancel` | `SCANNING` / `IMPORTING` / `PAUSED` |
-  | 暂停 | `Pause` | `IMPORTING` |
-  | 继续 | `Resume` | `PAUSED` |
-  | 导入（全部） | `Import all N` | `CATALOG_READY` 可见已选数为 0（含总已选 ≥1 但全被 filter 隐藏）；N = 当前 filter 可见集合的导出文件数（`C-08` / `C-10` / `U-12`） |
-  | 导入（已选） | `Import N` | `CATALOG_READY` 可见已选数 ≥1；N = 可见已选数（已选 ∩ 当前 filter） |
-  | 打开 | `Open` | `DONE` 次按钮 |
-  | 知道了 | `OK` | `UNAVAILABLE` |
-  | 暂停并退出 | `Pause & exit` | `IMPORTING` 返回键对话框选项（§1.3）；是对话框选项，不占主按钮额度 |
-  | 空间不足提示 | `Low space` | `CATALOG_READY` 主 CTA 上方一行 12 sp；仅在预检不足、CTA 被禁用时出现（`P-09`） |
-  | 已存在的跳过数 | `Skipped N existing` | `Details` 抽屉（`P-07`）；主视觉不出现 |
-  | 导入状态未知 | `Import state unknown` | `Location details` 内（§0.11 第 1 行降级） |
-  | 撤销（挂起） | `Undo` | 本版无触发入口（V-17 / U-28 挂起），随清理功能落地再启用 |
-  | 过滤项 | `All` / `RAW` / `JPG` / 日期标签（如 `Jun 7`，**不含**张数与容量） | `CATALOG_READY` 过滤抽屉（V-16）与顶栏 filter 芯片（V-31）；**不得**出现未导入项 |
-  | filter 芯片 | `RAW` / `JPG` / 日期标签（如 `Jun 7`，与过滤项同一字面量，**不含**张数与容量） | `CATALOG_READY` 顶栏，仅非 `All` 档；非计数文本（`V-31`） |
-  | 位置详情内的单张标记 | `Imported` / `New` | `Location details` 展开后（§0.11 第 1 行缺失时统一写 `Import state unknown`）；网格内不出现（V-15 / V-20） |
-  | 上一轮结果提示 | `Last import` | `SCANNING` 显示上一轮照片墙时的置灰标注（§1.2 `SCANNING` 行） |
-  | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` 顶部；`transfer` 顶部仅 `IMPORTING` / `PAUSED` |
-  | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
-  | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
-  | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` / `photo` 顶栏**无设备名**，**无长按入口**（默认不可见，L-05） |
+  | 编号 | 动作（文档内） | 按钮/图标文案 | 用在哪 |
+  |---|---|---|---|
+  | `W-01` | 连接相机（首次）/ 重新检测 | `Connect camera` | `COLD` 主按钮（点击行为等同原重新检测，含重扫）；`EMPTY_CATALOG` 的次按钮图标（USB 插头 / 重连语义，**不得**用循环箭头，`contentDescription` = `Connect camera`） |
+  | `W-02` | 错误后重连（`ERROR`） | `Reconnect` | `ERROR` 顶栏右侧的 12 sp 可点标签（`V-29`）与内容区插头图标（`contentDescription` = `Reconnect`）；两个入口复用同一个重连函数，不另起并发路径 |
+  | `W-03` | 允许 | `Allow` | `PERMISSION_PENDING` 主按钮 |
+  | `W-04` | 取消（扫描/导入） | `Cancel` | `SCANNING` / `IMPORTING` / `PAUSED` |
+  | `W-05` | 暂停 | `Pause` | `IMPORTING` |
+  | `W-06` | 继续 | `Resume` | `PAUSED` |
+  | `W-07` | 导入（全部） | `Import all N` | `CATALOG_READY` 可见已选数为 0（含总已选 ≥1 但全被 filter 隐藏）；N = 当前 filter 可见集合的导出文件数（`C-08` / `C-10` / `U-12`） |
+  | `W-08` | 导入（已选） | `Import N` | `CATALOG_READY` 可见已选数 ≥1；N = 可见已选数（已选 ∩ 当前 filter） |
+  | `W-09` | 打开 | `Open` | `DONE` 次按钮 |
+  | `W-10` | 知道了 | `OK` | `UNAVAILABLE` |
+  | `W-11` | 暂停并退出 | `Pause & exit` | `IMPORTING` 返回键对话框选项（§1.3）；是对话框选项，不占主按钮额度 |
+  | `W-12` | 空间不足提示 | `Low space` | `CATALOG_READY` 主 CTA 上方一行 12 sp；仅在预检不足、CTA 被禁用时出现（`P-09`） |
+  | `W-13` | 已存在的跳过数 | `Skipped N existing` | `Details` 抽屉（`P-07`）；主视觉不出现 |
+  | `W-14` | 导入状态未知 | `Import state unknown` | `Location details` 内（§0.11 第 1 行降级） |
+  | `W-15` | 撤销（挂起） | `Undo` | 本版无触发入口（V-17 / U-28 挂起），随清理功能落地再启用 |
+  | `W-16` | 过滤项 | `All` / `RAW` / `JPG` / 日期标签（如 `Jun 7`，**不含**张数与容量） | `CATALOG_READY` 过滤抽屉（V-16）与顶栏 filter 芯片（V-31）；**不得**出现未导入项 |
+  | `W-17` | filter 芯片 | `RAW` / `JPG` / 日期标签（如 `Jun 7`，与过滤项同一字面量，**不含**张数与容量） | `CATALOG_READY` 顶栏，仅非 `All` 档；非计数文本（`V-31`） |
+  | `W-18` | 位置详情内的单张标记 | `Imported` / `New` | `Location details` 展开后（§0.11 第 1 行缺失时统一写 `Import state unknown`）；网格内不出现（V-15 / V-20） |
+  | `W-19` | 上一轮结果提示 | `Last import` | `SCANNING` 显示上一轮照片墙时的置灰标注（§1.2 `SCANNING` 行） |
+  | `W-20` | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` 顶部；`transfer` 顶部仅 `IMPORTING` / `PAUSED` |
+  | `W-21` | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
+  | `W-22` | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
+  | `W-23` | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` / `photo` 顶栏**无设备名**，**无长按入口**（默认不可见，L-05） |
 
 - **过滤抽屉与 `Location details` 标记的用法（字面量登记在 §4.5 词表，本条只讲用在哪）**：过滤项写
   `All` / `RAW` / `JPG` / 日期标签（如 `Jun 7`，**不含**张数与容量）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张

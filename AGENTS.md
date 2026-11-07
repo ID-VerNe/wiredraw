@@ -129,7 +129,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
    `tools/android-mtp-probe/` 时另跑 `python scripts/run_gates.py manual`。
 2. **探针只读**。`tools/` 下连相机的代码**不得下发任何写操作**——不删除、不格式化、
    不改相机设置、不触发快门。只允许 OpenSession / 枚举 / 取值这类只读 opcode。
-   要加写操作，先开会话讨论并落进 issue，不在 PR 里顺手加。
+   要加写操作，先开 issue 讨论并把结论落进该 issue，不在 PR 里顺手加。
 3. **大文件不进版本控制**。RAW 样本（24 MB/张）、原始抓包（实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)）、构建产物一律 gitignore。
    由 `check_no_vendored.py` 兜底（>5 MB 的被跟踪文件即红）。
 4. **15 个第三方参考仓库不入库**。它们在本地磁盘上随你参考，但 `git ls-files` 里出现即红。
