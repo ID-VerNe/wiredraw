@@ -14,9 +14,12 @@ import java.util.function.LongConsumer;
  * **只保留整文件路径**（`MtpDevice#importFile`）。探针已验（ILCE-7C：3 张 24 MP RAW，
  * 73.29 MB / 3.42 s，手机侧 MD5 与 PC 侧一致）；PB 的取消靠关闭 pfd 尝试打断原生写。
  *
- * **续传已停用（止血，issue #177）**：真机实测小米 9 上 `getPartialObject` 的 offset 不生效，
- * reader 忽略偏移、从对象起点顺序给数据。把遗留 `.part` 当可信前缀 append 会得到
- * 「字节数对、内容错、却报 OK」的文件；满尺寸残留直接 rename 更是把残渣当成品。
+ * **续传已停用（止血，issue #177）**：2026-11-07 真机判别（E2 MI 9 / Android 15 API 35 /
+ * ILCE-7C fw2.00 / USB MTP）得到精确语义：非零 `offset` 只有在恰好等于相机内部游标时才被
+ * 采纳；对不上时忽略 offset、从对象头返回。「游标」是相机侧读流的位置（相机在会话内维护）。
+ * 从 0 起逐块顺读永远对；跳读 / 续传一定错，而且续读不省带宽（要先从 0 读到该位置）。
+ * 把遗留 `.part` 当可信前缀 append 会得到「字节数对、内容错、却报 OK」的文件；
+ * 满尺寸残留直接 rename 更是把残渣当成品。
  * 因此本类不再发 `getPartialObject`，也不再保留 `from == size` 直通：
  * 任何既有 `.part` 一律视为不可信，先删除再从 0 整段重写。
  *
