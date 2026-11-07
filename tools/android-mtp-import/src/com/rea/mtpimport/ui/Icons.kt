@@ -27,12 +27,24 @@ private const val STROKE_DP = 1.5f
 
 private fun DrawScope.strokePx() = STROKE_DP.dp.toPx()
 
+/**
+ * 13 个 glyph 的公共骨架（F-15 / issue #217）：画布、宽高与 1.5 dp 描边像素只在这里取一次。
+ * 图标体只画几何；不需要描边的填充图形（暂停、播放）用 `_` 忽略第三个参数。
+ */
 @Composable
-fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
+private fun Glyph(
+    size: Dp,
+    modifier: Modifier = Modifier,
+    draw: DrawScope.(w: Float, h: Float, s: Float) -> Unit
+) {
     Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+        draw(this.size.width, this.size.height, strokePx())
+    }
+}
+
+@Composable
+fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         // 机身
         drawRoundRect(
             color = tint,
@@ -57,7 +69,6 @@ fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
             style = Stroke(s)
         )
     }
-}
 
 /**
  * `ERROR` 顶栏的断线图标（UI-SPEC `V-28`）：插头与插座之间留一道空隙，读作「线没插上」。
@@ -66,11 +77,8 @@ fun CameraGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
  * 替代旧的「相机线稿压斜线」画法；不画斜线也不画叉号，靠「插针没进插座」表达断开。
  */
 @Composable
-fun UnpluggedGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun UnpluggedGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         // 插头机身
         drawRoundRect(
             color = tint,
@@ -89,18 +97,14 @@ fun UnpluggedGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
         drawLine(tint, Offset(w * 0.88f, h * 0.32f), Offset(w * 0.88f, h * 0.68f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.88f, h * 0.68f), Offset(w * 0.74f, h * 0.68f), s, StrokeCap.Round)
     }
-}
 
 /**
  * `Connect camera` 的动作图标：USB 插头（机身 + 两根插针 + 线尾），
  * 不用循环箭头（§4.5 按钮词表：重连语义不能表达成「再试一次」，见 issue #44 决策）。
  */
 @Composable
-fun PlugGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun PlugGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         // 插头机身
         drawRoundRect(
             color = tint,
@@ -115,61 +119,42 @@ fun PlugGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
         // 线尾
         drawLine(tint, Offset(w * 0.10f, h * 0.50f), Offset(w * 0.24f, h * 0.50f), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun BackGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun BackGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         drawLine(tint, Offset(w * 0.14f, h * 0.50f), Offset(w * 0.86f, h * 0.50f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.14f, h * 0.50f), Offset(w * 0.38f, h * 0.26f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.14f, h * 0.50f), Offset(w * 0.38f, h * 0.74f), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun CloseGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun CloseGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         drawLine(tint, Offset(w * 0.24f, h * 0.24f), Offset(w * 0.76f, h * 0.76f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.76f, h * 0.24f), Offset(w * 0.24f, h * 0.76f), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun ChevronGlyph(size: Dp, tint: Color, up: Boolean = false, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun ChevronGlyph(size: Dp, tint: Color, up: Boolean = false, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         val yTop = if (up) h * 0.66f else h * 0.36f
         val yBottom = if (up) h * 0.36f else h * 0.66f
         drawLine(tint, Offset(w * 0.24f, yTop), Offset(w * 0.50f, yBottom), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.50f, yBottom), Offset(w * 0.76f, yTop), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun FilterGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun FilterGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         drawLine(tint, Offset(w * 0.12f, h * 0.28f), Offset(w * 0.88f, h * 0.28f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.26f, h * 0.50f), Offset(w * 0.74f, h * 0.50f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.40f, h * 0.72f), Offset(w * 0.60f, h * 0.72f), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun PauseGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
+fun PauseGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, _ ->
         val barW = w * 0.18f
         val top = h * 0.24f
         val barH = h * 0.52f
@@ -186,13 +171,10 @@ fun PauseGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
             cornerRadius = CornerRadius(barW * 0.25f)
         )
     }
-}
 
 @Composable
-fun PlayGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
+fun PlayGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, _ ->
         val path = Path().apply {
             moveTo(w * 0.30f, h * 0.22f)
             lineTo(w * 0.78f, h * 0.50f)
@@ -201,25 +183,17 @@ fun PlayGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
         }
         drawPath(path, tint)
     }
-}
 
 @Composable
-fun CheckGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun CheckGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         drawLine(tint, Offset(w * 0.20f, h * 0.52f), Offset(w * 0.42f, h * 0.74f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.42f, h * 0.74f), Offset(w * 0.82f, h * 0.26f), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun LocationGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun LocationGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         drawCircle(
             color = tint,
             radius = w * 0.20f,
@@ -229,14 +203,10 @@ fun LocationGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
         drawLine(tint, Offset(w * 0.35f, h * 0.55f), Offset(w * 0.50f, h * 0.84f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.65f, h * 0.55f), Offset(w * 0.50f, h * 0.84f), s, StrokeCap.Round)
     }
-}
 
 @Composable
-fun WarningGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun WarningGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         val path = Path().apply {
             moveTo(w * 0.50f, h * 0.12f)
             lineTo(w * 0.90f, h * 0.84f)
@@ -247,15 +217,10 @@ fun WarningGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
         drawLine(tint, Offset(w * 0.50f, h * 0.40f), Offset(w * 0.50f, h * 0.60f), s, StrokeCap.Round)
         drawCircle(tint, radius = s * 0.8f, center = Offset(w * 0.50f, h * 0.71f))
     }
-}
 
 @Composable
-fun BlockGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val s = strokePx()
+fun BlockGlyph(size: Dp, tint: Color, modifier: Modifier = Modifier) =
+    Glyph(size, modifier) { w, h, s ->
         drawCircle(tint, radius = w * 0.34f, center = Offset(w * 0.50f, h * 0.50f), style = Stroke(s))
         drawLine(tint, Offset(w * 0.28f, h * 0.28f), Offset(w * 0.72f, h * 0.72f), s, StrokeCap.Round)
     }
-}

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.Dims
 import com.rea.mtpimport.TopBarSpec
@@ -92,7 +94,7 @@ fun StatusScreen(model: AppModel) {
             title = "No photos",
             actions = {
                 // V-09：`EMPTY_CATALOG` 没有实心主按钮，`Connect camera` 以图标按钮呈现（次按钮语义）。
-                Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center) {
+                StatusActionRow {
                     IconAction(desc = "Connect camera", onClick = { cb?.onConnectCamera() }) {
                         PlugGlyph(24.dp, UiColors.onSurface)
                     }
@@ -105,7 +107,7 @@ fun StatusScreen(model: AppModel) {
             icon = { BlockGlyph(56.dp, UiColors.outline) },
             title = "Not available",
             actions = {
-                Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center) {
+                StatusActionRow {
                     SecondaryButton("OK", onClick = { model.backToCatalog() })
                 }
             }
@@ -115,10 +117,7 @@ fun StatusScreen(model: AppModel) {
             model = model,
             icon = { CheckGlyph(56.dp, UiColors.onSurface) },
             actions = {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
+                StatusActionRow(horizontalPadding = 16.dp) {
                     SecondaryButton("Open", onClick = { cb?.onOpen() })
                 }
             },
@@ -142,11 +141,7 @@ fun StatusScreen(model: AppModel) {
             model = model,
             icon = { WarningGlyph(56.dp, UiColors.onSurface) },
             actions = {
-                Row(
-                    Modifier.fillMaxWidth().padding(8.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                StatusActionRow {
                     // V-09 / T-ERROR：错误态没有实心主按钮，动作是 `Reconnect` 次按钮图标
                     // （与顶栏 12 sp 标签同一动作、同一无障碍名，§4.5 / V-29）。
                     IconAction(desc = "Reconnect", onClick = { cb?.onConnectCamera() }) {
@@ -176,6 +171,23 @@ fun StatusScreen(model: AppModel) {
             }
         )
     }
+}
+
+/**
+ * 状态屏动作行（F-18 / issue #217）：全宽、水平居中、上下 8 dp。
+ * 唯一允许的差异是水平内边距：`EMPTY_CATALOG` / `UNAVAILABLE` / `ERROR` 为 8 dp，`DONE` 为 16 dp。
+ */
+@Composable
+private fun StatusActionRow(
+    horizontalPadding: Dp = 8.dp,
+    content: @Composable RowScope.() -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        content = content
+    )
 }
 
 /**
