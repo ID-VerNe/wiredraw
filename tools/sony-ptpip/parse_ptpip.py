@@ -19,7 +19,6 @@ import subprocess
 import sys
 
 TSHARK = os.environ.get("TSHARK", "tshark")
-BULK = 1200  # 超过这个长度的包不取 payload，只补零占位
 # ObjectInfo 至少要能读到偏移 52 的文件名长度字节（53 字节），
 # 与 probe.py 的 MIN_OBJINFO_LEN 取同一个值，避免两边门槛漂移（#225）。
 MIN_OBJINFO_LEN = 53
