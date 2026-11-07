@@ -10,6 +10,7 @@
 | 2026-11-04 | PTP/IP 直连会话（IED 协议复刻） | 相机只认当初配对的 GUID；存储枚举四个调用全部 AccessDenied，仅 `GetObjectInfo(0xFFFFC001)` 可用 | ILCE-7C fw2.02 / Wi-Fi PTP/IP，PC 与相机接同一台路由器 | `captures/init_ied.txt`、`captures/stream7.txt`、`captures/wlan.pcapng`（147,927,148 字节，约 141 MiB）；重抓见 `tools/sony-ptpip/README.md` |
 | 2026-11-05 | 导片工具 UI 决策取证 | 规范表的 47 个值与页面实际值逐项一致 | 魅族 20 Infinity / Android 15 / 真机 | 本地日期工作区（`2026-11-05/`，未跟踪、不入库）；素材与复核口径见本页「UI 决策取证」条 |
 | 2026-11-06 | 仓库开源前整理盘点 | 建立 10 张 issue，覆盖隐私清洗、归档规则、文档收敛与门禁 | 仓库 `main`（只读盘点，未接相机） | 无（结论直接落成 issue） |
+| 2026-11-07 | 对外发布就绪度复盘点 | `support` 档条数漂移已对齐（#183）；登记 `tools/pe` 入口说明（#186）、`.screenshots` 忽略（#185）、证据坐标与归档索引补录（#187） | 仓库 `main`（只读盘点，未接相机） | 无（结论直接落成 issue） |
 
 ## 2026-11-audit 逐篇说明
 
