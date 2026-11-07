@@ -1,8 +1,6 @@
 package com.rea.mtpimport;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.function.LongConsumer;
@@ -265,7 +263,7 @@ public final class ImportService {
      * 标记本轮已被调用方放弃：worker 之后退出时不再覆写导入日志（三审 B-3）。
      *
      * 只由调用方在「已放弃该轮」时调用。**代价**：{@link Journal} 只在 `run()` 开始时加载一次，
-     * `markDone` 只改内存，`saveJournal()` 只在 `finally` 整文件覆写；放弃后跳过保存意味着
+     * `markDone` 只改内存，{@link RoundFiles#save} 只在 `finally` 整文件覆写；放弃后跳过保存意味着
      * **本轮所有已完成文件的记录都会丢**，下次全部重传（不会产生假完成，但比「记录已在旧日志里」
      * 的代价大）。
      */
@@ -297,7 +295,7 @@ public final class ImportService {
     private void run(ImportPlan plan, ImportListener l) {
         // 本轮固定使用 start() 建的令牌：cancel() 可能在中途重建字段，worker 不能换令牌。
         final CancelToken token = cancelToken;
-        Journal journal = loadJournal();
+        Journal journal = RoundFiles.load(outDir, log);
         TransferProgress progress = new TransferProgress(plan.totalBytes(), plan.count());
         progress.start(clock.nanoTime());
         l.onPlanReady(plan);
@@ -452,8 +450,8 @@ public final class ImportService {
             if (abandoned) {
                 log.line("本轮已被放弃：跳过导入日志保存（不覆盖磁盘上的现有记录）");
             } else {
-                saveJournal(journal);
-                saveImportedIndex();
+                RoundFiles.save(outDir, journal, log);
+                RoundFiles.rebuildIndex(outDir, log);
             }
             worker = null;
         }
@@ -476,54 +474,4 @@ public final class ImportService {
         }
     }
 
-    private File journalFile() {
-        return new File(outDir, "import-journal.txt");
-    }
-
-    /**
-     * 重建并原子重写「已导入索引」（#20）。
-     *
-     * 索引是 `outDir` 磁盘镜像的派生快照，不是事件账本：每轮结束都从磁盘真值重算，
-     * 缺失 / 截断 / 乱码都等价于「还没生成」，直接覆盖。**不读旧文件**，所以索引
-     * 本身的状态不会把已导入的照片判成新片；跳过判定也未变（仍由 {@link Journal} 负责）。
-     *
-     * 失败只记日志、不影响本轮结果——索引是后续单的输入，不是本轮成败的一部分。
-     */
-    private void saveImportedIndex() {
-        File f = new File(outDir, ImportedIndex.FILE_NAME);
-        try {
-            int n = ImportedIndex.save(outDir);
-            log.line("已导入索引已重建：" + n + " 条（" + f.getAbsolutePath() + "）");
-        } catch (IOException e) {
-            log.line("已导入索引保存失败（不影响本轮结果）：" + e);
-        }
-    }
-
-    private Journal loadJournal() {
-        Journal j = new Journal();
-        File f = journalFile();
-        if (!f.isFile()) return j;
-        try (FileInputStream in = new FileInputStream(f)) {
-            j.load(in);
-            log.line("导入日志已载入：" + j.size() + " 条记录（" + f.getAbsolutePath() + "）");
-        } catch (IOException e) {
-            log.line("导入日志读取失败，按空日志继续：" + e);
-        }
-        return j;
-    }
-
-    private void saveJournal(Journal j) {
-        File f = journalFile();
-        File parent = f.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            log.line("建目录失败，导入日志未保存：" + parent);
-            return;
-        }
-        try (FileOutputStream out = new FileOutputStream(f)) {
-            j.save(out);
-            log.line("导入日志已保存：" + f.getAbsolutePath());
-        } catch (IOException e) {
-            log.line("导入日志保存失败：" + e);
-        }
-    }
 }

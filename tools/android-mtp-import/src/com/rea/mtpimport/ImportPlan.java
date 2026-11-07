@@ -70,8 +70,8 @@ public final class ImportPlan {
         chosen.sort((a, b) -> {
             Catalog.Entry ea = a.export(export);
             Catalog.Entry eb = b.export(export);
-            String pa = ea == null ? a.relPath : (ea.relPath == null ? ea.name : ea.relPath);
-            String pb = eb == null ? b.relPath : (eb.relPath == null ? eb.name : eb.relPath);
+            String pa = ea == null ? a.relPath : ea.path();
+            String pb = eb == null ? b.relPath : eb.path();
             return pa.compareTo(pb);
         });
         List<Catalog.Entry> exports = new ArrayList<>();
@@ -86,10 +86,10 @@ public final class ImportPlan {
         // 两张卡同时插着但只勾其中一个时没有争用，不应被整组拒绝。
         Set<String> conflictPaths = new HashSet<>();
         for (Catalog.Entry e : catalog.storageConflicts(exports)) {
-            conflictPaths.add(e.relPath == null ? e.name : e.relPath);
+            conflictPaths.add(e.path());
         }
         for (Catalog.Entry e : exports) {
-            String path = e.relPath == null ? e.name : e.relPath;
+            String path = e.path();
             p.items.add(new Item(e.handle, path, e.size, e.storageId, conflictPaths.contains(path)));
             p.totalBytes += e.size;
         }

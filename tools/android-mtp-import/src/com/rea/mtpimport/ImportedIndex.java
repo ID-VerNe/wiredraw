@@ -85,8 +85,7 @@ public final class ImportedIndex {
     static boolean excluded(String name) {
         return name.equals(FILE_NAME)
                 || name.equals(TMP_NAME)
-                // 与 ImportService.journalFile() 的字面量保持一致；那边没有导出常量。
-                || name.equals("import-journal.txt")
+                || name.equals(RoundFiles.JOURNAL_NAME)
                 || name.endsWith(".part");
     }
 
@@ -103,9 +102,7 @@ public final class ImportedIndex {
     }
 
     private void write(File outDir) throws IOException {
-        if (outDir != null && !outDir.exists() && !outDir.mkdirs()) {
-            throw new IOException("建目录失败：" + outDir);
-        }
+        Dirs.ensure(outDir);
         File target = new File(outDir, FILE_NAME);
         File tmp = new File(outDir, TMP_NAME);
         List<String> keys = new ArrayList<>(sizes.keySet());

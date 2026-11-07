@@ -70,8 +70,10 @@ public final class MtpTransfer implements ResumableTransfer {
         if (outDir == null) {
             return new Result(Kind.FAILED, "半成品路径没有父目录");
         }
-        if (!outDir.exists() && !outDir.mkdirs()) {
-            return new Result(Kind.FAILED, "建目标目录失败：" + outDir);
+        try {
+            Dirs.ensure(outDir);
+        } catch (IOException e) {
+            return new Result(Kind.FAILED, e.getMessage());
         }
 
         final File dest;
@@ -187,9 +189,10 @@ public final class MtpTransfer implements ResumableTransfer {
             // 保留 .part；本轮绝不能记成完成。下一轮从 0 重写（#177）。
             return new Result(Kind.FAILED, UiText.sizeMismatch(item.size, got));
         }
-        File parent = dest.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            return new Result(Kind.FAILED, "建子目录失败：" + parent);
+        try {
+            Dirs.ensure(dest.getParentFile());
+        } catch (IOException e) {
+            return new Result(Kind.FAILED, e.getMessage());
         }
         DestPolicy.Existing existing = DestPolicy.existing(dest, item.size);
         if (existing == DestPolicy.Existing.DIFFERENT_SIZE) {

@@ -67,9 +67,19 @@ public final class Catalog {
             return format == FMT_JPEG || upper.endsWith(".JPG") || upper.endsWith(".JPEG");
         }
 
+        /**
+         * 落盘 / 账本用的相对路径：`build()` 算出的 `relPath`，缺失时回退到文件名。
+         *
+         * **唯一出处**（issue #219 / A12）：原来这行表达式在 PhotoWall、ImportPlan 里各写几遍，
+         * 收在这里之后调用点只读 {@link #path()}，口径不会各写各的。
+         */
+        public String path() {
+            return relPath == null ? name : relPath;
+        }
+
         @Override
         public String toString() {
-            return (relPath == null ? name : relPath) + (isFolder() ? "/" : " (" + size + ")");
+            return path() + (isFolder() ? "/" : " (" + size + ")");
         }
     }
 
