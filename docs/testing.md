@@ -10,7 +10,7 @@
 |---|---|---|---|
 | `ci` | 5 条 `static`：元门禁、仓库卫生、文档链接、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
 | `manual` | 2 条：探针 APK 构建、导片工具自检 + 构建 + 验签 | 动到 `tools/android-mtp-probe/` 或 `tools/android-mtp-import/` 时 | Android SDK + JDK |
-| `support` | 2 条：PR 正文分段、PR 正文与评论的敏感信息 | 有 PR 上下文时（CI 的 `pull_request`） | `gh` / `GH_TOKEN`；本地无 PR 时 SKIP |
+| `support` | 3 条：PR 正文分段、PR 正文与评论的敏感信息、commit message 敏感信息 | 有 PR 上下文时（CI 的 `pull_request`） | `gh` / `GH_TOKEN`；本地无 PR 时 SKIP |
 
 ```bash
 python scripts/run_gates.py --list          # 看档位与执行顺序
@@ -43,8 +43,9 @@ git config core.hooksPath .githooks   # 换机器后重设一次
 本仓库没有通用单元测试框架。回归靠两类东西：
 
 1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
-   `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` / `review_prompt.py`
-   带 `--self-test`，改门禁先改用例；`check_no_vendored.py` 与 `py_compile` 没有自检入口。
+   `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
+   `check_commit_messages.py` / `review_prompt.py` 带 `--self-test`，改门禁先改用例；
+   `check_no_vendored.py` 与 `py_compile` 没有自检入口。
    导片工具有独立的 JVM 自检（`manual` 档的 `selfTest`；项数随用例增加，
    以输出末行 `== 自检全绿：N 项 ==` 为准），
    纯逻辑类不允许 `import android.*`，由编译期强制。
