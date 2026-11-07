@@ -81,6 +81,7 @@ public final class SelfTest {
         uiTextCases();
         photoWallCases();
         aggregateCases();
+        rangeReadCases();
         derivedValueCases();
         derivedSourceCases();
         typeTokenCases();
@@ -296,6 +297,119 @@ public final class SelfTest {
         scanned = scanSourceText(srcRoot, "for (Entry e : entries)", null, hits);
         check("Catalog 全表遍历只剩 build() 与 snapshot() 两处", hits.size() == 2,
                 "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+    }
+
+    // ---------------- 只读分块原语（G11 / A9、A10） ----------------
+
+    /**
+     * issue #221：`ThumbnailStore.fetchFull` 的分块循环收进 {@link RangeRead}，
+     * `decode` / `decodeFull` 合并，三处「epoch 校验 + 落缓存」与 demo 分支收口。
+     *
+     * 前半用假 reader 锁死短读语义（短返回累计、0 / 负返回判失败、超量返回按请求截断）；
+     * 后半是源码守卫——`ThumbnailStore` 依赖 Android `BitmapFactory`，JVM 用例覆盖不到
+     * 解码与缓存路径，只能把结构钉在源码上。
+     */
+    static void rangeReadCases() {
+        check("分块读：短返回按实际字节累计读满",
+                sequential(tryRead(10, 4, (offset, want, buf) -> {
+                    int n = Math.min(want, 2);
+                    fillAt(buf, n, offset);
+                    return n;
+                }), 10),
+                "返回 null 或长度 / 内容不符");
+
+        check("分块读：返回 0 判失败",
+                tryRead(10, 4, (offset, want, buf) -> 0) == null,
+                "返回 0 仍拼出了字节");
+
+        check("分块读：返回负数判失败",
+                tryRead(10, 4, (offset, want, buf) -> -1) == null,
+                "返回负数仍拼出了字节");
+
+        check("分块读：超量返回按请求长度截断",
+                sequential(tryRead(10, 4, (offset, want, buf) -> {
+                    fillAt(buf, want, offset);
+                    return want + 3;   // 设备返回超过请求长度
+                }), 10),
+                "超量返回越界或长度 / 内容不符");
+
+        check("分块读：size / chunk 非正数直接返回 null",
+                tryRead(0, 4, (offset, want, buf) -> 1) == null
+                        && tryRead(10, 0, (offset, want, buf) -> 1) == null,
+                "非正数参数仍进入读取");
+
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> hits = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "private static Bitmap decodeFull", null, hits);
+        check("缩略图：decodeFull 已并入 decode(bytes, maxEdge)", scanned > 0 && hits.isEmpty(),
+                "命中：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "Bitmap decode(byte[] bytes, int maxEdge)", null, hits);
+        check("缩略图：decode 只剩一个实现（带 maxEdge）", hits.size() == 1,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "decode(bytes, MAX_EDGE)", null, hits);
+        int maxEdgeCalls = hits.size();
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "decode(bytes, FULL_EDGE)", null, hits);
+        check("缩略图：两档解码各自传长边常量",
+                maxEdgeCalls == 1 && hits.size() == 1,
+                "MAX_EDGE=" + maxEdgeCalls + " FULL_EDGE=" + hits.size());
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "return commit(", null, hits);
+        check("缩略图：三处加载共用 commit 代际守卫", hits.size() == 3,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "PhotoPreview d = demo;", null, hits);
+        check("缩略图：demo 分支只在一处取值", scanned > 0 && hits.size() == 1,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "demoPreview(", null, hits);
+        check("缩略图：demoPreview 一处声明 + 三处调用", hits.size() == 4,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "synchronized (epochLock)", null, hits);
+        check("缩略图：epochLock 只在 setSession / clear / commit 使用", hits.size() == 3,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "while (offset < entry.size)", null, hits);
+        check("缩略图：分块循环已移出 ThumbnailStore", scanned > 0 && hits.isEmpty(),
+                "命中：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "RangeRead.read(", null, hits);
+        check("缩略图：整张 JPG 走 RangeRead 单一原语", hits.size() == 1,
+                "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+    }
+
+    /** 跑一次分块读，异常按失败（返回 null）处理，避免越界异常中断整个自检。 */
+    private static byte[] tryRead(long size, int chunk, RangeRead.Reader reader) {
+        try {
+            return RangeRead.read(size, chunk, reader);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 假 reader 的填充：第 i 个字节固定为 (byte) i（offset 连续推进时内容也连续）。 */
+    private static void fillAt(byte[] buf, int n, long offset) {
+        for (int i = 0; i < n; i++) buf[i] = (byte) (offset + i);
+    }
+
+    /** 断言「长度正确且逐字节连续」。 */
+    private static boolean sequential(byte[] got, int expected) {
+        if (got == null || got.length != expected) return false;
+        for (int i = 0; i < expected; i++) {
+            if (got[i] != (byte) i) return false;
+        }
+        return true;
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------
@@ -3713,6 +3827,8 @@ public final class SelfTest {
      * 成功文案必须说明内容未校验」钉在源码上，避免后续改动悄悄把续传加回来。
      *
      * 只锁 `MtpTransfer` 这一个文件：它不在 G9 的拆分范围，文件级契约不会随重构误红。
+     * 「不许按 offset 读」只约束**传输层**；预览读是另一条只读链路
+     * （`ThumbnailStore.fetchFull` → `RangeRead`），不受这条断言影响。
      * `ImportService` 的对应行为（起点恒 0、账本完成还要对磁盘）改由
      * {@link #resumeDisabledCases()} 与 `SelfTest` 的「账本完成 + 磁盘截断」用例守着（issue #212）。
      */

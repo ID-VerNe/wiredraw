@@ -5,7 +5,6 @@ import android.graphics.BitmapFactory;
 import android.util.Log;
 import android.util.LruCache;
 
-import java.io.ByteArrayOutputStream;
 
 /**
  * 照片墙缩略图与看图页预览（issue #59 / #61 / #83）。
@@ -134,23 +133,13 @@ public final class ThumbnailStore {
         int startEpoch = epoch;
         Bitmap decoded = null;
         try {
-            PhotoPreview d = demo;
-            if (d != null) {
-                decoded = scaleForGrid(d.previewFor(unit.preview()));
-            }
+            decoded = scaleForGrid(demoPreview(unit.preview()));
             if (decoded == null) decoded = fromCamera(unit);
         } catch (Throwable t) {
             Log.w(TAG, "缩略图读取失败 unit=" + unit.relPath + "：" + t);
         }
         if (decoded == null) return null;
-
-        synchronized (epochLock) {
-            // 解码期间换了会话 / 清过缓存：旧句柄的位图不得写进新会话，
-            // 否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2）。
-            if (epoch != startEpoch) return null;
-            cache.put(key, decoded);
-        }
-        return decoded;
+        return commit(startEpoch, key, cache, decoded);
     }
 
     /**
@@ -188,22 +177,13 @@ public final class ThumbnailStore {
         int startEpoch = epoch;
         Bitmap decoded = null;
         try {
-            PhotoPreview d = demo;
-            if (d != null) {
-                // demo 素材本身就是看图页要用的整图，不再降采样。
-                decoded = d.previewFor(unit.preview());
-            }
+            decoded = demoPreview(unit.preview());   // demo 素材即整图，不降采样
             if (decoded == null) decoded = fromCamera(unit);
         } catch (Throwable t) {
             Log.w(TAG, "看图页预览失败 unit=" + unit.relPath + "：" + t);
         }
         if (decoded == null) return null;
-
-        synchronized (epochLock) {
-            if (epoch != startEpoch) return null;
-            previewCache.put(unit.previewHandle(), decoded);
-        }
-        return decoded;
+        return commit(startEpoch, unit.previewHandle(), previewCache, decoded);
     }
 
     /**
@@ -221,23 +201,36 @@ public final class ThumbnailStore {
         int startEpoch = epoch;
         Bitmap decoded = null;
         try {
-            PhotoPreview d = demo;
-            if (d != null) {
-                decoded = d.previewFor(unit.jpg);   // demo 素材即整图（1440 长边）
+            if (demo != null) {
+                decoded = demoPreview(unit.jpg);   // demo 素材即整图（1440 长边）
             } else {
                 byte[] bytes = fetchFull(unit.jpg);
-                if (bytes != null) decoded = decodeFull(bytes);
+                if (bytes != null) decoded = decode(bytes, FULL_EDGE);
             }
         } catch (Throwable t) {
             Log.w(TAG, "整张 JPG 读取失败 handle=" + unit.jpg.handle + "：" + t);
         }
         if (decoded == null) return null;
+        return commit(startEpoch, key, fullCache, decoded);
+    }
 
+    /** demo 模式下的像素来源；非 demo 返回 null，让调用方回退相机。 */
+    private Bitmap demoPreview(Catalog.Entry entry) {
+        PhotoPreview d = demo;
+        return d == null ? null : d.previewFor(entry);
+    }
+
+    /**
+     * 代际校验 + 落缓存（三档加载共用）。解码期间换了会话 / 清过缓存时返回 null：
+     * 旧句柄的位图不得写进新会话，否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2）。
+     */
+    private Bitmap commit(int epochAtStart, Integer key,
+                          LruCache<Integer, Bitmap> cache, Bitmap bmp) {
         synchronized (epochLock) {
-            if (epoch != startEpoch) return null;
-            fullCache.put(key, decoded);
+            if (epoch != epochAtStart) return null;
+            cache.put(key, bmp);
         }
-        return decoded;
+        return bmp;
     }
 
     /** 同名 JPG 优先、缺失/失败回退 ARW（`V-32`）；每次都单独兜异常，保证回退可达。 */
@@ -266,7 +259,7 @@ public final class ThumbnailStore {
     private Bitmap thumbnail(MtpSession s, int handle) {
         // 锁内只做相机调用；解码放到锁外，不阻塞导入的 importFile。
         byte[] bytes = fetch(s, handle);
-        return bytes == null ? null : decode(bytes);
+        return bytes == null ? null : decode(bytes, MAX_EDGE);
     }
 
     private byte[] fetch(MtpSession s, int handle) {
@@ -288,18 +281,9 @@ public final class ThumbnailStore {
         s.ioLock().lock();
         try {
             if (session != s) return null;
-            ByteArrayOutputStream out = new ByteArrayOutputStream(
-                    (int) Math.min(entry.size, 4L << 20));
-            byte[] buffer = new byte[1 << 20];
-            long offset = 0;
-            while (offset < entry.size) {
-                int want = (int) Math.min(buffer.length, entry.size - offset);
-                long n = s.device().getPartialObject(entry.handle, offset, want, buffer);
-                if (n <= 0) return null;
-                out.write(buffer, 0, (int) n);
-                offset += n;
-            }
-            return out.toByteArray();
+            return RangeRead.read(entry.size, 1 << 20,
+                    (offset, want, buffer) ->
+                            s.device().getPartialObject(entry.handle, offset, want, buffer));
         } catch (java.io.IOException e) {
             Log.w(TAG, "整张 JPG 分块读取失败 handle=" + entry.handle + "：" + e);
             return null;
@@ -308,28 +292,18 @@ public final class ThumbnailStore {
         }
     }
 
-    /** 缩略图解码：长边压到 {@link #MAX_EDGE}。 */
-    private static Bitmap decode(byte[] bytes) {
+    /**
+     * 解码：长边压到 {@code maxEdge}（网格 {@link #MAX_EDGE}=512 / 看图页整张 {@link #FULL_EDGE}=2048，
+     * 避免 24 MP 原始分辨率约 96 MiB 进内存）。
+     *
+     * 采样循环按「缩放后仍大于 maxEdge」加倍；改成 `>=` 会多缩一档，边界保持原样。
+     */
+    private static Bitmap decode(byte[] bytes, int maxEdge) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
         int sample = 1;
-        while (bounds.outWidth / sample > MAX_EDGE || bounds.outHeight / sample > MAX_EDGE) {
-            sample *= 2;
-        }
-        BitmapFactory.Options opts = new BitmapFactory.Options();
-        opts.inSampleSize = sample;
-        opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
-    }
-
-    /** 整张 JPG 解码：长边压到 {@link #FULL_EDGE}，避免 24 MP 原始分辨率（约 96 MiB）进内存。 */
-    private static Bitmap decodeFull(byte[] bytes) {
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-        int sample = 1;
-        while (bounds.outWidth / sample > FULL_EDGE || bounds.outHeight / sample > FULL_EDGE) {
+        while (bounds.outWidth / sample > maxEdge || bounds.outHeight / sample > maxEdge) {
             sample *= 2;
         }
         BitmapFactory.Options opts = new BitmapFactory.Options();
