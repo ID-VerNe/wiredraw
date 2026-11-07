@@ -20,6 +20,9 @@ import sys
 
 TSHARK = os.environ.get("TSHARK", "tshark")
 BULK = 1200  # 超过这个长度的包不取 payload，只补零占位
+# ObjectInfo 至少要能读到偏移 52 的文件名长度字节（53 字节），
+# 与 probe.py 的 MIN_OBJINFO_LEN 取同一个值，避免两边门槛漂移（#225）。
+MIN_OBJINFO_LEN = 53
 
 OP_NAMES = {
     0x1001: "GetDeviceInfo", 0x1002: "OpenSession", 0x1003: "CloseSession",
@@ -121,7 +124,11 @@ def iter_packets(pcap, stream_no):
 
 
 def _friendly(body, base):
-    """Init 包里的 UCS-2 友好名：长度字节位置在不同实现上有 1 字节漂移，两种都试。"""
+    """Init 包里的 UCS-2 友好名：长度字节位置在不同实现上有 1 字节漂移，两种都试。
+
+    注意：±1 只是兼容其它实现的容错，不是本仓实测口径。a7C 实测名字固定从第
+    16 字节（ACK 里是第 20 字节）开始，基准偏移才是正确位置（#225）。
+    """
     best = ""
     for off in (base, base + 1, base - 1):
         if off < 0 or off >= len(body):
@@ -203,13 +210,16 @@ def list_streams(pcap):
 
 def _object_info(buf):
     """PTP ObjectInfo dataset 简化解码：文件名 + 大小 + 格式码。"""
-    if len(buf) < 54:
+    if len(buf) < MIN_OBJINFO_LEN:
         return None
     try:
         fmt = struct.unpack_from("<H", buf, 4)[0]
         size = struct.unpack_from("<I", buf, 8)[0]
         p = 52
         n = buf[p]
+        # 名字至少要有 n 个 UTF-16LE 字符的字节；不够就是短包，不能截半个名字当成功。
+        if MIN_OBJINFO_LEN + n * 2 > len(buf):
+            return None
         name = buf[p + 1: p + 1 + n * 2].decode("utf-16-le", "replace").rstrip("\x00")
         if not name or not name.isprintable():
             return None
@@ -218,21 +228,47 @@ def _object_info(buf):
         return None
 
 
+VALUE_FLAGS = ("--stream", "--limit")
+
+
+def _parse_argv(argv):
+    """拆位置参数与取值 flag。
+
+    返回 (values, positionals, err)。取值 flag 缺值或非整数时 err 是可直接打印的提示，
+    由 main() 以退出码 2 收口——不能让 ValueError 冒到栈顶（#225）。
+    """
+    values, positionals = {}, []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in VALUE_FLAGS:
+            if i + 1 >= len(argv):
+                return None, None, f"{a} 必须显式给整数，例如 {a} 7。"
+            raw = argv[i + 1]
+            try:
+                values[a] = int(raw)
+            except ValueError:
+                return None, None, f"{a} 需要整数，收到 {raw!r}；例如 {a} 7。"
+            i += 2
+            continue
+        if a.startswith("--"):
+            values[a] = True
+            i += 1
+            continue
+        positionals.append(a)
+        i += 1
+    return values, positionals, None
+
+
 def main():
     argv = sys.argv[1:]
-    flags = {a for a in argv if a.startswith("--")}
-    positional = [a for a in argv if not a.startswith("--")]
+    values, positional, err = _parse_argv(argv)
+    if err:
+        print(err)
+        return 2
 
-    def opt(name, default=None):
-        if name in argv:
-            i = argv.index(name)
-            if i + 1 < len(argv):
-                return int(argv[i + 1])
-        return default
-
-    stream_no = opt("--stream")
-    limit = opt("--limit", 400)
-    positional = [a for a in positional if not a.isdigit()]
+    stream_no = values.get("--stream")
+    limit = values.get("--limit", 400)
     if not positional:
         print(__doc__)
         return 1
@@ -251,9 +287,9 @@ def main():
 
     cam, host = Side(), Side()
     printed = 0
-    show_events = "--events" in flags
-    show_data = "--data" in flags
-    dump_init = "--dump-init" in flags
+    show_events = bool(values.get("--events"))
+    show_data = bool(values.get("--data"))
+    dump_init = bool(values.get("--dump-init"))
     pending = {}   # tid -> bytearray（数据阶段，用于解 ObjectInfo / 文件名）
     opcode_of = {} # tid -> 请求 opcode
 
