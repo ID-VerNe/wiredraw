@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import posixpath
 import re
 import subprocess
@@ -261,9 +262,11 @@ def main() -> int:
     md_files = tracked_markdown()
 
     for md in md_files:
-        if not md.is_file():
-            continue
         rel = md.relative_to(ROOT).as_posix()
+        if not md.is_file():
+            # 被跟踪的 md 却不在磁盘上，是索引与工作区脱节；静默跳过会打印假绿（#203）。
+            problems.append(f"被跟踪 md 读不到：{rel}")
+            continue
         p, n = scan_text(rel, md.read_text(encoding="utf-8", errors="replace"),
                          disk_exists, disk_read)
         problems.extend(p)
@@ -287,7 +290,17 @@ def main() -> int:
     return 0
 
 
+def _cli() -> argparse.Namespace:
+    """声明参数，让元门禁的 `--help` 自证层覆盖本脚本（#203）。
+
+    不走 argparse 时，拼错参数会被静默忽略、门禁照样跑绿；这里只声明实际用到的开关，
+    清单 cmd 里出现未声明参数时元门禁会直接报红。
+    """
+    ap = argparse.ArgumentParser(description="校验被跟踪 md 的相对链接")
+    ap.add_argument("--self-test", action="store_true", help="跑内置回归用例")
+    return ap.parse_args()
+
+
 if __name__ == "__main__":
-    if "--self-test" in sys.argv:
-        sys.exit(self_test())
-    sys.exit(main())
+    args = _cli()
+    sys.exit(self_test() if args.self_test else main())

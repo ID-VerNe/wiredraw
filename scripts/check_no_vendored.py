@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -71,7 +72,9 @@ def main() -> int:
         p = ROOT / rel
         try:
             size = p.stat().st_size
-        except OSError:
+        except OSError as e:
+            # 被跟踪文件却读不到，说明索引与磁盘已经脱节；静默跳过会让门禁假绿（#203）。
+            problems.append(f"被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）")
             continue
         if size > MAX_BYTES:
             problems.append(f"被跟踪的大文件：{rel}（{size / 1048576:.1f} MB，上限 5 MB）")
@@ -85,5 +88,16 @@ def main() -> int:
     return 0
 
 
+def _cli() -> argparse.Namespace:
+    """声明参数，让元门禁的 `--help` 自证层覆盖本脚本（#203）。
+
+    本脚本没有可选开关；加 argparse 的唯一目的是让拼错参数变成 `exit 2`，
+    而不是被 `main()` 静默忽略后照常跑绿。
+    """
+    ap = argparse.ArgumentParser(description="守住第三方参考库不进版本控制")
+    return ap.parse_args()
+
+
 if __name__ == "__main__":
+    _cli()
     sys.exit(main())
