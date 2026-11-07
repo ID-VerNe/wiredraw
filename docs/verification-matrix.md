@@ -34,7 +34,7 @@
 
 | 能力 | E1 | E2 | 其他机型 / 固件 |
 |---|---|---|---|
-| 枚举（`open` → `getStorageIds` → 全量 `getObjectHandles` → 逐个 `getObjectInfo`） | 通过 2026-11-04（[主报告 §12.2](research/a7c-usb-raw-2026-11.md)：1526 个对象全覆盖） | 未验证（PC 探针只记录了抽样对象的 `getPartialObject` 语义，没有全量枚举的原始输出） | 未验证 |
+| 枚举（`open` → `getStorageIds` → 全量 `getObjectHandles` → 逐个 `getObjectInfo`） | 通过 2026-11-04（[主报告 §12.2](research/a7c-usb-raw-2026-11.md) 记录 1526 个对象全覆盖） | 未验证（PC 探针只记录了抽样对象的 `getPartialObject` 语义，没有全量枚举的原始输出） | 未验证 |
 | 下载与完整性（字节数 + MD5 + TIFF 文件头） | 通过 2026-11-04（[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06（[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)） | 未验证 |
 | 插线自动拉起（`ACTION_USB_DEVICE_ATTACHED` → 自动授权 → 扫描） | 通过 2026-11-05 18:48（[导片工具 README「真机待验清单」第 1 项](../tools/android-mtp-import/README.md)；这一批实测的机型 / Android / 连接方式见 [UI-SPEC §0.11 第 7 行](../tools/android-mtp-import/UI-SPEC.md)：ILCE-7C fw2.00 / 魅族 20 Infinity / Android 15 API 35 / USB MTP） | 未验证 | 未验证 |
 | 冷启动检测（`autoScanOnLaunch`）+ 同一次插拔去重 | 通过 2026-11-05 18:48（同上第 2 项：广播路径「→ 开始扫描」，attach 路径「→ 扫描已在进行中」，单次会话 1526 对象；同一批次的机型出处同上格） | 未验证 | 未验证 |

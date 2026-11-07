@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-from _common import ENV_FAIL, EnvProblem, git_ls_files
+from _common import ENV_FAIL, EnvProblem, git_ls_files, strip_fences
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -30,7 +30,6 @@ REF_USE = re.compile(r"\[([^\]]*)\]\[([^\]]*)\]")
 SHORT_REF = re.compile(r"(?<!!)\[([^\]\[]+)\](?!\s*[\[(])")
 HTML_TAG = re.compile(r"<(?:a|img)\b[^>]*>", re.I)
 HTML_ATTR = re.compile(r"(?:href|src)\s*=\s*[\"']([^\"']+)[\"']", re.I)
-FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 HEADING = re.compile(r"^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*$", re.M)
 INDEX_SECTION = re.compile(
     r"^##[ \t]+6\.[ \t]*文档索引[ \t]*$([\s\S]*?)(?=^##[ \t]|\Z)", re.M
@@ -51,31 +50,6 @@ def _resolve(md_rel: str, target: str) -> str:
     if not path_part:
         return ""
     return posixpath.normpath(posixpath.join(posixpath.dirname(md_rel), path_part))
-
-
-def strip_fences(text: str) -> str:
-    """逐行状态机：围栏内容替换成空行（保留行号），未闭合则吃到文末。
-
-    闭围栏须与开围栏同字符、长度不短于开围栏；混合围栏（开 ``` 闭 ~~~）不算闭合，
-    按「未闭合」处理——这样至少不会把围栏里的示例链接当成真链接误报。
-    """
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    out: list[str] = []
-    char = ""
-    width = 0
-    for line in normalized.split("\n"):
-        m = FENCE_OPEN.match(line)
-        if not char:
-            if m:
-                char, width = m.group(1)[0], len(m.group(1))
-                out.append("")
-            else:
-                out.append(line)
-        else:
-            if m and m.group(1)[0] == char and len(m.group(1)) >= width:
-                char, width = "", 0
-            out.append("")
-    return "\n".join(out)
 
 
 def slugify(title: str) -> str:

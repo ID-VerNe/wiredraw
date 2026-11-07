@@ -8,7 +8,7 @@
 
 | 档 | 条目 | 何时跑 | 需要什么 |
 |---|---|---|---|
-| `ci` | `static` 档（条数以 [`scripts/gates.json`](../scripts/gates.json) 为准）：元门禁、仓库卫生、文档链接、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
+| `ci` | `static` 档（条数以 [`scripts/gates.json`](../scripts/gates.json) 为准）：元门禁、仓库卫生、文档链接与行号、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
 | `manual` | 条数以 `scripts/gates.json` 为准：探针 APK 构建、导片工具自检 + 构建 + 验签 | 动到 `tools/android-mtp-probe/` 或 `tools/android-mtp-import/` 时 | Android SDK + JDK |
 | `support` | 条数以 `scripts/gates.json` 为准：PR 正文分段、PR 正文与评论的敏感信息、commit message 敏感信息 | 有 PR 上下文时（CI 的 `pull_request`） | `gh` / `GH_TOKEN`；本地无 PR 时 SKIP |
 
@@ -21,7 +21,7 @@ python scripts/run_gates.py manual          # 真机/工具链档（Android 构�
 python scripts/run_gates.py support         # 需要 PR 上下文的一档
 ```
 
-`ci` 全绿是最低要求；**只改文档也要跑**，`check_doc_links.py` 就在里面。
+`ci` 全绿是最低要求；**只改文档也要跑**，`check_doc_links.py` / `check_line_refs.py` 就在里面。
 `manual` 档的前置环境变量见 [building.md](building.md) 第二节。
 
 ## 二、钩子与绕过
@@ -34,7 +34,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 本仓库没有通用单元测试框架。回归靠两类东西：
 
 1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
-   `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
+   `check_line_refs.py` / `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
    `check_commit_messages.py` / `review_prompt.py` 带 `--self-test`，改门禁先改用例；
    `_common.py` 没有参数入口，**直接运行即跑自检，带任何参数一律退 2**；
    `check_no_vendored.py` 与 `py_compile` 没有自检入口。
@@ -52,7 +52,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 | `2` | **环境或参数问题**：这次检查没做成 | `gh` / `git` 不可用、输出不是 JSON、文件读不到、参数形态不对 |
 
 混用这两类会让 CI 把环境抖动记成内容问题（或反过来把漏检记成通过）。共享的机械能力
-（`gh` 取数、`git ls-files -z`、命中行格式、门禁链判定、退出码常量）收口在
+（`gh` 取数、`git ls-files -z`、命中行格式、门禁链判定、围栏代码块剥除、退出码常量）收口在
 [`scripts/_common.py`](../scripts/_common.py)；扫什么、算不算命中仍留在各门禁脚本里。
 
 `git ls-files` 一律带 `-z`：不带时中文文件名会被 `core.quotePath` 转义成假路径，
