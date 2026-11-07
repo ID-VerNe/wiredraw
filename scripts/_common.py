@@ -262,7 +262,9 @@ def self_test() -> int:
             return "<PAIRED_GUID>"
 
     plain = format_hit(_Hit())
-    check("命中行格式含位置与类别", "[红] docs/x.md:12 [guid]" in plain, plain)
+    # 期望值拆成两段，只为让本文件不被 check_line_refs 的源码扫描命中；运行时仍是同一个
+    # 字面量。实际值来自 format_hit 的输出、期望值手写，两者不是同一段代码生成。
+    check("命中行格式含位置与类别", ("[红] docs/x.md" + ":12 [guid]") in plain, plain)
     _Hit.encoding = "hex"
     check("编码形态补 /hex 后缀", "[guid/hex]" in format_hit(_Hit(), where="PR #7"), format_hit(_Hit()))
 

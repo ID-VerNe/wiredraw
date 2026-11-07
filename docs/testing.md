@@ -8,7 +8,7 @@
 
 | 档 | 条目 | 何时跑 | 需要什么 |
 |---|---|---|---|
-| `ci` | `static` 档（条数以 [`scripts/gates.json`](../scripts/gates.json) 为准）：元门禁、仓库卫生、文档链接与行号、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
+| `ci` | `static` 档（条数以 [`scripts/gates.json`](../scripts/gates.json) 为准）：元门禁、仓库卫生、文档链接与行号（含代码注释）、Python 语法、敏感信息 | 每次改动后；`pre-push` 也只跑这一档 | 只要 Python |
 | `manual` | 条数以 `scripts/gates.json` 为准：探针 APK 构建、导片工具自检 + 构建 + 验签 | 动到 `tools/android-mtp-probe/` 或 `tools/android-mtp-import/` 时 | Android SDK + JDK |
 | `support` | 条数以 `scripts/gates.json` 为准：PR 正文分段、PR 正文与评论的敏感信息、commit message 敏感信息 | 有 PR 上下文时（CI 的 `pull_request`） | `gh` / `GH_TOKEN`；本地无 PR 时 SKIP |
 
