@@ -42,6 +42,7 @@ public final class SelfTest {
     public static void main(String[] args) throws Exception {
         catalogCases();
         progressiveCases();
+        progressiveGateCases();
         truncationCases();
         attachCases();
         permissionCases();
@@ -189,6 +190,49 @@ public final class SelfTest {
         check("Selection.retarget：新句柄可在新快照上勾选",
                 s.fileHandles().size() == 2,
                 "实际 " + s.fileHandles());
+    }
+
+    // ---------------- 渐进发布门槛（#96 的墓碑） ----------------
+
+    /**
+     * 墓碑：#96 —— 首屏不该等 ARW。相机只拍 JPG 时目录里始终没有 ARW，
+     * 旧门槛 `rawSeen > 0` 恒为 false，照片墙要等整轮扫描结束（约 59 秒）才出现。
+     *
+     * 判据必须是「已发现至少一张照片」（ARW 或 JPG），且口径与 {@link PhotoWall#of}
+     * 的入选集合一致，否则会发布出 0 单元快照、又被 `showPartialCatalog` 拽回 `SCANNING`。
+     * 这里按扫描顺序逐项累加，断言第一张照片出现的那一刻判据就已经成立。
+     */
+    static void progressiveGateCases() {
+        Catalog jpgOnly = new Catalog();
+        jpgOnly.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        jpgOnly.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        check("渐进门槛：只有文件夹时还不发布",
+                !jpgOnly.hasPhotoFile(), "文件夹被当成照片");
+
+        jpgOnly.add(new Catalog.Entry(3, 2, Catalog.FMT_JPEG, 120, "DSC00001.JPG"));
+        check("渐进门槛：纯 JPG 目录首张照片即具备发布条件（#96）",
+                jpgOnly.hasPhotoFile(), "JPG 未被计入照片");
+        PhotoWall jpgWall = PhotoWall.of(jpgOnly.build());
+        check("渐进门槛：纯 JPG 目录首屏有照片单元",
+                jpgWall.photoCount() == 1, "单元数=" + jpgWall.photoCount());
+        check("渐进门槛：快照沿用同一判据",
+                jpgOnly.snapshot().hasPhotoFile(), "快照丢失照片计数");
+
+        Catalog rawOnly = new Catalog();
+        rawOnly.add(new Catalog.Entry(4, 0, Catalog.FMT_ARW, 300, "DSC00002.ARW"));
+        check("渐进门槛：ARW-only 目录仍具备发布条件",
+                rawOnly.hasPhotoFile(), "ARW 未被计入照片");
+
+        Catalog suffixOnly = new Catalog();
+        suffixOnly.add(new Catalog.Entry(5, 0, 0, 0, "DSC00003.JPG"));   // 格式码未知，靠后缀
+        check("渐进门槛：格式码未知但后缀是 JPG 也算照片",
+                suffixOnly.hasPhotoFile(), "后缀判据未生效");
+
+        Catalog nonPhoto = new Catalog();
+        nonPhoto.add(new Catalog.Entry(6, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        nonPhoto.add(new Catalog.Entry(7, 1, 0x3004, 0, "C0001.MP4"));
+        check("渐进门槛：文件夹与 MP4 不算照片",
+                !nonPhoto.hasPhotoFile(), "非照片对象被计入照片");
     }
 
     // ---------------- 截断计数（#15 的墓碑） ----------------
