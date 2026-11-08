@@ -89,12 +89,19 @@ public final class UiText {
         return f;
     }
 
-    /** 环内百分比：`round(done/total×100)`，与环下 a/b 严格自洽（U-45）。 */
+    /**
+     * 环内百分比：`round(done/total×100)`，与环下 a/b 严格自洽（U-45）。
+     *
+     * #266：`done < total` 时钉在 99，未传完不得显示 100%。文件计数口径下
+     * `511/512 → round(99.8) = 100`，最后一个 RAW 还在传时环内就报「已完成」，
+     * 误导可持续数秒；`#180` 删掉字节字段后这条上限没有跟着迁移，本次补上。
+     */
     public static int percent(int done, int total) {
         if (total <= 0) return 0;
         if (done <= 0) return 0;
         if (done >= total) return 100;
-        return (int) Math.round(done * 100.0 / total);
+        // 只剩最后几个文件时 round 会逼近 100，钳到 99；真正的 100 只留给 done >= total。
+        return Math.min((int) Math.round(done * 100.0 / total), 99);
     }
 
     /** 环内百分比文本。 */

@@ -3375,6 +3375,16 @@ public final class SelfTest {
         check("percent 边界 0 与满", UiText.percent(0, 36) == 0 && UiText.percent(36, 36) == 100,
                 "实际 " + UiText.percent(0, 36) + "/" + UiText.percent(36, 36));
         check("percent 分母为 0 不除零", UiText.percent(5, 0) == 0, "实际 " + UiText.percent(5, 0));
+        // #266：未传完不得显示 100%。文件计数口径下 511/512 会 round 成 100，
+        // 最后一个 RAW 还在传时环内就报「已完成」，误导可持续数秒（U-45 追加断言）。
+        check("percent 511/512 未传完钉 99，不显示 100%", UiText.percent(511, 512) == 99,
+                "实际 " + UiText.percent(511, 512));
+        check("percentText 511/512 → `99%`", "99%".equals(UiText.percentText(511, 512)),
+                "实际 " + UiText.percentText(511, 512));
+        check("percent 199/200（99.5%）未传完也钉 99", UiText.percent(199, 200) == 99,
+                "实际 " + UiText.percent(199, 200));
+        check("percent 200/200 传完才 100", UiText.percent(200, 200) == 100,
+                "实际 " + UiText.percent(200, 200));
         check("percentText 带百分号", "33%".equals(UiText.percentText(12, 36)),
                 "实际 " + UiText.percentText(12, 36));
         check("fraction 格式 a/b", "12/36".equals(UiText.fraction(12, 36)),
