@@ -136,6 +136,7 @@ val pureJdkClasses = listOf(
     "PauseSwitch.java",
     "PermGate.java",
     "PhotoWall.java",
+    "ProbeVerdict.java",
     "RangeRead.java",
     "ResumableTransfer.java",
     "RoundFiles.java",
