@@ -3588,6 +3588,16 @@ public final class SelfTest {
                 "实际 " + UiText.progressFraction(-2, 36));
         check("进度分数：12/36 = 1/3", Math.abs(UiText.progressFraction(12, 36) - 1f / 3f) < 1e-6f,
                 "实际 " + UiText.progressFraction(12, 36));
+        // #282（产品裁决「钳」）：环弧与 percentText 同口径，未传完不得画满。
+        check("进度分数：511/512 钳到 0.99（不是 0.998）", UiText.progressFraction(511, 512) == 0.99f,
+                "实际 " + UiText.progressFraction(511, 512));
+        check("进度分数：199/200 也钳到 0.99", UiText.progressFraction(199, 200) == 0.99f,
+                "实际 " + UiText.progressFraction(199, 200));
+        check("进度分数：512/512 才给满环", UiText.progressFraction(512, 512) == 1f,
+                "实际 " + UiText.progressFraction(512, 512));
+        check("环弧：未完成时不超过 99% 对应角度",
+                360f * UiText.progressFraction(511, 512) <= 360f * 0.99f,
+                "实际 " + (360f * UiText.progressFraction(511, 512)));
 
         PhotoWall wall = PhotoWall.of(sample());
         PhotoWall.Group jun = null;

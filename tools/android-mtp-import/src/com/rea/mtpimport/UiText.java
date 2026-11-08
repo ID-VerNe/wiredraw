@@ -74,19 +74,25 @@ public final class UiText {
         return done + "/" + total;
     }
 
+    /** 未传完的上限：环内文本与环弧都用它，两处口径不许分开漂移（#266 / #282）。 */
+    private static final int INCOMPLETE_PERCENT = 99;
+
     /**
      * 进度环的分数（0f～1f）：分母 ≤0 记 0，越界一律夹紧（#214 / F-07）。
      *
      * 扫描环 / 传输环 / 照片墙细线都只调这一个函数，页面不再各写一份
      * 「`if (total > 0) done/total else 0f`」；`{@link Widgets}` 的控件侧夹紧仍保留，
      * 因为 `ProgressRing` 是通用控件，入参不保证已归一。
+     *
+     * #282（产品裁决「钳」）：`done < total` 时上限与 {@link #percent} 同口径，
+     * 弧长不得到 99% 对应角度以上——`511/512` 原样返回 0.998，环弧 359.3° 视觉等于画满。
+     * 只有 `done >= total` 才给 1f。
      */
     public static float progressFraction(int done, int total) {
         if (total <= 0) return 0f;
-        float f = done / (float) total;
-        if (f < 0f) return 0f;
-        if (f > 1f) return 1f;
-        return f;
+        if (done <= 0) return 0f;
+        if (done >= total) return 1f;
+        return Math.min(done / (float) total, INCOMPLETE_PERCENT / 100f);
     }
 
     /**
@@ -100,8 +106,8 @@ public final class UiText {
         if (total <= 0) return 0;
         if (done <= 0) return 0;
         if (done >= total) return 100;
-        // 只剩最后几个文件时 round 会逼近 100，钳到 99；真正的 100 只留给 done >= total。
-        return Math.min((int) Math.round(done * 100.0 / total), 99);
+        // 只剩最后几个文件时 round 会逼近 100，钳到 INCOMPLETE_PERCENT；真正的 100 只留给 done >= total。
+        return Math.min((int) Math.round(done * 100.0 / total), INCOMPLETE_PERCENT);
     }
 
     /** 环内百分比文本。 */
