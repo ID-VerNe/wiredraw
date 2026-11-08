@@ -23,13 +23,17 @@
 """
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import re
 import subprocess
 import sys
 import types
 from pathlib import Path
+
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, run
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "gates.json"
@@ -53,7 +57,15 @@ FLAG_TOKEN = re.compile(r"--[a-z][a-z0-9-]*|-[A-Za-z]")
 
 
 def load() -> dict:
-    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+    # 清单读不到 / 不是 JSON 都是「这次检查没做成」，抛 EnvProblem 由 main 映射成退出码 2（#204）。
+    try:
+        text = MANIFEST.read_text(encoding="utf-8")
+    except OSError as e:
+        raise EnvProblem(f"读不到 {MANIFEST.relative_to(ROOT)}：{e.strerror or e}") from e
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise EnvProblem(f"gates.json 不是合法 JSON：{e}") from e
 
 
 def render(data: dict) -> str:
@@ -160,16 +172,8 @@ def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
     if not re.search(r"^\s*(?:import\s+argparse|from\s+argparse\s+import)", source, re.M):
         return None
     try:
-        proc = subprocess.run(
-            [sys.executable or "python", str(script), "--help"],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError) as e:
+        proc = run([sys.executable or "python", str(script), "--help"], timeout=15)
+    except EnvProblem as e:
         raise ProbeError(
             f"`{script.relative_to(ROOT)} --help` 跑不起来：{e}"
         ) from e
@@ -274,7 +278,11 @@ def self_test() -> int:
     每条用例都要求具体的提示文本，而不是只看「有没有问题」——这样把判定条件
     改坏时用例才会真的红，而不是被任意一条无关问题蒙混过关。
     """
-    base = load()
+    try:
+        base = load()
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        return ENV_FAIL
     failures: list[str] = []
     passed = 0
 
@@ -462,19 +470,63 @@ def self_test() -> int:
         passed += 1
         print("[绿] 自检：生成段渲染 cmd")
 
+    # #204：子进程样板收口到共享层；清单读不到必须退 2（不许 traceback 隐式退 1）。
+    def check(label: str, ok: bool, detail: str = "") -> None:
+        nonlocal passed
+        if ok:
+            passed += 1
+            print(f"[绿] 自检：{label}")
+        else:
+            failures.append(label)
+            print(f"[红] 自检：{label}（{detail}）", file=sys.stderr)
+
+    manifest_src = Path(__file__).read_text(encoding="utf-8")
+    check(
+        "#204：子进程走共享层 run()",
+        "from _common import" in manifest_src and "subprocess.run" + "(" not in manifest_src,
+    )
+
+    real_manifest = MANIFEST
+    globals()["MANIFEST"] = ROOT / "scripts" / "__missing_gates.json"
+    try:
+        try:
+            missing_exit = main([])
+        except Exception:  # noqa: BLE001 - 现状是 traceback，用例要报红而不是把自检炸掉
+            missing_exit = None
+    finally:
+        globals()["MANIFEST"] = real_manifest
+    check("#204：清单读不到退 2", missing_exit == ENV_FAIL, f"实际 {missing_exit!r}")
+
+    # 自检红 / 全绿的退出码也必须与 _common 一致（#204）：红是「检查没做成」= 2，不是内容 1。
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        red_exit = _self_test_result(["注入的失败"], 0)
+        green_exit = _self_test_result([], 1)
+    check("#204：自检红退 2", red_exit == ENV_FAIL, f"实际 {red_exit!r}")
+    check("#204：自检全绿退 0", green_exit == OK, f"实际 {green_exit!r}")
+
+    return _self_test_result(failures, passed)
+
+
+def _self_test_result(failures: list[str], passed: int) -> int:
+    """自检结论：红属于「检查没做成」，与 `_common.py` 及其它门禁统一退 2（#204）。"""
     if failures:
         print(f"[红] 自检失败 {len(failures)} 项：{', '.join(failures)}", file=sys.stderr)
-        return 1
+        return ENV_FAIL
     print(f"[绿] 自检 {passed} 项通过")
-    return 0
+    return OK
 
 
-def main() -> int:
-    if "--self-test" in sys.argv:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if "--self-test" in argv:
         return self_test()
 
-    write = "--write" in sys.argv
-    data = load()
+    write = "--write" in argv
+    try:
+        data = load()
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        return ENV_FAIL
 
     # 清单本身不合规时先报红：既不让后续渲染把畸形 cmd 写进 AGENTS.md，
     # 也避免形状问题在更早的检查里变成异常栈（#139）。
@@ -482,11 +534,12 @@ def main() -> int:
     if problems:
         for p in problems:
             print(f"[红] {p}", file=sys.stderr)
-        return 1
+        return CONTENT_FAIL
 
     if not AGENTS.is_file():
         print(f"[红] 找不到 {AGENTS.name}", file=sys.stderr)
-        return 1
+        # 生成段的目标文件读不到 = 这次比对没做成（#204）。
+        return ENV_FAIL
 
     text = AGENTS.read_text(encoding="utf-8")
     current = extract(text)
@@ -495,7 +548,7 @@ def main() -> int:
     if write:
         if current is None:
             print(f"[红] {AGENTS.name} 里没有生成段标记 {BEGIN} / {END}", file=sys.stderr)
-            return 1
+            return CONTENT_FAIL
         if current != expected:
             AGENTS.write_text(text.replace(current, expected), encoding="utf-8")
             print(f"[已重写] {AGENTS.name} 的门禁生成段")
@@ -504,10 +557,10 @@ def main() -> int:
     elif current != expected:
         print("[红] AGENTS.md 的门禁生成段与 scripts/gates.json 不一致。", file=sys.stderr)
         print("     修法：python scripts/check_gates_manifest.py --write", file=sys.stderr)
-        return 1
+        return CONTENT_FAIL
 
     print(f"[绿] 清单一致：{len(data.get('ci', []))} 个 ci 门禁，脚本均存在，无重名")
-    return 0
+    return OK
 
 
 if __name__ == "__main__":

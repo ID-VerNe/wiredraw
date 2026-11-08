@@ -35,7 +35,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 
 1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
    `check_line_refs.py` / `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
-   `check_commit_messages.py` / `review_prompt.py` 带 `--self-test`，改门禁先改用例；
+   `check_commit_messages.py` / `review_prompt.py` / `run_gates.py` 带 `--self-test`，改门禁先改用例；
    `_common.py` 没有参数入口，**直接运行即跑自检，带任何参数一律退 2**；
    `check_no_vendored.py` 与 `py_compile` 没有自检入口。
    导片工具有独立的 JVM 自检（`manual` 档的 `selfTest`；项数随用例增加，
@@ -48,8 +48,18 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 | 码 | 含义 | 典型场景 |
 |---|---|---|
 | `0` | 绿：检查通过 / 自检全绿；本地无 PR 上下文时的 SKIP 也是 `0` | 门禁全绿、`--self-test` 全绿 |
-| `1` | **内容不达标**：这份东西本身不合格 | 断链、敏感值命中、PR 缺必填段、超 5 MB 的被跟踪文件 |
-| `2` | **环境或参数问题**：这次检查没做成 | `gh` / `git` 不可用、输出不是 JSON、文件读不到、参数形态不对 |
+| `1` | **内容不达标**：这份东西本身不合格 | 断链、敏感值命中、PR 缺必填段、超 5 MB 的被跟踪文件、清单契约问题、生成段漂移 |
+| `2` | **环境或参数问题**：这次检查没做成 | `gh` / `git` 不可用、输出不是 JSON、被跟踪文件读不到、`gates.json` 读不到或形状不合规、`AGENTS.md` 读不到、参数形态不对、自检红 |
+
+按源码逐项落点（改判定条件时同步这张表；`#204` 起全仓统一）：
+
+| 脚本 | 退 `1`（内容） | 退 `2`（环境 / 参数 / 自检） |
+|---|---|---|
+| `check_gates_manifest.py` | 清单条目缺字段、cmd 非数组、shard 未声明；脚本不存在或 `--help` 不自证；生成段漂移；`--write` 找不到生成段标记 | `gates.json` 读不到或不是 JSON；`AGENTS.md` 读不到；自检红 |
+| `check_sensitive.py` | 命中敏感值（`--fix` 后仍有残留同样退 `1`） | `git` 不可用；被跟踪文件读不到；allowlist 配置不合格；自检红（`--warn` 只报告，退 `0`） |
+| `check_doc_links.py` / `check_line_refs.py` / `check_no_vendored.py` | 断链；行号违规；第三方仓库被跟踪、超 5 MB | `git` 不可用；被跟踪文件读不到；自检红 |
+| `check_pr_sections.py` / `check_pr_body.py` / `check_commit_messages.py` | 缺必填段；敏感值命中 | 无 PR 上下文 SKIP 退 `0`；上下文取不全或 `gh` 失败；自检红 |
+| `run_gates.py` | 有门禁红 | `gates.json` 读不到或形状不合规；未知分片；该档为空；自检红 |
 
 混用这两类会让 CI 把环境抖动记成内容问题（或反过来把漏检记成通过）。共享的机械能力
 （`gh` 取数、`git ls-files -z`、命中行格式、门禁链判定、围栏代码块剥除、退出码常量）收口在
