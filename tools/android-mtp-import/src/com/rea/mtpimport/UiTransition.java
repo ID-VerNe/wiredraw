@@ -3,9 +3,9 @@ package com.rea.mtpimport;
 /**
  * 界面状态迁移表（#213）。
  *
- * 动机：`backgroundScanning` / `transferViewClosed` / `exitConfirmOpen` 这三个
+ * 动机：`backgroundScanning` / `transferViewClosed` / `exitConfirmOpen` / `connectionLost` 这四个
  * 「跨状态字段」曾经散在 {@code AppModel} 的十个方法里各自复位，改一个状态很容易
- * 漏复位另一个。本表把「进入某个动作时，三个字段各自该变成什么」集中到一处，
+ * 漏复位另一个。本表把「进入某个动作时，四个字段各自该变成什么」集中到一处，
  * {@code AppModel} 只留一个私有 `transition(action)` 按表赋值。
  *
  * 本类是纯 JDK（不 import android.* / Compose），所以 {@code SelfTest} 能直接驱动
@@ -19,7 +19,11 @@ package com.rea.mtpimport;
  *   <li>{@code IMPORT_START} / {@code DONE}：复位视图关闭与退出确认框，扫描标志保持；
  *       注意 {@code showDone} 历史上并不写 `backgroundScanning`，「`DONE` 是否应复位它」
  *       规格未定（#213「待裁决」），这里按现状保留，不顺手改行为；</li>
- *   <li>{@code PROGRESS} / {@code PAUSED} / {@code BACK_READY} / {@code BACK_COLD}：只换状态；</li>
+ *   <li>{@code PROGRESS} / {@code PAUSED}：换状态并保留 {@code connectionLost}
+ *       （断线后一次进度回调不得把 `Disconnected` 擦回在线）；</li>
+ *   <li>{@code BACK_READY} / {@code BACK_COLD}：换状态并复位 {@code connectionLost}；</li>
+ *   <li>{@code USB_DETACHED}：不换状态，只把 {@code connectionLost} 置真
+ *       （#44 复审 / P1-1）；</li>
  *   <li>{@code DISCARD_PARTIAL}：不换状态，只复位扫描标志；</li>
  *   <li>{@code DEMO_RESET}：不换状态，复位两个覆盖层；{@code LEAVE_VIEW}：不换状态，置视图关闭。</li>
  * </ul>

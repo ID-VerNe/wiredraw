@@ -3059,29 +3059,37 @@ public final class SelfTest {
                         .filter(s -> s != UiState.State.CATALOG_READY)
                         .noneMatch(s -> TopBarSpec.showsCountPill(s, 511)),
                 "非 READY 状态出现了计数胶囊");
-        // P1-1（#44 复审）：连接指示在顶栏全状态常驻，传输态不再让位给环。
-        check("TopBarSpec：10 态都在顶栏渲染连接指示（P1-1）",
-                java.util.Arrays.stream(UiState.State.values())
-                        .allMatch(TopBarSpec::showsConnectionIndicator),
-                "传输态（IMPORTING / PAUSED）漏了连接指示");
+        // P1-1（#44 复审）：传输态不再让位给环，必须有连接指示。只钉这两个状态——
+        // `showsConnectionIndicator` 对所有 `UiState` 为真，扫全量等于恒真断言。
+        check("TopBarSpec：传输态（IMPORTING / PAUSED）渲染连接指示（P1-1）",
+                TopBarSpec.showsConnectionIndicator(UiState.State.IMPORTING)
+                        && TopBarSpec.showsConnectionIndicator(UiState.State.PAUSED),
+                "传输态漏了连接指示");
         check("TopBarSpec：在线时连接指示取设备短名",
                 "a7C".equals(TopBarSpec.connectionLabel(false, "a7C")),
                 "实际 " + TopBarSpec.connectionLabel(false, "a7C"));
         check("TopBarSpec：断线时连接指示切 Disconnected",
                 "Disconnected".equals(TopBarSpec.connectionLabel(true, "a7C")),
                 "实际 " + TopBarSpec.connectionLabel(true, "a7C"));
-        // 页面必须真的用上这套判定，否则纯 JDK 用例再绿也钉不住 Compose。
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
-        List<String> indicatorUses = new ArrayList<>();
-        int scanned = scanSourceText(srcRoot, "TransferConnectionIndicator", null, indicatorUses);
-        check("传输页顶栏调用 TransferConnectionIndicator（P1-1）",
-                scanned > 0 && !indicatorUses.isEmpty(),
-                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", indicatorUses));
+        // 页面必须真的**调用**，否则纯 JDK 用例再绿也钉不住 Compose。
+        // 限定到 ui 目录并匹配调用形态 `TransferConnectionIndicator(model)`：
+        // 函数声明行是 `TransferConnectionIndicator(model: AppModel)`，不含右括号，不会误命中。
+        File uiDir = new File(new File(System.getProperty("user.dir"), "src"), "com/rea/mtpimport/ui");
+        List<String> indicatorCalls = new ArrayList<>();
+        int scanned = scanSourceText(uiDir, "TransferConnectionIndicator(model)", null, indicatorCalls);
+        boolean calledFromTransfer = indicatorCalls.stream()
+                .anyMatch(h -> h.contains("TransferScreen.kt"));
+        check("传输页顶栏调用 TransferConnectionIndicator(model)（P1-1）",
+                scanned > 0 && calledFromTransfer,
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", indicatorCalls));
     }
 
     /**
      * P1-3（#44 复审）：进度环轨道从 `outlineSoft`（白底 1.7:1）改用 `outline`（4.47:1 ≥ 3:1）。
-     * 轨道颜色写在 Compose 里，纯 JDK 侧只能用源码扫描钉住；token 值本身由 `colorTokensCases` 守。
+     *
+     * 注意：下面两条源码扫描是**弱契约**——只防「把轨道改回 `outlineSoft`」和「删掉
+     * `drawCircle(UiColors.outline,`」这两种具体回退；换行重排、改写表达式都会假红。
+     * token 值本身由 `colorTokensCases` 与最后一条对比度断言守，别把源码扫描当强契约。
      */
     static void ringTrackCases() {
         File srcRoot = new File(System.getProperty("user.dir"), "src");

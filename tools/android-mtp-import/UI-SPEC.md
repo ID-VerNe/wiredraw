@@ -394,7 +394,7 @@
 | `IMPORTING` / `PAUSED` | `Back` | 相机线稿 + `a7C`（断线时切 `Disconnected`） | 任务视图的关闭入口在左；右端给常驻连接指示（断线由 `V-26` 的 USB 拔出事件置位）；环仍是内容区唯一焦点 |
 | `photo` | `Back` | `Location` | 详情视图，与状态无关 |
 
-- **V-26** 在**渲染连接指示的视图**里（`CATALOG_READY` / `COLD` / `ERROR` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` / `IMPORTING` / `PAUSED`），顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线）；传输态（`IMPORTING` / `PAUSED`）另由 `ACTION_USB_DEVICE_DETACHED` 事件把指示切 `Disconnected`，**不是**轮询探测（2026-11-08 / #44 复审）；`photo` 不渲染连接指示（§2.2），本条不适用。
+- **V-26** 在**渲染连接指示的视图**里（`CATALOG_READY` / `COLD` / `ERROR` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` / `IMPORTING` / `PAUSED`），顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线）；传输态（`IMPORTING` / `PAUSED`）另由 `ACTION_USB_DEVICE_DETACHED` 事件把指示切 `Disconnected`，**不是**轮询探测（2026-11-08 / #44 复审）；断线时**沿用 `COLD` 形态**——相机线稿不变，只把短词切 `Disconnected`，**不**引入第三种断线形态（相机线稿压斜线、`V-28` 断线图标都不得用于传输态）；`photo` 不渲染连接指示（§2.2），本条不适用。
   断开态**只**允许两种形态：`COLD` 用相机线稿 + `Disconnected` 短词；`ERROR` 用 `V-28` 的断线图标 + `Disconnected` + `Reconnect`。
   **不得**再出现「相机线稿压斜线」这种第三形态（旧的斜线画法由 `V-28` 取代）。
   `ERROR` **一律**按断开画法，含可恢复错误与 USB 挂起：该态的唯一推进动作是 `Reconnect`（顶栏标签 + 内容区插头图标两个入口），
@@ -546,7 +546,7 @@
 
   **V-07 装饰例外（#44 决策 3；2026-11-08 / #44 复审收窄）**：
   - 照片格的 1 px `outline-variant #c4c7c7` 边框是**分隔**：不按「描边 ≥3:1」判，**不得**改深。
-  - 进度环的**未完成段（环轨道）**自 2026-11-08 起**不再**属于装饰例外：按「图形 ≥3:1」判，取 `outline #747878`（白底 4.47:1）；`outline-variant` 1.7:1 只留分隔用途（旧口径见 `§0.12`）。
+  - 进度环的**未完成段（环轨道）**自 2026-11-08 起**不再**属于装饰例外：按「图形 ≥3:1」判，取 `outline` `#747878`（白底 4.47:1）；`outline-variant` 1.7:1 **不得承载图标/文字**（照片格分隔细线仍可用，见上一条；旧口径见 `§0.12`）。
   - 例外只覆盖照片格这一处几何；环的**已完成段**与数值文字仍按本条与 `V-22` 判。
 
   **alpha 底实算（按最不利的白底合成后按 WCAG 2.1 计）**：
@@ -760,7 +760,7 @@ Next:    <一个可执行动作>
   | `W-20` | 返回 | 返回箭头图标（`contentDescription` = `Back`） | `photo` 顶部；`transfer` 顶部仅 `IMPORTING` / `PAUSED` |
   | `W-21` | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
   | `W-22` | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
-  | `W-23` | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` / `photo` 顶栏**无设备名**，**无长按入口**（默认不可见，L-05） |
+  | `W-23` | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` 顶栏**有设备名但无长按入口**（连接指示只读，L-05）；`photo` 顶栏无设备名、无长按入口 |
 
 - **过滤抽屉与 `Location details` 标记的用法（字面量登记在 §4.5 词表，本条只讲用在哪）**：过滤项写
   `All` / `RAW` / `JPG` / 日期标签（如 `Jun 7`，**不含**张数与容量）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张
