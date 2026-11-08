@@ -15,6 +15,12 @@
       "why": "元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：禁用参数表的唯一来源是 scripts/check_gates_manifest.py 的 FORBIDDEN_FLAGS（本清单不再枚举），flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131、#173、#203）"
     },
     {
+      "name": "_common.py",
+      "cmd": ["python", "scripts/_common.py"],
+      "shard": "static",
+      "why": "门禁共享层自检：`gate_hits` 新旧路径逐项等价、共享层自身命中门禁链、`GATE_TRIGGERS` 与 `FROZEN_GATE_TRIGGERS` 零漂移、退出码常量 0/1/2（#288）。各门禁的 `--self-test` 不覆盖共享层，必须由本档位显式执行，否则判定表被悄悄扩展只有绿灯（#283）"
+    },
+    {
       "name": "check_no_vendored.py",
       "cmd": ["python", "scripts/check_no_vendored.py"],
       "shard": "static",
