@@ -748,7 +748,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
                 model.showCold();
                 break;
             case NOTHING_TRANSFERRING:
-                log.line(trigger + " → 传输进行中，先取消再重扫");
+                // #269：本分支只打日志，不取消也不重扫；文案必须如实（旧文案声称会「先取消、再重扫」，
+                // 会让真机诊断把「只打日志」误读成真做了取消与重扫）。唯一副作用是
+                // handleAttach 已调过 model.onUsbAttached()，即顶栏恢复在线指示。
+                log.line(trigger + " → 传输进行中：本轮不打断，也不重扫（只恢复在线指示）");
                 break;
             case NOTHING_ALREADY_SCANNING:
                 log.line(trigger + " → 扫描已在进行中，忽略本次重复事件");
