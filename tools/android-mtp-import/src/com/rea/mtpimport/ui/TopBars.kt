@@ -127,6 +127,26 @@ fun LibraryTopBar(model: AppModel) {
 }
 
 /**
+ * 传输态顶栏的连接指示（#44 复审 / P1-1）。
+ *
+ * 在线 = 相机线稿 + 设备短名；断线 = 相机线稿不变、只把短词切 `Disconnected`。
+ * 这里**不得**复用 `V-28` 的断线图标（该图标只属于 `ERROR` 顶栏），断线形态沿用 `COLD`
+ * 的「相机线稿 + `Disconnected` 短词」；文案口径由 `TopBarSpec.connectionLabel` 统一（N-1）。
+ */
+@Composable
+internal fun TransferConnectionIndicator(model: AppModel) {
+    val lost = model.connectionLost
+    CameraGlyph(20.dp, UiColors.onSurface)
+    Spacer(Modifier.width(8.dp))
+    TopBarLabel(
+        TopBarSpec.connectionLabel(lost, model.deviceName),
+        model,
+        detailsEntry = false,
+        style = if (lost) TextSmall else TextBody
+    )
+}
+
+/**
  * 状态页顶栏（逐态分化，UI-SPEC §2.2 / `V-26`）。
  *
  * - `COLD`：相机线稿 + `a7C`，右侧断开短词 `Disconnected`；

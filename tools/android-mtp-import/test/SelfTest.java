@@ -76,6 +76,8 @@ public final class SelfTest {
         stalledServiceCases();
         importGateCases();
         topBarSpecCases();
+        ringTrackCases();
+        detachCases();
         colorTokensCases();
         backNavCases();
         uiTextCases();
@@ -3057,6 +3059,134 @@ public final class SelfTest {
                         .filter(s -> s != UiState.State.CATALOG_READY)
                         .noneMatch(s -> TopBarSpec.showsCountPill(s, 511)),
                 "非 READY 状态出现了计数胶囊");
+        // P1-1（#44 复审）：传输态不再让位给环，必须有连接指示。只钉这两个状态——
+        // `showsConnectionIndicator` 对所有 `UiState` 为真，扫全量等于恒真断言。
+        check("TopBarSpec：传输态（IMPORTING / PAUSED）渲染连接指示（P1-1）",
+                TopBarSpec.showsConnectionIndicator(UiState.State.IMPORTING)
+                        && TopBarSpec.showsConnectionIndicator(UiState.State.PAUSED),
+                "传输态漏了连接指示");
+        check("TopBarSpec：在线时连接指示取设备短名",
+                "a7C".equals(TopBarSpec.connectionLabel(false, "a7C")),
+                "实际 " + TopBarSpec.connectionLabel(false, "a7C"));
+        check("TopBarSpec：断线时连接指示切 Disconnected",
+                "Disconnected".equals(TopBarSpec.connectionLabel(true, "a7C")),
+                "实际 " + TopBarSpec.connectionLabel(true, "a7C"));
+        // 页面必须真的**调用**，否则纯 JDK 用例再绿也钉不住 Compose。
+        // N1（第三轮评审）：只钉「符号存在」会被「调用外套 if (false)」骗过。这里钉执行条件：
+        // 守卫行 `if (TopBarSpec.showsConnectionIndicator(model.state)) {` 与其后 ≤2 行的调用，
+        // 两行都必须在 TransferScreen.kt（声明行 `(model: AppModel)` 不含右括号，不会误命中）。
+        // 守卫被换成 `if (false)` → 守卫 0 命中；守卫与调用间再套一层 `if (false)` → 行距 2 变 3。
+        File uiDir = new File(new File(System.getProperty("user.dir"), "src"), "com/rea/mtpimport/ui");
+        List<String> indicatorGuards = new ArrayList<>();
+        List<String> indicatorCalls = new ArrayList<>();
+        scanSourceText(uiDir, "if (TopBarSpec.showsConnectionIndicator(model.state)) {", null, indicatorGuards);
+        scanSourceText(uiDir, "TransferConnectionIndicator(model)", null, indicatorCalls);
+        int guardLine = -1;
+        int callLine = -1;
+        for (String h : indicatorGuards) if (h.contains("TransferScreen.kt")) guardLine = hitLineOf(h);
+        for (String h : indicatorCalls) if (h.contains("TransferScreen.kt")) callLine = hitLineOf(h);
+        check("传输页在 showsConnectionIndicator 守卫内调用 TransferConnectionIndicator(model)（P1-1 / N1）",
+                guardLine > 0 && callLine > guardLine && callLine - guardLine <= 2,
+                "守卫行 " + guardLine + "，调用行 " + callLine + "\n守卫：\n"
+                        + String.join("\n", indicatorGuards) + "\n调用：\n" + String.join("\n", indicatorCalls));
+    }
+
+    /**
+     * P1-3（#44 复审）：进度环轨道从 `outlineSoft`（白底 1.7:1）改用 `outline`（4.47:1 ≥ 3:1）。
+     *
+     * 注意：下面两条源码扫描是**弱契约**——只防「把轨道改回 `outlineSoft`」和「删掉
+     * `drawCircle(UiColors.outline,`」这两种具体回退；换行重排、改写表达式都会假红。
+     * token 值本身由 `colorTokensCases` 与最后一条对比度断言守，别把源码扫描当强契约。
+     */
+    static void ringTrackCases() {
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> softTrack = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "drawCircle(UiColors.outlineSoft", null, softTrack);
+        check("进度环轨道不再用 outlineSoft（白底 1.7:1，P1-3）",
+                scanned > 0 && softTrack.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", softTrack));
+        List<String> outlineTrack = new ArrayList<>();
+        scanSourceText(srcRoot, "drawCircle(UiColors.outline,", null, outlineTrack);
+        check("进度环轨道改用 outline（P1-3）", !outlineTrack.isEmpty(),
+                "环轨道没找到 drawCircle(UiColors.outline,");
+        check("outline 于白底 ≥3:1（V-07 图标/描边下限）",
+                ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE) >= 3.0,
+                "实际 " + number(ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE)));
+    }
+
+    /**
+     * P1-1（#44 复审）：USB 拔出只在传输态把顶栏连接指示置为断线，保留进度屏；
+     * 新导入 / 完成等落点必须复位，进度与暂停回调不得把断线擦掉。
+     */
+    static void detachCases() {
+        check("USB 拔出：传输态判定为需要标断线",
+                UiState.detachMarksTransfer(UiState.State.IMPORTING)
+                        && UiState.detachMarksTransfer(UiState.State.PAUSED),
+                "传输态未判为断线目标");
+        check("USB 拔出：非传输态不标断线",
+                java.util.Arrays.stream(UiState.State.values())
+                        .filter(s -> !UiState.isTransfer(s))
+                        .noneMatch(UiState::detachMarksTransfer),
+                "非传输态被判为断线目标");
+        UiTransition.Result detach = UiTransition.resolve(
+                UiTransition.Action.USB_DETACHED, false, false, false, false);
+        check("USB 拔出：置 connectionLost", detach.connectionLost, "未置位");
+        check("USB 拔出：不换状态（保留进度屏）", detach.state == null,
+                "实际 " + detach.state);
+        check("USB 拔出后进度回调不清断线",
+                UiTransition.resolve(UiTransition.Action.PROGRESS, false, false, false, true)
+                        .connectionLost,
+                "PROGRESS 把 connectionLost 复位了");
+        check("USB 拔出后暂停回调不清断线",
+                UiTransition.resolve(UiTransition.Action.PAUSED, false, false, false, true)
+                        .connectionLost,
+                "PAUSED 把 connectionLost 复位了");
+        // B3（2026-11-08 产品方追认）：Resume 是继续同一轮、不是新导入，不得清断线；
+        // 新导入仍走 IMPORT_START 复位（下一条）。
+        UiTransition.Result resumed = UiTransition.resolve(
+                UiTransition.Action.RESUME, false, false, false, true);
+        check("暂停后 Resume：保留 connectionLost（B3）", resumed.connectionLost,
+                "RESUME 把 connectionLost 复位了");
+        check("暂停后 Resume：回到 IMPORTING 且重开传输视图",
+                resumed.state == UiState.State.IMPORTING && !resumed.transferViewClosed,
+                "实际 " + resumed.state + " / closed=" + resumed.transferViewClosed);
+        check("暂停后 Resume：收起退出确认框", !resumed.exitConfirmOpen,
+                "RESUME 未收起确认框");
+        check("在线时 Resume 不凭空置断线",
+                !UiTransition.resolve(UiTransition.Action.RESUME, false, false, false, false)
+                        .connectionLost,
+                "RESUME 在未断线时置了 connectionLost");
+        check("新导入复位断线",
+                !UiTransition.resolve(UiTransition.Action.IMPORT_START, false, false, false, true)
+                        .connectionLost,
+                "IMPORT_START 未复位 connectionLost");
+        check("完成复位断线",
+                !UiTransition.resolve(UiTransition.Action.DONE, false, false, false, true)
+                        .connectionLost,
+                "DONE 未复位 connectionLost");
+        // B1（第三轮评审）：确认插线到索尼设备才清断线；状态与其余跨状态字段不变。
+        UiTransition.Result attached = UiTransition.resolve(
+                UiTransition.Action.USB_ATTACHED, false, true, true, true);
+        check("插线确认：传输态复位 connectionLost 且状态不变",
+                !attached.connectionLost && attached.state == null,
+                "lost=" + attached.connectionLost + " state=" + attached.state);
+        check("插线确认：不动视图关闭 / 确认框 / 扫描标志",
+                attached.transferViewClosed && attached.exitConfirmOpen && !attached.backgroundScanning,
+                "closed=" + attached.transferViewClosed + " confirm=" + attached.exitConfirmOpen
+                        + " scan=" + attached.backgroundScanning);
+        // B2（第三轮评审）：断线跨视图保留，只有插线 / 新导入 / 完成三处复位。
+        check("回照片墙（BACK_READY）保留断线",
+                UiTransition.resolve(UiTransition.Action.BACK_READY, true, false, false, true)
+                        .connectionLost,
+                "BACK_READY 把 connectionLost 复位了");
+        check("离开传输视图（LEAVE_VIEW）保留断线",
+                UiTransition.resolve(UiTransition.Action.LEAVE_VIEW, true, false, false, true)
+                        .connectionLost,
+                "LEAVE_VIEW 把 connectionLost 复位了");
+        check("回启动页（BACK_COLD）保留断线",
+                UiTransition.resolve(UiTransition.Action.BACK_COLD, true, false, false, true)
+                        .connectionLost,
+                "BACK_COLD 把 connectionLost 复位了");
     }
 
     // ---------------- 颜色 token 与对比度（PR-2 / issue #78） ----------------
@@ -4225,8 +4355,18 @@ public final class SelfTest {
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
     }
 
+    // 命中行格式为「路径:行号 行内容」，hitLineOf 与 scanSourceText 共用这一约定。
     /**
-     * `src/` 下所有 .java/.kt 里含 `needle` 的行；`allow` 是唯一允许命中的文件（null = 不豁免）。
+     * 从 {@link #scanSourceText} 的命中行（`路径:行号 行内容`）取行号；解析失败返回 -1。
+     * 非贪婪匹配第一段「冒号 + 数字 + 空白」，避开 Windows 盘符里的冒号与行内容里的数字。
+     */
+    static int hitLineOf(String hit) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^.+?:(\\d+)\\s").matcher(hit);
+        return m.find() ? Integer.parseInt(m.group(1)) : -1;
+    }
+
+    /**
+     * 递归扫描 `src/` 下所有 .java/.kt 里含 `needle` 的行；`allow` 是唯一允许命中的文件（null = 不豁免）。
      *
      * 返回实际扫描到的文件数：`src/` 缺失或为空时返回 0，调用方必须判红，不能 fail-open。
      */

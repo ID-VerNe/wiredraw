@@ -332,7 +332,7 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
                 }
                 if (model.getState() == UiState.State.PAUSED) {
                     demoTicker.postDelayed(demoStep, DEMO_TICK_MS);
-                    model.showImport(demoTransfer.doneFiles(), demoTransfer.totalFiles());
+                    model.resumeImport(demoTransfer.doneFiles(), demoTransfer.totalFiles());
                 } else {
                     demoTicker.removeCallbacks(demoStep);
                     model.showPaused();
@@ -341,6 +341,19 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             }
             if (service == null || !service.isRunning()) return;
             if (model.getState() == UiState.State.PAUSED) {
+                // 与 doStart 的暂停分支同口径（三审 B-1）：Pause & exit 后相机可能已挂起/断开，
+                // 传输页 Resume 也必须先做只读探活；失败走既有 ERROR / Reconnect，不静默续跑死会话。
+                ImportService pausedRound = service;
+                ImportPlan pausedPlan = pausedRound.plan();
+                if (pausedPlan == null || pausedPlan.count() == 0
+                        || !probeSession(pausedPlan.items().get(0).handle, "传输页 Resume 前探活")) {
+                    log.line("传输页 Resume 前探活失败（无计划或会话失步）：取消该轮，不 resume");
+                    pausedRound.cancel();
+                    orphanRounds.adopt(pausedRound);
+                    service = null;
+                    model.showError(StuckError.SESSION_LOST);
+                    return;
+                }
                 service.resume();
                 showImportFromProgress();
             } else {
@@ -469,6 +482,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
                 // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
                 if (!demoActive()) handleAttach("收到 USB_DEVICE_ATTACHED 广播");
+            } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {
+                // P1-1（#44 复审）：传输中断线只把顶栏连接指示切 `Disconnected`，保留进度屏；
+                // 非传输态不动——`COLD` / `ERROR` 顶栏本来就有连接指示。
+                if (!demoActive()) model.onUsbDetached();
             }
         }
     };
@@ -505,6 +522,7 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         IntentFilter f = new IntentFilter();
         f.addAction(ACTION_PERM);
         f.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        f.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
         } else {
@@ -689,7 +707,11 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
 
     /** 插线事件入口：广播、attach intent 与手动按钮都从这里进。 */
     private void handleAttach(String trigger) {
-        requestScan(trigger, findCamera());
+        UsbDevice dev = findCamera();
+        // B1（2026-11-08 复审）：只有**确认到索尼设备**且当前在传输态时才清断线标志；
+        // 无关 USB 设备（dev == null）不得把顶栏从 Disconnected 置回在线。状态不变。
+        if (dev != null && !demoActive()) model.onUsbAttached();
+        requestScan(trigger, dev);
     }
 
     private UsbDevice findCamera() {
@@ -1157,11 +1179,16 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         return alive[0];
     }
 
-    /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */
+    /**
+     * 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。
+     *
+     * 走 RESUME 而不是 IMPORT_START（B3）：Resume 是继续同一轮，**不得**把 USB 拔出置位的
+     * `connectionLost` 擦回在线；新导入仍由 {@code showImport} 走 IMPORT_START 复位。
+     */
     private void showImportFromProgress() {
         ImportRoundListener listener = roundListener;
         TransferProgress p = listener == null ? null : listener.lastProgress();
-        model.showImport(
+        model.resumeImport(
                 p == null ? 0 : p.filesDone(),
                 p == null ? 0 : p.totalFiles());
     }

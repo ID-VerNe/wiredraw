@@ -149,6 +149,15 @@ class AppModel {
     var transferViewClosed by mutableStateOf(false)
         private set
 
+    /**
+     * 传输态顶栏连接指示是否断线（#44 复审 / P1-1）。
+     *
+     * 只由 USB 拔出事件置位，经 [transition] 统一复位；`PROGRESS` / `PAUSED` / `RESUME` 保留原值，
+     * 否则断线后一次进度回调（或 Resume）就会把 `Disconnected` 擦回在线；新导入仍复位。
+     */
+    var connectionLost by mutableStateOf(false)
+        private set
+
     var filterKind by mutableStateOf(FilterKind.ALL)
         private set
     var filterDate: String? = null
@@ -252,11 +261,34 @@ class AppModel {
      * [setExitConfirm] 是用户开关覆盖层，也不是状态迁移。
      */
     private fun transition(action: UiTransition.Action) {
-        val r = UiTransition.resolve(action, backgroundScanning, transferViewClosed, exitConfirmOpen)
+        val r = UiTransition.resolve(
+            action, backgroundScanning, transferViewClosed, exitConfirmOpen, connectionLost
+        )
         r.state?.let { state = it }
         backgroundScanning = r.backgroundScanning
         transferViewClosed = r.transferViewClosed
         exitConfirmOpen = r.exitConfirmOpen
+        connectionLost = r.connectionLost
+    }
+
+    /**
+     * USB 拔出（#44 复审 / P1-1）：只在传输态把顶栏连接指示置为断线，保留进度屏。
+     *
+     * 非传输态本来就有各自的连接指示（`COLD` / `ERROR` 的 `Disconnected`），
+     * 这里不动状态，避免把照片墙或完成页无谓地打回。
+     */
+    fun onUsbDetached() {
+        if (UiState.detachMarksTransfer(state)) transition(UiTransition.Action.USB_DETACHED)
+    }
+
+    /**
+     * 确认插线到索尼设备（B1 / 2026-11-08 复审）：只在传输态把断线指示复位，状态不变。
+     *
+     * 调用方**必须**先确认 `UsbDevice` 是索尼（`dev != null`），否则无关 USB 设备会把
+     * `Disconnected` 误擦回在线。非传输态不处理：那里没有本标志的消费方。
+     */
+    fun onUsbAttached() {
+        if (UiState.detachMarksTransfer(state)) transition(UiTransition.Action.USB_ATTACHED)
     }
 
     fun showCold() {
@@ -332,6 +364,17 @@ class AppModel {
 
     fun showImport(doneFiles: Int, totalFiles: Int) {
         transition(UiTransition.Action.IMPORT_START)
+        updateProgress(doneFiles, totalFiles)
+    }
+
+    /**
+     * 继续同一轮传输（`PAUSED` → `Resume`，B3 / 2026-11-08 产品方追认）。
+     *
+     * 与 [showImport] 的差别是**不复位** `connectionLost`：线可能还拔着，Resume 不是新导入，
+     * 不能把顶栏的 `Disconnected` 擦回在线。新导入仍走 [showImport]。
+     */
+    fun resumeImport(doneFiles: Int, totalFiles: Int) {
+        transition(UiTransition.Action.RESUME)
         updateProgress(doneFiles, totalFiles)
     }
 

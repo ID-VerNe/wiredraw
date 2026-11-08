@@ -28,4 +28,23 @@ public final class TopBarSpec {
     public static boolean showsCountPill(UiState.State s, int photoCount) {
         return s == UiState.State.CATALOG_READY && photoCount > 0;
     }
+
+    /**
+     * 顶栏连接指示是否在该状态渲染（#44 复审 / P1-1）。
+     *
+     * 2026-11-08 起传输态（`IMPORTING` / `PAUSED`）不再「让位给环」：环仍是内容区
+     * 唯一焦点，顶栏右端另给一个常驻连接指示。`photo` 视图不在此列（只留 `Back` / `Location`）。
+     */
+    public static boolean showsConnectionIndicator(UiState.State s) {
+        return s != null;
+    }
+
+    /**
+     * 顶栏连接指示的文案（#44 复审 / P1-1）：断线取 `Disconnected`，否则取设备短名。
+     *
+     * 断线由 {@link UiTransition} 的 `USB_DETACHED` 事件置位，不是轮询探测。
+     */
+    public static String connectionLabel(boolean lost, String deviceName) {
+        return lost ? "Disconnected" : deviceName;
+    }
 }
