@@ -3,14 +3,9 @@
 // 原 base 的 check.sh 里有 `apksigner verify`，迁移后不能静默丢掉。
 // `validateSigningDebug` 只校验签名配置可读，不等于产物真的被签过 —— 这里对产物实测。
 // 仓库只在 Windows 上做 Android 构建（AGENTS.md §4），所以用 cmd 调 SDK 的 apksigner.bat。
-
-@Suppress("UNCHECKED_CAST")
-val props = extra["localProperties"] as Map<String, String>
-val sdkPath = props["sdk.dir"].orEmpty()
-if (sdkPath.isBlank()) {
-    throw GradleException("local.properties 里没有 sdk.dir，无法定位 apksigner")
-}
-val sdkDir = File(sdkPath)
+//
+// SDK 定位与空值检查必须留在任务块内（惰性求值，#207 评审 B1）：`apply(from = ...)`
+// 的顶层语句在配置阶段就执行，提到顶层会让缺 `sdk.dir` 时连 `gradlew help` 都失败。
 
 fun versionParts(name: String): List<Int> = name.split('.').map { it.toIntOrNull() ?: 0 }
 
@@ -28,6 +23,14 @@ val verifyApk = tasks.register<Exec>("verifyApk") {
     group = "verification"
     description = "用 SDK 的 apksigner 校验 debug APK 签名（原 check.sh 的验签断言）"
     dependsOn("assembleDebug")
+
+    @Suppress("UNCHECKED_CAST")
+    val props = project.extra["localProperties"] as Map<String, String>
+    val sdkPath = props["sdk.dir"].orEmpty()
+    if (sdkPath.isBlank()) {
+        throw GradleException("local.properties 里没有 sdk.dir，无法定位 apksigner")
+    }
+    val sdkDir = File(sdkPath)
 
     val buildTools = sdkDir.resolve("build-tools")
         .listFiles { f: File -> f.isDirectory }
