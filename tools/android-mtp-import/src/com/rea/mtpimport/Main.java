@@ -332,7 +332,7 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
                 }
                 if (model.getState() == UiState.State.PAUSED) {
                     demoTicker.postDelayed(demoStep, DEMO_TICK_MS);
-                    model.showImport(demoTransfer.doneFiles(), demoTransfer.totalFiles());
+                    model.resumeImport(demoTransfer.doneFiles(), demoTransfer.totalFiles());
                 } else {
                     demoTicker.removeCallbacks(demoStep);
                     model.showPaused();
@@ -1162,11 +1162,16 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         return alive[0];
     }
 
-    /** 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。 */
+    /**
+     * 用最近一次进度重新进入 `IMPORTING`（恢复暂停轮次用；没有进度就从 0 开始）。
+     *
+     * 走 RESUME 而不是 IMPORT_START（B3）：Resume 是继续同一轮，**不得**把 USB 拔出置位的
+     * `connectionLost` 擦回在线；新导入仍由 {@code showImport} 走 IMPORT_START 复位。
+     */
     private void showImportFromProgress() {
         ImportRoundListener listener = roundListener;
         TransferProgress p = listener == null ? null : listener.lastProgress();
-        model.showImport(
+        model.resumeImport(
                 p == null ? 0 : p.filesDone(),
                 p == null ? 0 : p.totalFiles());
     }

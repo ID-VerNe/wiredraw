@@ -152,8 +152,8 @@ class AppModel {
     /**
      * 传输态顶栏连接指示是否断线（#44 复审 / P1-1）。
      *
-     * 只由 USB 拔出事件置位，经 [transition] 统一复位；`PROGRESS` / `PAUSED` 回调保留原值，
-     * 否则断线后一次进度回调就会把 `Disconnected` 擦回在线。
+     * 只由 USB 拔出事件置位，经 [transition] 统一复位；`PROGRESS` / `PAUSED` / `RESUME` 保留原值，
+     * 否则断线后一次进度回调（或 Resume）就会把 `Disconnected` 擦回在线；新导入仍复位。
      */
     var connectionLost by mutableStateOf(false)
         private set
@@ -354,6 +354,17 @@ class AppModel {
 
     fun showImport(doneFiles: Int, totalFiles: Int) {
         transition(UiTransition.Action.IMPORT_START)
+        updateProgress(doneFiles, totalFiles)
+    }
+
+    /**
+     * 继续同一轮传输（`PAUSED` → `Resume`，B3 / 2026-11-08 产品方追认）。
+     *
+     * 与 [showImport] 的差别是**不复位** `connectionLost`：线可能还拔着，Resume 不是新导入，
+     * 不能把顶栏的 `Disconnected` 擦回在线。新导入仍走 [showImport]。
+     */
+    fun resumeImport(doneFiles: Int, totalFiles: Int) {
+        transition(UiTransition.Action.RESUME)
         updateProgress(doneFiles, totalFiles)
     }
 

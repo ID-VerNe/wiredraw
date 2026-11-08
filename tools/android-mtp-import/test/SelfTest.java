@@ -3134,6 +3134,21 @@ public final class SelfTest {
                 UiTransition.resolve(UiTransition.Action.PAUSED, false, false, false, true)
                         .connectionLost,
                 "PAUSED 把 connectionLost 复位了");
+        // B3（2026-11-08 产品方追认）：Resume 是继续同一轮、不是新导入，不得清断线；
+        // 新导入仍走 IMPORT_START 复位（下一条）。
+        UiTransition.Result resumed = UiTransition.resolve(
+                UiTransition.Action.RESUME, false, false, false, true);
+        check("暂停后 Resume：保留 connectionLost（B3）", resumed.connectionLost,
+                "RESUME 把 connectionLost 复位了");
+        check("暂停后 Resume：回到 IMPORTING 且重开传输视图",
+                resumed.state == UiState.State.IMPORTING && !resumed.transferViewClosed,
+                "实际 " + resumed.state + " / closed=" + resumed.transferViewClosed);
+        check("暂停后 Resume：收起退出确认框", !resumed.exitConfirmOpen,
+                "RESUME 未收起确认框");
+        check("在线时 Resume 不凭空置断线",
+                !UiTransition.resolve(UiTransition.Action.RESUME, false, false, false, false)
+                        .connectionLost,
+                "RESUME 在未断线时置了 connectionLost");
         check("新导入复位断线",
                 !UiTransition.resolve(UiTransition.Action.IMPORT_START, false, false, false, true)
                         .connectionLost,

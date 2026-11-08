@@ -210,6 +210,7 @@
 | 2026-11-06 / PR #39 第四轮评审 | §0.10 禁用写法「任何地方都不得出现」 | 只在**用户可见文案**里禁止；文档叙述描述原型现状 / 控件形态时可引用 | 该类说法是描述定稿原型控件形态的必要术语（`V-15` 要写「网格不得显示该形态」），改掉反而说不清原型；判定见 §8 抬头 |
 | 2026-11-06 / #44 决策（P1-4 / P1-3 / P1-1） | 纯黑可作画布与主色；顶栏只在 `CATALOG_READY` 与 `transfer` 出现；进度环未完成段与照片格 1 px 边框按图形对比度判 | 画布黑 `#1d1d1f` 与文字近黑 `#111111` 是两个显式 token，**禁用纯黑**；顶栏在 11 个视图全常驻（10 个状态 + `photo`；逐态分化，§2.2）；环轨道与照片格 1 px 边框判为装饰/分隔，**不进 `V-07`** | §3.3 / §2.2 / `V-07`；对应 finding P1-4 画布、P1-1 顶栏、P1-3 环轨道 |
 | 2026-11-08 / #44 复审 | 进度环未完成段（环轨道）判为装饰、不进 `V-07`；`IMPORTING` / `PAUSED` 顶栏让位给环、不渲染连接指示 | 环轨道按「图形 ≥3:1」判，取 `outline #747878`（白底 4.47:1）；`IMPORTING` / `PAUSED` 顶栏右端常驻连接指示，断线时切 `Disconnected` | 真机复测轨道 1.7:1 不达可读性（P1-3 复开）；传输中断线需可见（P1-1 复开）。落在 `V-07` / `§1.1` / `§2.2` / `V-26` |
+| 2026-11-08 / #44 产品方追认（经主控转达） | `PAUSED` → `Resume` 重新进入传输时按「新导入」复位 `connectionLost` | `Resume` 是继续同一轮、不是新导入，走 `RESUME` 动作并**保留** `connectionLost`；新导入仍经 `IMPORT_START` 复位 | 线还拔着却显示在线即误导。本追认连同 P1-3 环轨道重归类、P1-1 传输态连接指示，覆盖 2026-11-06 决策 3；旧行不删。落在 `V-26` / `UiTransition` |
 | 2026-11-06 / #45 决策 | `photo` 胶囊用 `label-md` 13 sp；「网格单元最小尺寸 88 dp」含高 | 胶囊改 `mono-data` 12 sp（等宽数字）；88 dp = **最小宽度**，高按 3:2 由列宽推导 | §3.1 / §2.1 实测表；同时解决 **P2-4**（`photo` 页画布黑上的系统栏必须用浅色图标，`V-30`）与胶囊字号 |
 | 2026-11-06 / #42 | `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` 返回键直接退出，无浮层例外 | 模态浮层优先：`Filter` / `Details` / `Pause & exit` 确认框开着时，返回键只关当前浮层，全部关闭后才进入 §1.3 的退出/回退规则（`UNAVAILABLE` 按现行口径回照片墙，见 #48） | §1.3 |
 | 2026-11-06 / #43 | `photo` 页由 `CATALOG_READY` 的格子**点击**进入 | 由格子**长按**进入；点击保留为 `L-08` 的切换已选 | §1.2 |
@@ -394,7 +395,7 @@
 | `IMPORTING` / `PAUSED` | `Back` | 相机线稿 + `a7C`（断线时切 `Disconnected`） | 任务视图的关闭入口在左；右端给常驻连接指示（断线由 `V-26` 的 USB 拔出事件置位）；环仍是内容区唯一焦点 |
 | `photo` | `Back` | `Location` | 详情视图，与状态无关 |
 
-- **V-26** 在**渲染连接指示的视图**里（`CATALOG_READY` / `COLD` / `ERROR` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` / `IMPORTING` / `PAUSED`），顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线）；传输态（`IMPORTING` / `PAUSED`）另由 `ACTION_USB_DEVICE_DETACHED` 事件把指示切 `Disconnected`，**不是**轮询探测（2026-11-08 / #44 复审）；断线时**沿用 `COLD` 形态**——相机线稿不变，只把短词切 `Disconnected`，**不**引入第三种断线形态（相机线稿压斜线、`V-28` 断线图标都不得用于传输态）；`photo` 不渲染连接指示（§2.2），本条不适用。
+- **V-26** 在**渲染连接指示的视图**里（`CATALOG_READY` / `COLD` / `ERROR` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` / `IMPORTING` / `PAUSED`），顶栏连接指示**必须**按状态推定（`COLD` / `ERROR` = 断开，其余 = 在线）；传输态（`IMPORTING` / `PAUSED`）另由 `ACTION_USB_DEVICE_DETACHED` 事件把指示切 `Disconnected`，**不是**轮询探测（2026-11-08 / #44 复审）；断线时**沿用 `COLD` 形态**——相机线稿不变，只把短词切 `Disconnected`，**不**引入第三种断线形态（相机线稿压斜线、`V-28` 断线图标都不得用于传输态）；断线态**只**在新导入（`IMPORT_START`）或完成（`DONE`）时复位，`PAUSED` → `Resume` 继续同一轮时**保留**（`RESUME`，2026-11-08 产品方追认），否则线还拔着却显示在线；`photo` 不渲染连接指示（§2.2），本条不适用。
   断开态**只**允许两种形态：`COLD` 用相机线稿 + `Disconnected` 短词；`ERROR` 用 `V-28` 的断线图标 + `Disconnected` + `Reconnect`。
   **不得**再出现「相机线稿压斜线」这种第三形态（旧的斜线画法由 `V-28` 取代）。
   `ERROR` **一律**按断开画法，含可恢复错误与 USB 挂起：该态的唯一推进动作是 `Reconnect`（顶栏标签 + 内容区插头图标两个入口），

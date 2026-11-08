@@ -16,11 +16,12 @@ package com.rea.mtpimport;
  *   <li>{@code COLD} / {@code PERMISSION} / {@code EMPTY} / {@code UNAVAILABLE} /
  *       {@code ERROR} / {@code CATALOG_FULL}：只复位扫描标志，覆盖层保持；</li>
  *   <li>{@code CATALOG_PARTIAL}：渐进发布特有，扫描标志置真；</li>
- *   <li>{@code IMPORT_START} / {@code DONE}：复位视图关闭与退出确认框，扫描标志保持；
+ *   <li>{@code IMPORT_START} / {@code DONE}：复位视图关闭与退出确认框、复位 {@code connectionLost}
+ *       （新导入/完成不继承上一轮断线），扫描标志保持；
  *       注意 {@code showDone} 历史上并不写 `backgroundScanning`，「`DONE` 是否应复位它」
  *       规格未定（#213「待裁决」），这里按现状保留，不顺手改行为；</li>
- *   <li>{@code PROGRESS} / {@code PAUSED}：换状态并保留 {@code connectionLost}
- *       （断线后一次进度回调不得把 `Disconnected` 擦回在线）；</li>
+ *   <li>{@code PROGRESS} / {@code PAUSED} / {@code RESUME}：换状态并保留 {@code connectionLost}
+ *       （断线后一次进度回调不得把 `Disconnected` 擦回在线；Resume 是继续同一轮、不是新导入）；</li>
  *   <li>{@code BACK_READY} / {@code BACK_COLD}：换状态并复位 {@code connectionLost}；</li>
  *   <li>{@code USB_DETACHED}：不换状态，只把 {@code connectionLost} 置真
  *       （#44 复审 / P1-1）；</li>
@@ -44,6 +45,13 @@ public final class UiTransition {
         PROGRESS,
         DONE,
         PAUSED,
+        /**
+         * 继续同一轮传输（`PAUSED` → Resume，B3 / 2026-11-08 产品方追认）。
+         *
+         * 与 {@code IMPORT_START} 的唯一差别：**保留** {@code connectionLost}——线可能还拔着，
+         * Resume 不是新导入，不得把断线指示擦回在线。
+         */
+        RESUME,
         DISCARD_PARTIAL,
         DEMO_RESET,
         LEAVE_VIEW,
@@ -151,6 +159,13 @@ public final class UiTransition {
                 break;
             case PAUSED:
                 next = UiState.State.PAUSED;
+                lost = connectionLost;
+                break;
+            case RESUME:
+                // 继续同一轮：回到进度屏、收起退出确认，但**不清**断线（B3）。
+                next = UiState.State.IMPORTING;
+                closed = false;
+                confirm = false;
                 lost = connectionLost;
                 break;
             case DISCARD_PARTIAL:
