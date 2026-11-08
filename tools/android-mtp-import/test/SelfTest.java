@@ -1585,7 +1585,8 @@ public final class SelfTest {
         // 续传停用（#177）：只有真正产出成品的假传输才能让 Journal 记账可核对。
         FakeTransfer t1 = new FakeTransfer(out);
         FinishRecorder r1 = new FinishRecorder();
-        new ImportService(Log.NOOP, t1, out).start(plan, r1);
+        List<String> r1Log = new ArrayList<>();
+        new ImportService(r1Log::add, t1, out).start(plan, r1);
         check("ImportService：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
         check("ImportService：2 个单元文件全部 OK（不再有「未实现」）",
                 r1.ok == 2 && r1.skipped == 0 && r1.failed == 0,
@@ -1609,6 +1610,15 @@ public final class SelfTest {
         check("ImportService：日志文件写出 import-journal.txt",
                 new File(out, "import-journal.txt").isFile(),
                 "实际 " + Arrays.toString(out.list()));
+
+        // #20 裁决 B 的轮级断言：源码守卫只能防「名字被删」，这里跑真一轮确认不产索引文件。
+        check("ImportService：一轮结束不产 imported-index.txt 与 .tmp（#20 停写）",
+                !new File(out, "imported-index.txt").exists()
+                        && !new File(out, "imported-index.txt.tmp").exists(),
+                "实际 " + Arrays.toString(out.list()));
+        check("ImportService：一轮日志不含「已导入索引已重建」（#20 停写）",
+                r1Log.stream().noneMatch(line -> line.contains("已导入索引已重建")),
+                "实际日志：\n" + String.join("\n", r1Log));
 
         // 第二轮：同一目录 + 同一 plan，成品与账本都在，应该全部跳过，不再调 transfer
         FakeTransfer t2 = new FakeTransfer();

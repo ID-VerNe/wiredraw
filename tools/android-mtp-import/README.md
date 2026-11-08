@@ -165,10 +165,13 @@ issue #67 在 ILCE-7C 上得到的「offset 是绝对偏移」结论不能作为
   `ImportService` 的轮末不再重建索引，`ImportedIndex` 类与 `pureJdkClasses` 清单项一并删除。
 - **恢复条件**：读方与写方必须**同一个 PR 交付**，并由界面真正用上；没有读方就不写。
   恢复时按当时的 Journal / 落盘口径重新设计，不要照抄历史实现。
+- **位置与残留**：索引与 Journal 同目录（`<filesDir>/imported/`）。停写前设备上可能残留
+  `imported-index.txt`，历史原子重写也可能留下 `.tmp`。三者互不派生——Journal 负责跳过判定、
+  索引只是历史镜像、`.tmp` 是残留临时文件；半成品清理只动 `*.part`，以上都不自动删除，
+  用户可自行清理。
 - **历史格式（仅供排查存量文件）**：行式 UTF-8，头 `# wiredraw-import index v1`，每行
   `size \t relPath`，按 `relPath` 排序；只收普通文件且 `size > 0`，排除 `import-journal.txt`、
-  自身与 `.tmp`、所有 `*.part`。停写前设备上可能残留 `imported-index.txt`，它是普通文件，
-  半成品清理不碰它，用户可自行删除。
+  自身与 `.tmp`、所有 `*.part`。
 - **已知边界（仍然成立）**：同路径同尺寸但内容变了（换卡后编号复用、相机内替换、格式化后
   重拍同名文件）分辨不出来，会被当成已导入；跳过判定由 Journal 负责，与索引是否存在无关。
 
