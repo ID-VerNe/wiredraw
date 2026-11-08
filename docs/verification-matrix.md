@@ -95,57 +95,79 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 #67 的 25 次顺序拼接（字节数 + MD5 与整文件一致）证明从 0 逐块顺读这条路径完整。
 单看 R0–R3 会误读成「每次都从 0 返回」，单看顺序拼接也推不出「非零 offset 何时被采纳」。
 
-## 四、发布前真机待验清单（全部待验）
+## 四、发布前真机待验清单（2026-11-08 快照）
 
-> 数据来源：`gh issue list --state open --label needs-live-verify`，2026-11-08 06:41（UTC+8）快照
-> **25 条**，与 #159 正文记录的 25 条一致。
-> **本表全部是「未验证」**，任何一条都不许在读表时当成「已通过」。
-> 优先级取自各 issue 正文的「影响面」；同一优先级内按 issue 号升序。
-> 跑完一条就把结论按 §「怎么读」回填到上面三张能力表，并把 issue 贴上对应环境编号。
-> 不带该标签的离线审计单另见本节末尾附表，**不占真机额度**。
+> 数据来源：逐条 `gh issue view` 的正文与全部评论 + `gh issue list --state open --label needs-live-verify`，
+> 2026-11-08 快照。**这张表是账本**：已关闭的条目保留行、改状态并写关闭日期，不删行。
+> 状态词只在本节使用（上面三张能力表仍按「怎么读」的三值口径）：
+>
+> | 状态 | 含义 |
+> |---|---|
+> | 通过 | 该行判据已满足；证据类型（真机 / 静态 / 算术）写在「依据」列 |
+> | 未通过 | 跑过判据但结果不满足，或该行的功能尚未落地 |
+> | 未验证 | 仍有验收点没跑，或没有可执行证据 |
+> | 环境不支持 | 本环境无法构造该条件，不是没排期，也不是代码缺陷 |
+> | 前提不满足 | 原 issue 的前提在本轮不成立，已改用替代构造或留待重做 |
+> | 未复现 | 按原步骤没触发目标路径，不能算症状消失 |
+>
+> 已关闭条目的环境统一为 E2（ILCE-7C fw 2.00 / MI 9 / Android 15 API 35 / USB MTP），
+> 另有标注除外；E1 本轮未验，不外推。历史 25 条的口径见 #159，本表已按本轮结论重写。
 
-| 优先级 | issue | 待验点 | 可直接粘贴的复现动作 | 前提 |
-|---|---|---|---|---|
-| P0 | #50 | 真实 MTP 导入落盘与统计 | `adb shell am start -n com.rea.mtpimport/.Main` → 等扫描完 → 点 `Import all N` → `adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt` | 相机在位（USB、已授权、卡内有片） |
-| P0 | #177 | 续传停用后整文件重发，无静默损坏 | 导入中断线 → `adb exec-out run-as com.rea.mtpimport ls -l files/imported` 记录 `.part` → 重连后重导同一张 → 取回文件与卡内原件比 MD5（PC 侧 `Get-FileHash -Algorithm MD5`） | 相机在位、可拔插；E2 优先（原判据在 E2） |
-| P1 | #20 | 已导入索引与新片计数 | 首屏看「新片」计数与 CTA → `adb exec-out run-as com.rea.mtpimport cat files/imported/imported-index.txt` | 相机在位、至少已导入一张 |
-| P1 | #40 | Compose 界面骨架与 demo 入口 | `adb shell am start -n com.rea.mtpimport/.Main --es demo_state CATALOG_READY` → `adb exec-out uiautomator dump /dev/tty` | 无相机（debug APK） |
-| P1 | #44 | 4 处视觉偏差 | 逐态 `adb shell am start -n com.rea.mtpimport/.Main --es demo_state COLD`（再换 `IMPORTING` / `DONE` / `ERROR`）→ 截图 + `adb exec-out uiautomator dump /dev/tty` | 无相机（debug APK） |
-| P1 | #52 | `.part` 残留堆积 | 导入中拔线 → `adb exec-out run-as com.rea.mtpimport ls -l files/imported`；格式化卡后重拍同名再制造一次失败 | 相机在位、可格式化卡 |
-| P1 | #60 | 冷启动 57 s 才出照片墙 | `adb logcat -c` → `adb shell am force-stop com.rea.mtpimport` → `adb shell am start -n com.rea.mtpimport/.Main` → 等 70 s → `adb logcat -d -s MTPIMPORT:*` | 相机在位、USB、已授权 |
-| P1 | #63 | 传输中挂起把 `Import` 变死键 | 传输中拔线或让相机休眠 → 点 `Import` → 看是否无响应；这是 `needs-repro` 单，先复现再判 | 相机在位、需制造挂起 |
-| P1 | #83 | filter 语义与像素优先 JPG | `adb shell am start -n com.rea.mtpimport/.Main --es demo_state CATALOG_READY` → 切 `All` / `RAW` / `JPG` / 日期 → `adb exec-out uiautomator dump /dev/tty` 看 CTA N 与胶囊；真机再比对导出集合 | 无相机（UI）+ 相机在位（真机部分） |
-| P1 | #205 | 构建常量收口 | `git grep -n -E "compileSdk|targetSdk|minSdk" -- tools/android-mtp-import` | 无（离线） |
-| P1 | #209 | 完成 / 跳过判据 | `.\.venv\Scripts\python.exe scripts\run_gates.py ci`；真机重复导入看 `Skipped` | 无（静态）+ 相机在位（回归） |
-| P1 | #214 | `visibleUnits` 唯一派生 | `git grep -n "visibleUnits" -- tools/android-mtp-import`；demo 切 filter 对比组头与进度 | 无（静态）+ 无相机（demo） |
-| P1 | #215 | 设计常量 | `git grep -n -E "[0-9]+(dp|sp)" -- tools/android-mtp-import/src/com/rea/mtpimport/ui`；截图取色对照 | 无相机（demo） |
-| P2 | #28 | 落点决策落地 | 真机导入后 `adb shell run-as com.rea.mtpimport ls -l files/imported`；看日志里的相册回退原因 | 相机在位、需权限场景 |
-| P2 | #53 | `Skipped` 进 Details | 重复导入 → 打开 `Details` → `adb exec-out uiautomator dump /dev/tty` | 相机在位、已有导入文件 |
-| P2 | #54 | 多存储同名 `relPath` | 机身与卡放同名目录 / 同名文件 → 导入 → `adb shell run-as com.rea.mtpimport ls -l files/imported` 看是否覆盖 | 相机在位、双存储 |
-| P2 | #57 | 暂停后改勾选 | `Pause & exit` → 改勾选 → `Import` → `adb logcat -d -s MTPIMPORT:*` | 相机在位 |
-| P2 | #64 | 视图关闭后全失败静默 | `Pause & exit` → 拔线使剩余全失败 → 看是否出现 `ERROR` | 相机在位、拔插 |
-| P2 | #65 | 取消日志语气 | `git grep -n -i "cancel" -- tools/android-mtp-import/src/com/rea/mtpimport` | 无（离线） |
-| P2 | #96 | 纯 JPG 首屏渐进发布 | 相机只留 JPG（或清空 ARW）→ `adb shell am start -n com.rea.mtpimport/.Main` → 看照片墙是否在扫描进度走完前出现；静态判据 `git grep -n "rawSeen" -- tools/android-mtp-import/src/com/rea/mtpimport/CatalogScanner.java` | 相机在位、纯 JPG 卡 |
-| P2 | #116 | 自检 / README / `ERROR` 文案 | `git grep -n -E "Not available|ERROR" -- tools/android-mtp-import`；真机 `--es demo_state ERROR` 截图 | 无（静态）+ 相机在位 |
-| P2 | #124 | 暂停注释与预检顺序 | `git grep -n -i "pause" -- tools/android-mtp-import/src/com/rea/mtpimport`；低空间真机复导 | 无（静态）+ 低空间 |
-| P2 | #127 | `Skipped` 文案与早退 | `git grep -n "Skipped" -- tools/android-mtp-import`；真机 `ERROR` 展开 `Details` | 无（静态）+ 相机在位 |
-| P2 | #217 | 抽屉 / 按钮抽离 | `git grep -n -E "Details|Drawer" -- tools/android-mtp-import/src/com/rea/mtpimport/ui`；demo 截图回归 | 无相机（demo） |
-| P2 | #221 | 缩略图链与短读 | `git grep -n -i -E "thumb|thumbnail" -- tools/android-mtp-import/src`；真机看缩略图与大图 | 无（静态）+ 相机在位 |
+### 4.1 已关闭（回签通过）
 
-**统计**：P0 2 条 / P1 11 条 / P2 12 条，共 25 条。**已通过 0 条。**
+| 优先级 | issue | 待验点 | 状态 | 关闭日期 | 依据（结论 + 证据类型） |
+|---|---|---|---|---|---|
+| P0 | #177 | 续传停用后整文件重发，无静默损坏 | 通过 | 2026-11-08 | 真机：预置 1,048,576 字节 `.part` 后重导，日志「已清理无主半成品：1 个」，成品 24,800,000 字节、MD5 `7d4cf952…` 与完整导入基准逐字节一致。**判据已改**：原引用的 `2026-10-08/DSC04541.ARW` 已不在卡上、原 MD5 真值失效，改用同链路完整导入成品作基准（记录见 #177 的回签评论）。 |
+| P1 | #44 | 4 处视觉偏差 | 通过 | 2026-11-08 | 真机：P1-1 传输态断线可见（拔线切 `Disconnected`、插回自动回在线）。**两处降级**：P1-3 环轨道对比度是「实现 + 算术」证据（`outline` 白底 4.47:1），本轮未做真机取色；`V-26` 三处复位只有 `USB_ATTACHED` 被真机覆盖，`IMPORT_START` / `DONE` / `RESUME(lost=true)` 只有自检。复审留出的 #265 / #266 / #267 / #268 / #269 是独立 bug 单，不改变本行判据。 |
+| P1 | #83 | filter 语义与像素优先 JPG | 通过 | 2026-11-08 | 真机：`All` 档导出 671 个 JPG / 941 MB、ARW 0 个；滤波只筛选、所见即所得、JPG 优先三条成立。**口径已改**：三档字节表以 `DemoTree.java` 源码推导为准，`RAW` 档为 12,766,800,000 字节（11.89 GB），回签首评的「1.00 GB」实为 `Jun 7` 的 RAW 载荷（记录见 #83 的数字更正评论）。 |
+| P1 | #209 | 完成 / 跳过判据 | 通过 | 2026-11-08 | 真机：全量重导 `完成 0 / 跳过 671 / 失败 0`，逐条 `[Skipped] … Skipped existing`；`SkipRule` 是唯一判据。 |
+| P1 | #214 | `visibleUnits` 唯一派生 | 通过 | 2026-11-08 | 静态：`AppModel.kt` 的 `visibleUnits` 是唯一派生源，CTA / 已选数 / 组头都由它重建（`git grep` 核对，无真机像素证据）。 |
+| P1 | #215 | 设计常量 | 通过 | 2026-11-08 | 静态：`git grep -E "[0-9]+(dp|sp)"` 在 `ui/` 下零匹配，尺寸全部走具名常量。 |
+| P2 | #53 | `Skipped` 进 `Details` | 通过 | 2026-11-08 | 真机：DONE 态点 `Location` 打开抽屉，含 `Skipped 671 existing` 与逐文件明细；主视觉 DONE 不含该句。 |
+| P2 | #57 | 暂停后改勾选 | 通过 | 2026-11-08 | 真机：暂停轮改勾选 19 → 17，日志「暂停轮次的清单已变化（旧 19 个 / 新 17 个）：取消旧轮次，按当前勾选重新开始」。 |
+| P2 | #64 | 视图关闭后全失败静默 | 通过 | 2026-11-08 | 真机：关视图后最终 UI dump 含 `导入失败，请拔插数据线` / `Reconnect`，错误未被吞掉。 |
+| P2 | #65 | 取消日志语气 | 通过 | 2026-11-08 | 真机 + 静态：旧串「正在传的文件会被中断」零命中；新串「已请求取消（若正在传文件，会尝试中断；能否打断无跨机型保证）」出现。「打不断」分支仍无真机证据，但不是本行要改的字符串。 |
+| P2 | #116 | 自检 / README / `ERROR` 文案 | 通过 | 2026-11-08 | 静态：`SelfTest` 7 条挂起用例且条件互异；README 写 60 s 口径；`ERROR` 主文案为「相机连接已断开，请拔插数据线」+ `Reconnect`。 |
+| P2 | #124 | 暂停注释与预检顺序 | 通过 | 2026-11-08 | 静态 + 单机：`precheckSpace(plan)` 在暂停轮取消之前，`KEEP_PAUSED` 保留旧暂停轮；低空间竞态在 E2（可用约 171 GB）仍构造不出来。 |
+| P2 | #217 | 抽屉 / 按钮抽离 | 通过 | 2026-11-08 | 静态：两个抽屉共用 `DrawerSkeleton`，图标统一走 `Glyph`，次按钮复用 `SecondaryButton`；无真机布局观感证据。 |
+| P2 | #221 | 缩略图链与短读 | 通过 | 2026-11-08 | 静态：`fetchFull` 走 `RangeRead.read(entry.size, 1 << 20, …)`，`decode` + `commit` 单点。设备短读 / 超量返回的真机边界仍未覆盖，相关残余风险见 #188。 |
 
-**跑表顺序建议**：先 P0 两条（#50 落盘、#177 完整性），再 P1 的真机项（#60 冷启动、#63 挂起、#83 过滤），
-最后 demo-only 项可以离线批量跑。每条跑完按「怎么读」补环境编号与证据链接，不要只写「通过」。
+### 4.2 仍 open（缺哪个验收点）
+
+| 优先级 | issue | 待验点 | 状态 | 已验部分 / 缺哪个验收点 | 复现动作（可粘贴） |
+|---|---|---|---|---|---|
+| P0 | #50 | 真实 MTP 导入落盘与统计 | 未验证 | 已验：`2026-11-07/DSC05053.JPG` 落盘 1,056,849 字节，手机侧与取回侧 MD5 均 `8fedf390…`；journal / index 已落账；`.part` 零残留；全量 `完成 0 / 跳过 671 / 失败 0`；拔线一轮 `完成 14 / 跳过 180 / 失败 477`。缺：PB 取消卡住时的重试与进度反馈、拔线后 `Details` 是否固定列 `Failed:` 明细、低空间预检拒绝与提示、worker 与 `onDestroy` 的 join。 | `adb shell am start -n com.rea.mtpimport/.Main` → 等扫描完 → 点 `Import all N` → `adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt` |
+| P1 | #20 | 已导入索引与新片计数 | 未通过 | `imported-index.txt` 已有记录落地，但生产代码没有读取方，首屏仍 `671` / `Import all 671`，没有「新片」语义；2026-11-08 决策是「停写」，读取方与写方必须同 PR 交付。 | 首屏看「新片」计数与 CTA → `adb exec-out run-as com.rea.mtpimport cat files/imported/imported-index.txt` |
+| P1 | #40 | Compose 界面骨架与 demo 入口 | 未验证 | 已验：`CATALOG_READY` 一态（顶栏 512、组头 `Jun 7 · 43 · 74.0 MB`、CTA `Import all 512`）。缺：三屏 + 10 态截图、`U-44` / `U-45` / `U-47` / `U-51` / `U-52` / `U-53` / `U-54` 逐条对照，以及真实 MTP 的取消 / 竞态 / 120 s 权限窗口 / 挂起重连。 | `adb shell am start -n com.rea.mtpimport/.Main --es demo_state CATALOG_READY` → `adb exec-out uiautomator dump /dev/tty`；再逐态截图 |
+| P1 | #52 | `.part` 残留堆积 | 前提不满足 | 原前提「格式化卡」未执行，改用植入 3 个 `.part`：下一轮日志「已清理无主半成品：3 个」，`.part` 清零。缺：`ScanResult.complete == false` 时「不清理并留计数」分支。原「`relPath + size` 合法 `.part` 保留」判据已随 #177 废止（`PartResidue.keepNames()` 恒返回空集），不再是待验点。 | 导入中拔线 → `adb exec-out run-as com.rea.mtpimport ls -l files/imported`；另造 `scan.complete == false` 看是否保留计数 |
+| P1 | #60 | 冷启动 57 s 才出照片墙 | 未验证 | 已验：冷启动 `TotalTime 677 ms`，3 s 内见首格与主 CTA，全量扫描 75 s。缺：滚到未加载组是否出格 / 滚出是否取消加载、取消 / 拔线 / USB 挂起三条路径不崩、全量补齐后的计数与容量一致性。 | `adb logcat -c` → `adb shell am force-stop com.rea.mtpimport` → `adb shell am start -n com.rea.mtpimport/.Main` → 等 70 s → `adb logcat -d -s MTPIMPORT:*` |
+| P1 | #63 | 传输中挂起把 `Import` 变死键 | 未复现 | 传输中拔线后 `importFile` 立即返回 false，477 个失败在 14 ms 内跑完，整轮 `完成 14 / 跳过 180 / 失败 477`；全量日志「挂起 / 失步 / 探活」零命中，**挂起判定未被调用**。缺：「未点取消即挂起」的可复现构造，不能算症状消失。 | 传输中拔线或让相机休眠 → 点 `Import` → 看是否无响应 |
+| P1 | #205 | 构建常量收口 | 未验证 | 已验：`build.gradle.kts` 单点定义 `compileSdk = 35` / `minSdk = 31` / `targetSdk = 35`。缺：「没有全局 python 的机器上普通提交被拒」与「正常机器不受影响」两项；`build.sh` 与 `build.gradle.kts` 的 SDK 路径 / 签名口令跨文件收口仍未做。 | `git grep -n -E "compileSdk|targetSdk|minSdk" -- tools/android-mtp-import`；在无全局 python 的机器上提交一次 |
+| P2 | #28 | 落点决策落地 | 未通过 | 已验：默认私有落点与 `relPath` 镜像布局在 E2 成立（`Location details` 指向 `files/imported`）。缺：「用户可选落点」——UI 没有选择器，`Main` 恒传 `Kind.PRIVATE`；相册权限 / `.ARW` MIME / 跨 provider 复制按 #28 自述本期不接。 | 真机导入后 `adb exec-out run-as com.rea.mtpimport ls -l files/imported`；看 `Location details` |
+| P2 | #54 | 多存储同名 `relPath` | 环境不支持 | E2 只有一块内部存储，无法构造双存储同名争路径；单存储回归与异尺寸拒绝覆盖已在 2026-11-07 通过。 | 机身与卡放同名目录 / 同名文件 → 导入 → `adb exec-out run-as com.rea.mtpimport ls -l files/imported`（本环境不可执行） |
+| P2 | #96 | 纯 JPG 首屏渐进发布 | 环境不支持 | 静态成立（`Catalog.photoFiles` 按 `isRaw() \|\| isJpeg()` 计数，`hasPhotoFile()` 以此为门槛）；没有纯 JPG 卡环境，运行时行为未验。 | 相机只留 JPG → `adb shell am start -n com.rea.mtpimport/.Main` → 看照片墙是否在扫描进度走完前出现（本环境不可执行） |
+| P2 | #127 | `Skipped` 文案与早退 | 未验证 | 代码级成立（`ImportRoundListener` 复用 `UiText.skippedLine` 且 `skipped == 0` 时不打；`ImportEntry.begin` 先 `resetSkipped()`）。缺：真机「先跑出 `Skipped N existing` → 失步进 `ERROR` → 打开 `Details` 确认不残留」。 | 真机重复导入到 `ERROR` → 打开 `Details` → `adb exec-out uiautomator dump /dev/tty` |
+
+**统计（2026-11-08 快照）**：已关闭 14 行，全部为 `通过`，其中只有静态证据的 5 行（#214 / #215 / #116 / #217 / #221）、
+含 `V-26` 降级的 1 行（#44）。仍 open 11 行：`未验证` 5（#50 / #40 / #60 / #205 / #127）、`未通过` 2（#20 / #28）、
+`环境不支持` 2（#54 / #96）、`前提不满足` 1（#52）、`未复现` 1（#63）。
+`needs-live-verify` 的 open issue 以 `gh issue list --state open --label needs-live-verify` 为准；
+关闭的 issue 仍可能带这个标签，状态判断以 `state` 为准。
+
+**怎么用这张表**：open 行按「缺哪个验收点」补测；每验完一条，先把能力级结论按「怎么读」回填到上面三张能力表并贴环境编号，
+再改本行状态与依据。状态从 `通过` 改回其他值、或从其他值改成 `通过`，都要带一条新的 issue 评论作指针。
 
 ### 附：离线审计回归（不带 `needs-live-verify`，不占真机额度）
 
-| 优先级 | issue | 待验点 | 可直接粘贴的复现动作 | 前提 |
+2026-11-07 已全部离线回签并摘标签；其中三条已关闭，两条仍 open 且写明剩余项。
+
+| 优先级 | issue | 待验点 | 状态 | 关闭情况 / 剩余项 |
 |---|---|---|---|---|
-| P1 | #204 | 门禁共享层 | `.\.venv\Scripts\python.exe scripts\run_gates.py ci` | 无（离线） |
-| P2 | #207 | 单文件过载 | `Get-Content tools/android-mtp-import/UI-SPEC.md \| Measure-Object -Line` 与 `.\.venv\Scripts\python.exe scripts\run_gates.py ci` | 无（文档） |
-| P2 | #224 | opcode / RESP 表 | `git grep -n "0x" -- tools/sony-ptpip/probe.py` | 无（离线） |
-| P2 | #225 | 离线解析门槛与 GUID | `git grep -n -i "guid" -- tools/sony-ptpip`；`.\.venv\Scripts\python.exe tools\sony-ptpip\parse_ptpip.py --help` | 无（离线） |
-| P2 | #226 | 死字段与 `pe_inspect` | `.\.venv\Scripts\python.exe scripts\run_gates.py ci`；`.\.venv\Scripts\python.exe tools\pe\tests\test_none_paths.py` | 无（离线） |
+| P1 | #204 | 门禁共享层 | 通过 | 仍 open：`_common.py` 已落地、`GATE_TRIGGERS` 单点、坏 JSON 退 2、`ci` 全绿；正文修复候选 2 未全覆盖（`check_sensitive.py` / `check_gates_manifest.py` / `run_gates.py` 未迁移、`review_prompt.py` 不在 `GATE_TRIGGERS`），构建链常量归代码线。 |
+| P2 | #207 | 单文件过载 | 通过 | 仍 open：三份长文都有读者地图、链接全可达；剩余项是 `build.gradle.kts` 的 EXIF / 假数据 / 纯 JDK 计数拆分，留给代码侧。 |
+| P2 | #224 | opcode / RESP 表 | 通过 | 已关闭 2026-11-08：`0x101B` / `0x100B` / `0xA003` 与帧类型 1..14 均有用例。 |
+| P2 | #225 | 离线解析门槛与 GUID | 通过 | 已关闭 2026-11-08：三条 CLI 复现从抛栈改为可读提示 + 退出 2，17 项离线用例全过。 |
+| P2 | #226 | 死字段与 `pe_inspect` | 通过 | 已关闭 2026-11-08：`permAnswered` / `BULK` 零命中，PE 4 项用例全过，两条构建链成功。 |
 
 ## 与其他文档的关系
 
