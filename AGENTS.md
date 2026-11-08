@@ -82,13 +82,14 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | # | 分片 | 门禁 | 命令 | 防什么 |
 |---|---|---|---|---|
 | 1 | `static` | `check_gates_manifest.py` | `python scripts/check_gates_manifest.py` | 元门禁：scripts/gates.json、AGENTS.md 生成段、磁盘脚本三者零漂移；手改 AGENTS.md 的门禁表格即红。cmd 参数也不许降级：禁用参数表的唯一来源是 scripts/check_gates_manifest.py 的 FORBIDDEN_FLAGS（本清单不再枚举），flags.require 声明的参数必须在场，脚本 --help 不认的参数即红（#131、#173、#203） |
-| 2 | `static` | `check_no_vendored.py` | `python scripts/check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
-| 3 | `static` | `check_doc_links.py` | `python scripts/check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
-| 4 | `static` | `check_line_refs.py` | `python scripts/check_line_refs.py` | 被跟踪文件（md/java/kt/kts/py，含代码注释）不许写物理行号（AGENTS.md §2 第 10 条，规则原在 UI-SPEC 只覆盖自身，#252 上收为全仓）：行号随上方插行漂移，而文档与注释都没有编译门禁能发现。扩展名白名单避开主机端口与章节号；md 跳围栏代码块（issue/PR 模板里的行号示例属一次性上下文）与 docs/archive/ 冻结证据（失效是预期），代码类型不剥围栏；门禁自身的测试夹具按精确路径排除（夹具必须字面含违规形态才能验证判红），不做值级白名单；裸冒号数字误报不可控，不进这条门禁 |
-| 5 | `static` | `py_compile` | `python -m compileall -q scripts tools` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
-| 6 | `static` | `check_sensitive.py` | `python scripts/check_sensitive.py --check` | 敏感信息门禁：相机 GUID 及其 hex/14 位去横线/4-4-4-2 重分组/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。命中即阻断（#110）。相机 AP 公开示例网关与 Android debug keystore 公开口令走脚本内 ALLOWLIST，只按「类别 + 精确值」放行，不做网段/通配；其余行内豁免必须带具体理由。--fix 才改写，--warn 只用于排查基线 |
+| 2 | `static` | `_common.py` | `python scripts/_common.py` | 门禁共享层自检：`gate_hits` 新旧路径逐项等价、共享层自身命中门禁链、`GATE_TRIGGERS` 与 `FROZEN_GATE_TRIGGERS` 零漂移、退出码常量 0/1/2（#288）。各门禁的 `--self-test` 不覆盖共享层，必须由本档位显式执行，否则判定表被悄悄扩展只有绿灯（#283） |
+| 3 | `static` | `check_no_vendored.py` | `python scripts/check_no_vendored.py` | 15 个第三方参考仓库一个都不许被跟踪，且 .gitignore 的忽略规则必须还在；顺带拦下 >5 MB 的被跟踪文件（原始大抓包就是靠这条挡在外面的，实测体积见 [`docs/archive/INDEX.md`](docs/archive/INDEX.md)） |
+| 4 | `static` | `check_doc_links.py` | `python scripts/check_doc_links.py` | 所有被跟踪 md 的相对链接必须可达。这套协作靠文档当记忆，断链等于记忆断了 |
+| 5 | `static` | `check_line_refs.py` | `python scripts/check_line_refs.py` | 被跟踪文件（md/java/kt/kts/py，含代码注释）不许写物理行号（AGENTS.md §2 第 10 条，规则原在 UI-SPEC 只覆盖自身，#252 上收为全仓）：行号随上方插行漂移，而文档与注释都没有编译门禁能发现。扩展名白名单避开主机端口与章节号；md 跳围栏代码块（issue/PR 模板里的行号示例属一次性上下文）与 docs/archive/ 冻结证据（失效是预期），代码类型不剥围栏；门禁自身的测试夹具按精确路径排除（夹具必须字面含违规形态才能验证判红），不做值级白名单；裸冒号数字误报不可控，不进这条门禁 |
+| 6 | `static` | `py_compile` | `python -m compileall -q scripts tools` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
+| 7 | `static` | `check_sensitive.py` | `python scripts/check_sensitive.py --check` | 敏感信息门禁：相机 GUID 及其 hex/14 位去横线/4-4-4-2 重分组/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。命中即阻断（#110）。相机 AP 公开示例网关与 Android debug keystore 公开口令走脚本内 ALLOWLIST，只按「类别 + 精确值」放行，不做网段/通配；其余行内豁免必须带具体理由。--fix 才改写，--warn 只用于排查基线 |
 
-共 6 个 CI 门禁，分 1 个分片（static 6）；manual 2、support 3 见 `scripts/gates.json`。
+共 7 个 CI 门禁，分 1 个分片（static 7）；manual 2、support 3 见 `scripts/gates.json`。
 <!-- gates:ci:end -->
 
 ### 0.2 证据与验证纪律
