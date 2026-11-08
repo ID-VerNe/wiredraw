@@ -24,7 +24,7 @@ import com.rea.mtpimport.ResumableTransfer.Kind;
 /**
  * JVM 纯逻辑自检（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
  *
- * 覆盖 build.gradle.kts 的 `pureJdkClasses` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
+ * 覆盖 gradle/self-test.gradle.kts 的 `pureJdkClasses` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
  * TransferProgress / Journal / AttachGate 等，清单本身是唯一事实来源）；
  * 它们不 import android.*，所以能在普通 JVM 里直接跑，这也是骨架里唯一
  * 「能拿门禁守住」的部分。真机相关的 MtpSession / CatalogScanner / MtpTransfer

@@ -55,7 +55,7 @@ PTP/IP 与 MTP 是并列的两条路线，不互相依赖。
 
 | 层 | 模块 | 约束 |
 |---|---|---|
-| Android 边界 | 代表性模块：`Main`、`MtpSession`、`CatalogScanner`、`MtpTransfer`、`ThumbnailStore` 等（**非穷举**） | 真源是 Gradle 的 `pureJdkClasses` 清单：**不在**该清单里的模块才允许 `import android.*`，由 `compilePureJdkJava` 在编译期强制、`checkPureJdkList` 兜底（清单在 [`build.gradle.kts`](../tools/android-mtp-import/build.gradle.kts)） |
+| Android 边界 | 代表性模块：`Main`、`MtpSession`、`CatalogScanner`、`MtpTransfer`、`ThumbnailStore` 等（**非穷举**） | 真源是 Gradle 的 `pureJdkClasses` 清单：**不在**该清单里的模块才允许 `import android.*`，由 `compilePureJdkJava` 在编译期强制、`checkPureJdkList` 兜底（清单在 [`gradle/self-test.gradle.kts`](../tools/android-mtp-import/gradle/self-test.gradle.kts)） |
 | 纯逻辑 | 代表性模块：`Catalog`、`Selection`、`ImportPlan`、`TransferProgress`、`Journal`、`SpaceCheck`、`ImportGate`、`ImportService`、`UiState`、`UiText` 等（**非穷举**） | 不允许 `import android.*`；完整清单与编译期强制同上一行，避免两处手抄漂移 |
 | UI | `ui/`（Compose） | 只做界面与状态映射，不承载业务规则 |
 
