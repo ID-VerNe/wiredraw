@@ -131,6 +131,7 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 | P2 | #124 | 暂停注释与预检顺序 | 通过 | 2026-11-08 | 静态 + 单机：`precheckSpace(plan)` 在暂停轮取消之前，`KEEP_PAUSED` 保留旧暂停轮；低空间竞态在 E2（可用约 171 GB）仍构造不出来。 |
 | P2 | #217 | 抽屉 / 按钮抽离 | 通过 | 2026-11-08 | 静态：两个抽屉共用 `DrawerSkeleton`，图标统一走 `Glyph`，次按钮复用 `SecondaryButton`；无真机布局观感证据。 |
 | P2 | #221 | 缩略图链与短读 | 通过 | 2026-11-08 | 静态：`fetchFull` 走 `RangeRead.read(entry.size, 1 << 20, …)`，`decode` + `commit` 单点。设备短读 / 超量返回的真机边界仍未覆盖，相关残余风险见 #188。 |
+| P2 | #267 | 传输态 USB 事件身份比对 | 通过（第 3 条前提不满足） | 2026-11-08 | 真机（E2）：第 1 条拔相机 → `UsbHostManager: Removed device … ILCE-7C`，顶栏 `Disconnected`，`99%` / `664/671` 与 `Resume` / `Cancel` 原样保留；第 2 条插回 → 顶栏回 `a7C`，日志「传输进行中：本轮不打断，也不重扫」。第 3 条**前提不满足**：需一开多 USB hub，E2 为 C2C 直连、手机供电带不动扩展坞，该组合在目标环境不成立（硬件与补验步骤见 #267 回签评论）。`ATTACH` 侧身份比对未实现（仍只判 VID + 接口类），按已知缺口记。 |
 
 ### 4.2 仍 open（缺哪个验收点）
 
@@ -148,7 +149,8 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 | P2 | #96 | 纯 JPG 首屏渐进发布 | 环境不支持 | 静态成立（`Catalog.photoFiles` 按 `isRaw() \|\| isJpeg()` 计数，`hasPhotoFile()` 以此为门槛）；没有纯 JPG 卡环境，运行时行为未验。 | 相机只留 JPG → `adb shell am start -n com.rea.mtpimport/.Main` → 看照片墙是否在扫描进度走完前出现（本环境不可执行） |
 | P2 | #127 | `Skipped` 文案与早退 | 未验证 | 代码级成立（`ImportRoundListener` 复用 `UiText.skippedLine` 且 `skipped == 0` 时不打；`ImportEntry.begin` 先 `resetSkipped()`）。缺：真机「先跑出 `Skipped N existing` → 失步进 `ERROR` → 打开 `Details` 确认不残留」。 | 真机重复导入到 `ERROR` → 打开 `Details` → `adb exec-out uiautomator dump /dev/tty` |
 
-**统计（2026-11-08 快照）**：已关闭 14 行，全部为 `通过`，其中只有静态证据的 5 行（#214 / #215 / #116 / #217 / #221）、
+**统计（2026-11-08 快照）**：已关闭 15 行，均为 `通过` 类：14 行纯 `通过`，1 行 `通过（第 3 条前提不满足）`（#267）。
+纯 `通过` 里只有静态证据的 5 行（#214 / #215 / #116 / #217 / #221）、
 含 `V-26` 降级的 1 行（#44）。仍 open 11 行：`未验证` 5（#50 / #40 / #60 / #205 / #127）、`未通过` 2（#20 / #28）、
 `环境不支持` 2（#54 / #96）、`前提不满足` 1（#52）、`未复现` 1（#63）。
 `needs-live-verify` 的 open issue 以 `gh issue list --state open --label needs-live-verify` 为准；
