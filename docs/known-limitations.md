@@ -22,7 +22,7 @@
 | 限制 | 后果 | 证据 / 处置 |
 |---|---|---|
 | 非零 `offset` 只有在恰好等于相机内部游标时才被采纳；对不上时忽略 offset、从对象头返回 | 把非零 offset 拿回的内容追加到 `.part`，会得到「字节数对、内容错、日志打 OK」的坏文件；跳读 / 续传一定错，且**续读不省带宽**（要先从 0 读到该位置） | 2026-11-07 真机实测（E2 MI 9 / Android 15 / USB MTP）：R0–R3 判别（R1 @2 MiB、R2 @8 KiB 判定行 `实际内容位置=0`）+ 同轮 25 次顺序拼接 MD5 与整文件一致，两者合解得到该语义。「游标」是相机侧读流的位置（见本节末注）。**止血方案 B：续传已停用**，遗留 `.part` 一律作废、从 0 重传。[探针 README](../tools/android-mtp-probe/README.md) 里 #67 的「绝对偏移」结论已由 #179 撤回，不可作为实现依据 |
-| 完成只做尺寸核对 | 尺寸相等不代表内容正确；日志与结果文案必须写明「内容未校验」 | [MtpTransfer.java](../tools/android-mtp-import/src/com/rea/mtpimport/MtpTransfer.java) 的 `finish()`；内容摘要校验尚未实现（issue #177 的修复候选 2） |
+| 完成只做尺寸核对 | 尺寸相等不代表内容正确；日志与结果文案必须写明「内容未校验」 | [MtpTransfer.java](../tools/android-mtp-import/src/com/rea/mtpimport/MtpTransfer.java) 的 `finish()`；内容摘要校验尚未实现（该项曾作为 #177 的修复候选 2 登记，未随该单落地；目前没有跟踪 issue） |
 | `ThumbnailStore.fetchFull()` 仍按分块 `offset` 读 | **残余风险（未验证）**：若进入 `fetchFull` 时相机游标已非 0，后续块可能与游标对不上、拼成「尺寸对、内容错」的图且不报错；解码失败也只保留缩略图，用户无感知。**无真机观察** | [RangeRead.java](../tools/android-mtp-import/src/com/rea/mtpimport/RangeRead.java) 的 `while (offset < size)` 分块循环（经 [ThumbnailStore.java](../tools/android-mtp-import/src/com/rea/mtpimport/ThumbnailStore.java) 的 `fetchFull()`）；导入路径已停用续传（#177），缩略图路径待改，见 issue #188（`needs-repro`） |
 | `length` 超剩余 / `offset` 越界的探针结论未复测 | 不能把 #67 的边界观察当成稳定契约 | [探针 README](../tools/android-mtp-probe/README.md) 的 PC 探针节；续传停用后导入路径（`MtpTransfer`）已不再发 `getPartialObject`（缩略图路径仍发，见上一行 #188），恢复前必须重新实测 |
 
