@@ -78,6 +78,7 @@ public final class SelfTest {
         importGateCases();
         topBarSpecCases();
         ringTrackCases();
+        scanLineCases();
         detachCases();
         requestScanLogCases();
         colorTokensCases();
@@ -3069,6 +3070,30 @@ public final class SelfTest {
         check("进度环轨道改用 outline（P1-3）", !outlineTrack.isEmpty(),
                 "环轨道没找到 drawCircle(UiColors.outline,");
         check("outline 于白底 ≥3:1（V-07 图标/描边下限）",
+                ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE) >= 3.0,
+                "实际 " + number(ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE)));
+    }
+
+    /**
+     * N3（#265）：扫描细线底与进度环轨道同属「用长度表达进度」的图形，按 `V-07` ≥3:1 判。
+     * 旧底色 `outlineSoft`（白底 1.70:1）不达标，改 `outline`（白底 4.47:1）。
+     */
+    static void scanLineCases() {
+        File lib = new File(System.getProperty("user.dir"),
+                "src/com/rea/mtpimport/ui/LibraryScreen.kt");
+        String src = null;
+        try {
+            src = Files.readString(lib.toPath());
+        } catch (IOException e) {
+            src = null;
+        }
+        check("扫描细线底不再用 outlineSoft（白底 1.70:1，#265）",
+                src != null && !src.contains(".background(UiColors.outlineSoft)"),
+                src == null ? "读不到 " + lib : "仍在用 outlineSoft");
+        check("扫描细线底改用 outline（#265）",
+                src != null && src.contains(".background(UiColors.outline)"),
+                src == null ? "读不到 " + lib : "没找到 .background(UiColors.outline)");
+        check("outline 于白底 ≥3:1（V-07 图形下限，#265）",
                 ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE) >= 3.0,
                 "实际 " + number(ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE)));
     }
