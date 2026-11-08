@@ -41,6 +41,17 @@ GATE_TRIGGERS = (
     ".githooks/",
 )
 
+# 与判定表并排放一份冻结清单：新增 / 删除触发器必须两处一起改，否则 self_test() 直接红。
+# 没有它，往 GATE_TRIGGERS 里加一项不会触发任何断言，「判定表被悄悄扩展」只有绿灯（#283）。
+FROZEN_GATE_TRIGGERS = (
+    "scripts/check_",
+    "scripts/_common.py",
+    "scripts/gates.json",
+    "scripts/run_gates.py",
+    ".github/workflows/ci.yml",
+    ".githooks/",
+)
+
 
 class EnvProblem(Exception):
     """环境或参数问题：取不到上下文、命令不可用、输出不可解析。
@@ -206,6 +217,13 @@ def self_test() -> int:
         "共享层自身命中门禁链",
         gate_hits(["scripts/_common.py"]) == ["scripts/_common.py"],
         f"实际 {gate_hits(['scripts/_common.py'])}",
+    )
+
+    # 判定表本身的变化必须可见：新增 / 删除触发器时这条要红，逼着一起改冻结清单（#283）。
+    check(
+        "门禁链判定表与冻结清单一致（新增触发器须显式确认）",
+        tuple(GATE_TRIGGERS) == FROZEN_GATE_TRIGGERS,
+        f"实际 {GATE_TRIGGERS}",
     )
 
     # 2/3. 环境问题统一抛 EnvProblem（由上层映射成退出码 2），不许裸抛 JSONDecodeError
