@@ -128,7 +128,6 @@ val pureJdkClasses = listOf(
     "ImportRoundListener.java",
     "ImportService.java",
     "ImportUi.java",
-    "ImportedIndex.java",
     "Journal.java",
     "Log.java",
     "OrphanRounds.java",

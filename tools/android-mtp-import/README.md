@@ -60,7 +60,7 @@
 | **逐文件失败上报到 UI** | ✅ 实现（PD；固定进 `Location details` 失败列表，DONE 首屏受 U-47 约束不出现 `Failed N`） |
 | **`P-09` 导入前空间预检** | ✅ 实现（PD；计划 + 5% 缓冲不足时禁用主 CTA + 一行 `Low space`，差额进 Details；真机未验） |
 | **`onDestroy` 先 join worker 再关会话** | ✅ 实现（PD；1 s 有界等待，worker 未退出则跳过 `close()`；真机未验） |
-| **已导入索引（`imported-index.txt`）** | ✅ 实现（#20；`outDir` 磁盘镜像派生，每轮导入结束原子重写；主键 `relPath + size`；**本期无消费方**，供后续 UI 单读「新片」；真机未验） |
+| **已导入索引（`imported-index.txt`）** | ⛔ 已停写（#20 裁决 B；曾实现为 `outDir` 磁盘镜像派生、每轮原子重写，但全仓无读方，`ImportedIndex` 与写方已删除；恢复需读方与写方同 PR 交付） |
 | **多存储同名路径冲突（#54）** | ✅ 实现（`storageId` 只做判别、**不进 relPath**；同 relPath 跨存储的项显式失败、不调 transfer、不写 Journal；落盘拒绝异尺寸覆盖；**两个同名文件仍争同一路径，本期不支持同时导入**；多存储卷实际行为真机未验） |
 | **落点策略（#28）** | ✅ 策略层（默认 `getFilesDir()/imported`；布局镜像 `relPath`，不重排；相册请求**显式回退**并带原因；**相册写入未实现**，权限/MIME 真机未验） |
 
@@ -79,7 +79,6 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 ├─ TransferProgress  已传/总量 → 分数 / 速度 / ETA（时钟注入）          [纯 JDK]
 ├─ Journal           导入完成日志：markDone / isComplete / partPath / 存取（#177 删 resumeFrom） [纯 JDK]
 ├─ PartResidue       无主 .part 清理：保留集恒空（#177 续传停用），枚举成功才清（#52） [纯 JDK]
-├─ ImportedIndex     已导入索引：outDir 磁盘镜像派生（relPath + size），每轮重建    [纯 JDK]
 ├─ DestPolicy        落盘冲突策略：relPath 解析 + 同名异尺寸拒绝覆盖（#54）；落点根（#28）    [纯 JDK]
 ├─ SpaceCheck        空间预检：计划 + 5% 缓冲、够不够、Details 差额（P-09）    [纯 JDK]
 ├─ ImportGate        主 CTA 准入判定：后台扫描 + 空间不足两条件（N-1）         [纯 JDK]
@@ -159,24 +158,22 @@ issue #67 在 ILCE-7C 上得到的「offset 是绝对偏移」结论不能作为
   不是「清单是否为空」：枚举失败 / 取消时一律不清；清理前双闸确认没有活动轮次；
   删除失败只记日志、不阻断本轮。
 
-## 已导入索引（issue #20）
+## 已导入索引（issue #20，裁决 B：已停写）
 
-- **位置**：`<filesDir>/imported/imported-index.txt`，与 `import-journal.txt` 同目录。
-  `getFilesDir()` 是应用私有**持久**目录，系统「清理缓存」不会带走；「清除数据 / 卸载」会
-  （那时 Journal 也一起没了）。
-- **格式**：行式 UTF-8 文本，头 `# wiredraw-import index v1`，每行 `size \t relPath`
-  （`relPath` 复用 `Journal.sanitize` 去掉 tab / 换行），按 `relPath` 排序。
-  不采用 JSON：这里只需要逐行读，多一层转义没有收益。
-- **主键 `relPath + size`**，与 Journal 的跨会话跳过、`.part` 命名同口径。
-  **已知边界**：同路径同尺寸但内容变了（换卡后编号复用、相机内替换、格式化后重拍同名文件）
-  分辨不出来，会被当成已导入。要真正区分内容得把整文件读一遍算哈希，本单不做。
-- **派生快照，不是事件账本**：每轮导入结束（`ImportService` 的 `finally`，与 Journal 同受
-  `abandoned` 保护）递归扫 `outDir` 重新生成并原子重写（同目录 `.tmp` + `ATOMIC_MOVE`）。
-  **不读旧索引**——缺失 / 截断 / 乱码都等价于「还没生成」，重写即恢复；跳过判定仍由 Journal
-  负责，索引不参与，所以索引丢失不会触发重传。
-- **排除项**：`import-journal.txt`、索引自身与 `.tmp`、所有 `*.part`；只收普通文件且 `size > 0`。
-- **消费方**：本期（#20）**没有**。后续 UI 单（首屏「新片」计数、网格已导入标记、过滤抽屉）
-  在扫描完成后读它，按 `relPath` 与相机侧条目求交。真机**未验**。
+- **现状**：`imported-index.txt` 曾由 `ImportedIndex` 每轮从磁盘镜像重建，但全仓**没有读方**
+  （UI 首屏「新片」计数、网格已导入标记都尚未落地）。按 #20 裁决 B **先停写**：
+  `ImportService` 的轮末不再重建索引，`ImportedIndex` 类与 `pureJdkClasses` 清单项一并删除。
+- **恢复条件**：读方与写方必须**同一个 PR 交付**，并由界面真正用上；没有读方就不写。
+  恢复时按当时的 Journal / 落盘口径重新设计，不要照抄历史实现。
+- **位置与残留**：索引与 Journal 同目录（`<filesDir>/imported/`）。停写前设备上可能残留
+  `imported-index.txt`，历史原子重写也可能留下 `.tmp`。三者互不派生——Journal 负责跳过判定、
+  索引只是历史镜像、`.tmp` 是残留临时文件；半成品清理只动 `*.part`，以上都不自动删除，
+  用户可自行清理。
+- **历史格式（仅供排查存量文件）**：行式 UTF-8，头 `# wiredraw-import index v1`，每行
+  `size \t relPath`，按 `relPath` 排序；只收普通文件且 `size > 0`，排除 `import-journal.txt`、
+  自身与 `.tmp`、所有 `*.part`。
+- **已知边界（仍然成立）**：同路径同尺寸但内容变了（换卡后编号复用、相机内替换、格式化后
+  重拍同名文件）分辨不出来，会被当成已导入；跳过判定由 Journal 负责，与索引是否存在无关。
 
 ## 多存储同名路径（issue #54）
 
@@ -194,7 +191,7 @@ issue #67 在 ILCE-7C 上得到的「offset 是绝对偏移」结论不能作为
 **边界**：本方案**不修「两个同名文件仍争同一落盘路径」**——本期不支持把两份同名文件同时导入；
 它保证的是**不覆盖已存在的文件、不把冲突项记成完成**。同路径同尺寸但内容不同，仍然分辨不出来
 （与 #20 的已知边界同源），这一点没有解决。真要同时导入，得把 storage 维度写进 relPath，
-那需要先有真机证据证明 storageId 跨会话稳定，并配套历史 Journal / 索引 / 磁盘迁移，留后续单。
+那需要先有真机证据证明 storageId 跨会话稳定，并配套历史 Journal / 磁盘迁移，留后续单。
 
 **真机未验**：ILCE-7C 单存储时不会触发；多存储卷的实际 `storageId` 行为（同卡拔插是否同值、
 两张卡各自的值、handle 是否设备级唯一）仍是假设，合并后按 `needs-live-verify` 验。
@@ -309,7 +306,7 @@ adb logcat -s MTPIMPORT:*
 **已有该设备授权记录**时静默通过，首次或无授权记录时系统仍会弹「是否允许访问 MTP」，
 必须点「允许」（manifest 挂了 `USB_DEVICE_ATTACHED` + `res/xml/device_filter.xml`）。
 
-导入日志落在 `getFilesDir()/imported/import-journal.txt`（与已导入索引 `imported-index.txt` 同目录），
+导入日志落在 `getFilesDir()/imported/import-journal.txt`，
 可以直接看：
 
 ```bash
@@ -319,9 +316,9 @@ adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
 ## 落点策略（issue #28）
 
 - **默认**：`getFilesDir()/imported`，不弹任何权限请求；系统「清理缓存」不会带走，「清除数据 / 卸载」会。
-- **布局**：镜像相机 `relPath`，即 `<root>/<relPath>`，**不额外加日期层、不加机型层**。日期分组由相机目录自带（卡内是 `2025-06-07/` 这类目录时天然按日期落）；`relPath` 同时是 Journal / 索引主键，落点路径与识别键保持一致，不出现「识别对了、路径变了」的双份账。
+- **布局**：镜像相机 `relPath`，即 `<root>/<relPath>`，**不额外加日期层、不加机型层**。日期分组由相机目录自带（卡内是 `2025-06-07/` 这类目录时天然按日期落）；`relPath` 同时是 Journal 主键，落点路径与识别键保持一致，不出现「识别对了、路径变了」的双份账。
 - **回退可见**：请求的落点不可用时回退私有根，`DestPolicy.Destination.fallbackReason` 必须非空，`Main` 在 `onCreate` 写日志；不得只留在调试输出。
-- **相册未接入**：MediaStore 权限 / `.ARW` 的 MIME / `RELATIVE_PATH` 均未真机验证；且 `.part` 在私有目录、成品在 MediaStore 属跨 provider，`File.renameTo` 不可用，要改成流式复制。所以请求相册一律回退，不写「看似可用」的代码。接入前必须先拆「状态目录（journal / index / `.part`）」与「成品根」，否则换根会丢导入记录。
+- **相册未接入**：MediaStore 权限 / `.ARW` 的 MIME / `RELATIVE_PATH` 均未真机验证；且 `.part` 在私有目录、成品在 MediaStore 属跨 provider，`File.renameTo` 不可用，要改成流式复制。所以请求相册一律回退，不写「看似可用」的代码。接入前必须先拆「状态目录（journal / `.part`）」与「成品根」，否则换根会丢导入记录。
 - **存量兼容**：默认根不变，老文件路径与 `relPath + size` 键都不变，不会因为落点策略把老文件当冲突或重传。
 
 ## 假数据模式（不插相机也能走完 10 个状态）

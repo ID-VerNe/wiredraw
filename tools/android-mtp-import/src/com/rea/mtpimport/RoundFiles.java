@@ -6,7 +6,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 
 /**
- * 一轮导入的落盘文件：导入日志与「已导入索引」（issue #219 / A2）。
+ * 一轮导入的落盘文件：导入日志（issue #219 / A2）。
  *
  * 从 {@link ImportService} 搬出来的原因：`run()` 只管编排（冲突判定 / 重试 / 结果分派），
  * 不该同时持有「文件叫什么、建不建目录、失败记哪句日志」这些持久化细节。
@@ -14,13 +14,15 @@ import java.io.IOException;
  *
  * 两条既有口径原样保留：
  * - 日志读不了（不存在 / 损坏）一律按空日志继续——日志坏了不该让整个导片流程起不来；
- * - 日志与索引写不了**只记日志、不抛**——本轮成败由文件对账决定，不因附属文件失败而翻案。
+ * - 日志写不了**只记日志、不抛**——本轮成败由文件对账决定，不因附属文件失败而翻案。
+ *
+ * #20 裁决 B：`imported-index.txt` 曾在本类里每轮重建，但全仓没有读方，
+ * 已停止写；恢复时读方与写方必须同一个 PR 交付。
  */
 public final class RoundFiles {
 
     /**
-     * 账本文件名。包内可见：{@link ImportedIndex} 要按同名排除它，
-     * 字面量只能有这一处，否则两边改名不同步就会把账本误算成成品。
+     * 账本文件名。字面量只能有这一处，避免改名后与其它判断不同步。
      */
     static final String JOURNAL_NAME = "import-journal.txt";
 
@@ -59,23 +61,6 @@ public final class RoundFiles {
             log.line("导入日志已保存：" + f.getAbsolutePath());
         } catch (IOException e) {
             log.line("导入日志保存失败：" + e);
-        }
-    }
-
-    /**
-     * 从磁盘真值重建「已导入索引」（#20）。
-     *
-     * 索引是 `outDir` 磁盘镜像的派生快照，不是事件账本：每轮结束都从磁盘重算，
-     * 缺失 / 截断 / 乱码都等价于「还没生成」，直接覆盖；**不读旧文件**。
-     * 失败只记日志——索引是后续单的输入，不是本轮成败的一部分。
-     */
-    public static void rebuildIndex(File outDir, Log log) {
-        File f = new File(outDir, ImportedIndex.FILE_NAME);
-        try {
-            int n = ImportedIndex.save(outDir);
-            log.line("已导入索引已重建：" + n + " 条（" + f.getAbsolutePath() + "）");
-        } catch (IOException e) {
-            log.line("已导入索引保存失败（不影响本轮结果）：" + e);
         }
     }
 }

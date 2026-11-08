@@ -453,7 +453,7 @@ public final class ImportService {
                 log.line("本轮已被放弃：跳过导入日志保存（不覆盖磁盘上的现有记录）");
             } else {
                 RoundFiles.save(outDir, journal, log);
-                RoundFiles.rebuildIndex(outDir, log);
+                // #20 裁决 B：`imported-index.txt` 全仓没有读方，已停写（这里原先还会重建索引）。
             }
             worker = null;
         }

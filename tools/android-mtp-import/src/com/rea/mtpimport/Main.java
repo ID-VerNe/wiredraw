@@ -943,7 +943,8 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
      * 2. **没有活动写者**：{@link #service} 在跑（含暂停但 worker 未退）或遗留 worker 还在跑时跳过；
      *    它们都可能正写着 `.part`。
      *
-     * 只扫 `outDir` 顶层，不碰成品 / 索引 / Journal；删除失败只记日志，不阻断本轮。
+     * 只扫 `outDir` 顶层，不碰成品 / Journal 与停写前留下的 `imported-index.txt`；
+     * 删除失败只记日志，不阻断本轮。
      */
     private void cleanupPartResidue() {
         if (catalog == null) return;
