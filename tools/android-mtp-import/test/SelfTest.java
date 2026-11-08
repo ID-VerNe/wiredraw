@@ -78,6 +78,7 @@ public final class SelfTest {
         topBarSpecCases();
         ringTrackCases();
         detachCases();
+        requestScanLogCases();
         colorTokensCases();
         backNavCases();
         uiTextCases();
@@ -3187,6 +3188,29 @@ public final class SelfTest {
                 UiTransition.resolve(UiTransition.Action.BACK_COLD, true, false, false, true)
                         .connectionLost,
                 "BACK_COLD 把 connectionLost 复位了");
+    }
+
+    // ---------------- 传输中扫描准入的日志文案（#269） ----------------
+
+    /**
+     * #269：`requestScan` 的 `NOTHING_TRANSFERRING` 分支只打日志，**不取消、不重扫**。
+     * 旧文案「先取消再重扫」会让真机诊断把「只打日志」误读成真做了取消与重扫；
+     * 行为保持不变，只把文案改成如实描述。
+     */
+    static void requestScanLogCases() {
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src;
+        try {
+            src = Files.readString(main.toPath());
+        } catch (IOException e) {
+            src = null;
+        }
+        check("传输中扫描准入：日志不再声称取消与重扫（#269）",
+                src != null && !src.contains("先取消再重扫"),
+                src == null ? "读不到 " + main : "旧文案仍在");
+        check("传输中扫描准入：日志如实写明本轮不打断（#269）",
+                src != null && src.contains("本轮不打断"),
+                src == null ? "读不到 " + main : "新文案缺失");
     }
 
     // ---------------- 颜色 token 与对比度（PR-2 / issue #78） ----------------
