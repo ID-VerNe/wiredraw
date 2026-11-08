@@ -8,6 +8,7 @@ import android.mtp.MtpDeviceInfo;
 import android.mtp.MtpStorageInfo;
 import android.os.Looper;
 
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -24,14 +25,15 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class MtpSession {
 
-    /** 索尼的 USB Vendor ID。 */
-    public static final int SONY_VID = 0x054C;
+    /** 索尼的 USB Vendor ID（判定规则见 {@link UsbIdentity}，别处不要再写一份）。 */
+    public static final int SONY_VID = UsbIdentity.SONY_VID;
 
     private static final int STORAGE_RETRIES = 8;
     private static final long STORAGE_RETRY_MS = 3000;
     /** UI 线程 close 时等缩略图 IO 的上限（#59）；超时就跳过 close，不让主线程卡死。 */
     private static final long CLOSE_WAIT_MS = 500;
 
+    private final UsbDevice usb;
     private final UsbDeviceConnection conn;
     private final MtpDevice mtp;
 
@@ -42,7 +44,8 @@ public final class MtpSession {
      */
     private final ReentrantLock ioLock = new ReentrantLock(true);
 
-    private MtpSession(UsbDeviceConnection conn, MtpDevice mtp) {
+    private MtpSession(UsbDevice usb, UsbDeviceConnection conn, MtpDevice mtp) {
+        this.usb = usb;
         this.conn = conn;
         this.mtp = mtp;
     }
@@ -51,16 +54,32 @@ public final class MtpSession {
         return ioLock;
     }
 
-    /** 在已连接的 USB 设备里挑一台索尼机身；没有就返回 null。 */
+    /**
+     * 在已连接的 USB 设备里挑一台索尼相机；没有就返回 null。
+     *
+     * #267：判定收进 {@link UsbIdentity}（VID + MTP 接口），只认 VID 的旧逻辑会把同厂商的
+     * U 盘 / 读卡器 / 复合设备的非 MTP 接口也当成相机。
+     */
     public static UsbDevice findSony(UsbManager um, Log log) {
         UsbDevice found = null;
         for (UsbDevice d : um.getDeviceList().values()) {
-            log.line(String.format(Locale.US, "USB 设备 %s VID=0x%04X PID=0x%04X class=%d/%d/%d",
+            int[] interfaceClasses = interfaceClassesOf(d);
+            log.line(String.format(Locale.US, "USB 设备 %s VID=0x%04X PID=0x%04X class=%d/%d/%d ifaces=%s",
                     d.getDeviceName(), d.getVendorId(), d.getProductId(),
-                    d.getDeviceClass(), d.getDeviceSubclass(), d.getDeviceProtocol()));
-            if (d.getVendorId() == SONY_VID) found = d;
+                    d.getDeviceClass(), d.getDeviceSubclass(), d.getDeviceProtocol(),
+                    Arrays.toString(interfaceClasses)));
+            if (UsbIdentity.isSonyCamera(d.getVendorId(), interfaceClasses)) found = d;
         }
         return found;
+    }
+
+    /** 取设备的接口类列表；拿不到时返回空数组（{@link UsbIdentity} 会回退为只看 VID）。 */
+    private static int[] interfaceClassesOf(UsbDevice d) {
+        int n = d.getInterfaceCount();
+        if (n <= 0) return new int[0];
+        int[] classes = new int[n];
+        for (int i = 0; i < n; i++) classes[i] = d.getInterface(i).getInterfaceClass();
+        return classes;
     }
 
     /**
@@ -79,13 +98,21 @@ public final class MtpSession {
             conn.close();
             return null;
         }
-        MtpSession s = new MtpSession(conn, mtp);
+        MtpSession s = new MtpSession(dev, conn, mtp);
         log.line("会话已建立：" + s.describe());
         return s;
     }
 
     public MtpDevice device() {
         return mtp;
+    }
+
+    /**
+     * 建立会话时用的那台 USB 设备（#267）：DETACH 广播要靠它的 `deviceName` 做身份比对，
+     * 避免无关 USB / MTP 设备被拔时误置断线。
+     */
+    public UsbDevice usbDevice() {
+        return usb;
     }
 
     private String describe() {

@@ -81,6 +81,7 @@ public final class SelfTest {
         scanLineCases();
         detachCases();
         requestScanLogCases();
+        usbIdentityCases();
         colorTokensCases();
         backNavCases();
         uiTextCases();
@@ -460,6 +461,37 @@ public final class SelfTest {
                         && small.rows.get(1).handle == 2
                         && small.rows.get(2).handle == 3,
                 "total=" + small.total + " rows=" + small.rows);
+    }
+
+    // ---------------- UsbIdentity（#267 的墓碑） ----------------
+
+    /**
+     * 墓碑：#267 —— 只认 VID 会把同厂商的 U 盘 / 读卡器当相机；DETACH 不比对身份会误置断线。
+     *
+     * 两条规则都必须能单独转红：把接口判定退化成「只看 VID」→ 第 3 条红；
+     * 把身份比对改成恒 true → 第 7 条红。
+     */
+    static void usbIdentityCases() {
+        int sony = UsbIdentity.SONY_VID;
+        check("USB 身份：索尼 VID + Still Image 接口算相机",
+                UsbIdentity.isSonyCamera(sony, new int[]{UsbIdentity.CLASS_STILL_IMAGE}), "被拒");
+        check("USB 身份：索尼 VID + Vendor Specific 接口算相机",
+                UsbIdentity.isSonyCamera(sony, new int[]{UsbIdentity.CLASS_VENDOR_SPECIFIC}), "被拒");
+        check("USB 身份：索尼 VID + 只有 Mass Storage 接口不算相机（U 盘 / 读卡器）",
+                !UsbIdentity.isSonyCamera(sony, new int[]{8}), "误判成相机");
+        check("USB 身份：非索尼 VID 即便接口像相机也不算",
+                !UsbIdentity.isSonyCamera(0x1234, new int[]{UsbIdentity.CLASS_STILL_IMAGE}),
+                "误判成相机");
+        check("USB 身份：拿不到接口信息时回退为只看 VID（不能把相机挡掉）",
+                UsbIdentity.isSonyCamera(sony, new int[0]), "回退失效");
+        check("USB 身份：拔掉的正是当前相机 → 置断线",
+                UsbIdentity.shouldMarkDetached("1-1", "1-1"), "被忽略");
+        check("USB 身份：拔掉的是无关设备 → 不得置断线",
+                !UsbIdentity.shouldMarkDetached("1-2", "1-1"), "误置断线");
+        check("USB 身份：广播未带 EXTRA_DEVICE → 按旧行为置断线",
+                UsbIdentity.shouldMarkDetached(null, "1-1"), "被忽略");
+        check("USB 身份：没有活动会话 → 交给状态守卫（本层不拦）",
+                UsbIdentity.shouldMarkDetached("1-2", null), "被拦下");
     }
 
     // ---------------- AttachGate（#17 的墓碑） ----------------
