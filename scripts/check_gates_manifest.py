@@ -30,6 +30,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -489,13 +490,32 @@ def self_test() -> int:
     real_manifest = MANIFEST
     globals()["MANIFEST"] = ROOT / "scripts" / "__missing_gates.json"
     try:
-        try:
-            missing_exit = main([])
-        except Exception:  # noqa: BLE001 - 现状是 traceback，用例要报红而不是把自检炸掉
-            missing_exit = None
+        # 用例预期这里报红：两个流都要吞掉，否则全绿的自检也会往 stderr 吐假红（#284）。
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                missing_exit = main([])
+            except Exception:  # noqa: BLE001 - 现状是 traceback，用例要报红而不是把自检炸掉
+                missing_exit = None
     finally:
         globals()["MANIFEST"] = real_manifest
     check("#204：清单读不到退 2", missing_exit == ENV_FAIL, f"实际 {missing_exit!r}")
+
+    # AGENTS.md 存在但读失败（编码 / 权限 / 被占用）也要退 2，不许 traceback 退 1（#284）。
+    # 用「字节不是合法 UTF-8」的临时文件构造，`main` 会走到 `read_text` 的失败分支。
+    real_agents = AGENTS
+    with tempfile.TemporaryDirectory() as tmp:
+        bad_agents = Path(tmp) / AGENTS.name
+        bad_agents.write_bytes(b"\xff\xfe")
+        globals()["AGENTS"] = bad_agents
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    unreadable_exit = main([])
+                except Exception:  # noqa: BLE001 - 现状是 traceback，用例要报红而不是把自检炸掉
+                    unreadable_exit = None
+        finally:
+            globals()["AGENTS"] = real_agents
+    check("#284：AGENTS.md 读不到退 2", unreadable_exit == ENV_FAIL, f"实际 {unreadable_exit!r}")
 
     # 自检红 / 全绿的退出码也必须与 _common 一致（#204）：红是「检查没做成」= 2，不是内容 1。
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -541,7 +561,12 @@ def main(argv: list[str] | None = None) -> int:
         # 生成段的目标文件读不到 = 这次比对没做成（#204）。
         return ENV_FAIL
 
-    text = AGENTS.read_text(encoding="utf-8")
+    try:
+        text = AGENTS.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as e:
+        # 文件存在但读失败同样是「这次比对没做成」：退 2，不许 traceback 退 1（#284）。
+        print(f"[红] {AGENTS.name} 读不到：{e}", file=sys.stderr)
+        return ENV_FAIL
     current = extract(text)
     expected = render(data)
 
