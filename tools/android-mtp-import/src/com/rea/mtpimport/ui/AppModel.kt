@@ -281,6 +281,16 @@ class AppModel {
         if (UiState.detachMarksTransfer(state)) transition(UiTransition.Action.USB_DETACHED)
     }
 
+    /**
+     * 确认插线到索尼设备（B1 / 2026-11-08 复审）：只在传输态把断线指示复位，状态不变。
+     *
+     * 调用方**必须**先确认 `UsbDevice` 是索尼（`dev != null`），否则无关 USB 设备会把
+     * `Disconnected` 误擦回在线。非传输态不处理：那里没有本标志的消费方。
+     */
+    fun onUsbAttached() {
+        if (UiState.detachMarksTransfer(state)) transition(UiTransition.Action.USB_ATTACHED)
+    }
+
     fun showCold() {
         transition(UiTransition.Action.COLD)
     }

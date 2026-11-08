@@ -189,7 +189,8 @@ fun ProgressRing(
             val s = stroke.toPx()
             val r = (size.minDimension - s) / 2f
             // DrawScope.center 是画布的圆心，不用自己再算一次。
-            // 环轨道用 outline（白底 4.47:1 ≥ 3:1，P1-3 / V-07）；outlineSoft 只留分隔用途。
+            // 环轨道用 outline（白底 4.47:1 ≥ 3:1，P1-3 / V-07）；outlineSoft（1.7:1）不得承载图标/文字，
+            // 只作分隔细线与禁用底色（照片格边框、扫描细线、禁用 CTA 底色）。
             drawCircle(UiColors.outline, radius = r, center = center, style = Stroke(s))
             if (clamped > 0f) {
                 drawArc(

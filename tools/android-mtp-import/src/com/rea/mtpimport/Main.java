@@ -341,6 +341,19 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             }
             if (service == null || !service.isRunning()) return;
             if (model.getState() == UiState.State.PAUSED) {
+                // 与 doStart 的暂停分支同口径（三审 B-1）：Pause & exit 后相机可能已挂起/断开，
+                // 传输页 Resume 也必须先做只读探活；失败走既有 ERROR / Reconnect，不静默续跑死会话。
+                ImportService pausedRound = service;
+                ImportPlan pausedPlan = pausedRound.plan();
+                if (pausedPlan == null || pausedPlan.count() == 0
+                        || !probeSession(pausedPlan.items().get(0).handle, "传输页 Resume 前探活")) {
+                    log.line("传输页 Resume 前探活失败（无计划或会话失步）：取消该轮，不 resume");
+                    pausedRound.cancel();
+                    orphanRounds.adopt(pausedRound);
+                    service = null;
+                    model.showError(StuckError.SESSION_LOST);
+                    return;
+                }
                 service.resume();
                 showImportFromProgress();
             } else {
@@ -694,7 +707,11 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
 
     /** 插线事件入口：广播、attach intent 与手动按钮都从这里进。 */
     private void handleAttach(String trigger) {
-        requestScan(trigger, findCamera());
+        UsbDevice dev = findCamera();
+        // B1（2026-11-08 复审）：只有**确认到索尼设备**且当前在传输态时才清断线标志；
+        // 无关 USB 设备（dev == null）不得把顶栏从 Disconnected 置回在线。状态不变。
+        if (dev != null && !demoActive()) model.onUsbAttached();
+        requestScan(trigger, dev);
     }
 
     private UsbDevice findCamera() {

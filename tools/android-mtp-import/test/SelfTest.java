@@ -3072,16 +3072,23 @@ public final class SelfTest {
                 "Disconnected".equals(TopBarSpec.connectionLabel(true, "a7C")),
                 "实际 " + TopBarSpec.connectionLabel(true, "a7C"));
         // 页面必须真的**调用**，否则纯 JDK 用例再绿也钉不住 Compose。
-        // 限定到 ui 目录并匹配调用形态 `TransferConnectionIndicator(model)`：
-        // 函数声明行是 `TransferConnectionIndicator(model: AppModel)`，不含右括号，不会误命中。
+        // N1（第三轮评审）：只钉「符号存在」会被「调用外套 if (false)」骗过。这里钉执行条件：
+        // 守卫行 `if (TopBarSpec.showsConnectionIndicator(model.state)) {` 与其后 ≤2 行的调用，
+        // 两行都必须在 TransferScreen.kt（声明行 `(model: AppModel)` 不含右括号，不会误命中）。
+        // 守卫被换成 `if (false)` → 守卫 0 命中；守卫与调用间再套一层 `if (false)` → 行距 2 变 3。
         File uiDir = new File(new File(System.getProperty("user.dir"), "src"), "com/rea/mtpimport/ui");
+        List<String> indicatorGuards = new ArrayList<>();
         List<String> indicatorCalls = new ArrayList<>();
-        int scanned = scanSourceText(uiDir, "TransferConnectionIndicator(model)", null, indicatorCalls);
-        boolean calledFromTransfer = indicatorCalls.stream()
-                .anyMatch(h -> h.contains("TransferScreen.kt"));
-        check("传输页顶栏调用 TransferConnectionIndicator(model)（P1-1）",
-                scanned > 0 && calledFromTransfer,
-                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", indicatorCalls));
+        scanSourceText(uiDir, "if (TopBarSpec.showsConnectionIndicator(model.state)) {", null, indicatorGuards);
+        scanSourceText(uiDir, "TransferConnectionIndicator(model)", null, indicatorCalls);
+        int guardLine = -1;
+        int callLine = -1;
+        for (String h : indicatorGuards) if (h.contains("TransferScreen.kt")) guardLine = hitLineOf(h);
+        for (String h : indicatorCalls) if (h.contains("TransferScreen.kt")) callLine = hitLineOf(h);
+        check("传输页在 showsConnectionIndicator 守卫内调用 TransferConnectionIndicator(model)（P1-1 / N1）",
+                guardLine > 0 && callLine > guardLine && callLine - guardLine <= 2,
+                "守卫行 " + guardLine + "，调用行 " + callLine + "\n守卫：\n"
+                        + String.join("\n", indicatorGuards) + "\n调用：\n" + String.join("\n", indicatorCalls));
     }
 
     /**
@@ -3157,6 +3164,29 @@ public final class SelfTest {
                 !UiTransition.resolve(UiTransition.Action.DONE, false, false, false, true)
                         .connectionLost,
                 "DONE 未复位 connectionLost");
+        // B1（第三轮评审）：确认插线到索尼设备才清断线；状态与其余跨状态字段不变。
+        UiTransition.Result attached = UiTransition.resolve(
+                UiTransition.Action.USB_ATTACHED, false, true, true, true);
+        check("插线确认：传输态复位 connectionLost 且状态不变",
+                !attached.connectionLost && attached.state == null,
+                "lost=" + attached.connectionLost + " state=" + attached.state);
+        check("插线确认：不动视图关闭 / 确认框 / 扫描标志",
+                attached.transferViewClosed && attached.exitConfirmOpen && !attached.backgroundScanning,
+                "closed=" + attached.transferViewClosed + " confirm=" + attached.exitConfirmOpen
+                        + " scan=" + attached.backgroundScanning);
+        // B2（第三轮评审）：断线跨视图保留，只有插线 / 新导入 / 完成三处复位。
+        check("回照片墙（BACK_READY）保留断线",
+                UiTransition.resolve(UiTransition.Action.BACK_READY, true, false, false, true)
+                        .connectionLost,
+                "BACK_READY 把 connectionLost 复位了");
+        check("离开传输视图（LEAVE_VIEW）保留断线",
+                UiTransition.resolve(UiTransition.Action.LEAVE_VIEW, true, false, false, true)
+                        .connectionLost,
+                "LEAVE_VIEW 把 connectionLost 复位了");
+        check("回启动页（BACK_COLD）保留断线",
+                UiTransition.resolve(UiTransition.Action.BACK_COLD, true, false, false, true)
+                        .connectionLost,
+                "BACK_COLD 把 connectionLost 复位了");
     }
 
     // ---------------- 颜色 token 与对比度（PR-2 / issue #78） ----------------
@@ -4325,8 +4355,18 @@ public final class SelfTest {
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
     }
 
+    // 命中行格式为「路径:行号 行内容」，hitLineOf 与 scanSourceText 共用这一约定。
     /**
-     * `src/` 下所有 .java/.kt 里含 `needle` 的行；`allow` 是唯一允许命中的文件（null = 不豁免）。
+     * 从 {@link #scanSourceText} 的命中行（`路径:行号 行内容`）取行号；解析失败返回 -1。
+     * 非贪婪匹配第一段「冒号 + 数字 + 空白」，避开 Windows 盘符里的冒号与行内容里的数字。
+     */
+    static int hitLineOf(String hit) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^.+?:(\\d+)\\s").matcher(hit);
+        return m.find() ? Integer.parseInt(m.group(1)) : -1;
+    }
+
+    /**
+     * 递归扫描 `src/` 下所有 .java/.kt 里含 `needle` 的行；`allow` 是唯一允许命中的文件（null = 不豁免）。
      *
      * 返回实际扫描到的文件数：`src/` 缺失或为空时返回 0，调用方必须判红，不能 fail-open。
      */

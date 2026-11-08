@@ -20,14 +20,18 @@ package com.rea.mtpimport;
  *       （新导入/完成不继承上一轮断线），扫描标志保持；
  *       注意 {@code showDone} 历史上并不写 `backgroundScanning`，「`DONE` 是否应复位它」
  *       规格未定（#213「待裁决」），这里按现状保留，不顺手改行为；</li>
- *   <li>{@code PROGRESS} / {@code PAUSED} / {@code RESUME}：换状态并保留 {@code connectionLost}
+ *   <li>{@code PROGRESS} / {@code PAUSED} / {@code RESUME}：换状态；{@code connectionLost} 保留
  *       （断线后一次进度回调不得把 `Disconnected` 擦回在线；Resume 是继续同一轮、不是新导入）；</li>
- *   <li>{@code BACK_READY} / {@code BACK_COLD}：换状态并复位 {@code connectionLost}；</li>
+ *   <li>{@code LEAVE_VIEW} / {@code BACK_READY} / {@code BACK_COLD}：跨视图保留 {@code connectionLost}
+ *       （断线状态不因回照片墙/回启动页而消失）；</li>
  *   <li>{@code USB_DETACHED}：不换状态，只把 {@code connectionLost} 置真
- *       （#44 复审 / P1-1）；</li>
+ *       （#44 复审 / P1-1）；{@code USB_ATTACHED}：确认到索尼设备后不换状态、只复位
+ *       {@code connectionLost}（B1）；</li>
  *   <li>{@code DISCARD_PARTIAL}：不换状态，只复位扫描标志；</li>
  *   <li>{@code DEMO_RESET}：不换状态，复位两个覆盖层；{@code LEAVE_VIEW}：不换状态，置视图关闭。</li>
  * </ul>
+ * <p>复位点只有三处：{@code USB_ATTACHED}（确认插线到索尼设备）、{@code IMPORT_START}、{@code DONE}；
+ * 其余动作一律保留 {@code connectionLost}（B2「跨视图保留」）。
  */
 public final class UiTransition {
 
@@ -58,7 +62,14 @@ public final class UiTransition {
         BACK_READY,
         BACK_COLD,
         /** USB 拔出（#44 复审 / P1-1）：不换状态，只把顶栏连接指示置为断线。 */
-        USB_DETACHED
+        USB_DETACHED,
+        /**
+         * 确认插线到索尼设备（B1 / 2026-11-08 复审）：不换状态，只复位 {@code connectionLost}。
+         *
+         * 调用方必须先确认 {@code UsbDevice} 是索尼（VID 0x054C）且当前处于传输态，
+         * 无关 USB 设备不得把指示置回在线。
+         */
+        USB_ATTACHED
     }
 
     /** 迁移结果：`state` 为 null 表示本动作不换状态，只处置跨状态字段。 */
@@ -70,8 +81,10 @@ public final class UiTransition {
         /**
          * 传输态顶栏连接指示是否断线（#44 复审 / P1-1）。
          *
-         * 只由 {@code USB_DETACHED} 置真，{@code PROGRESS} / {@code PAUSED} 保留原值，
-         * 其余落点复位——否则断线后一次进度回调就会把 `Disconnected` 擦回在线。
+         * {@code USB_DETACHED} 置真；{@code USB_ATTACHED} / {@code IMPORT_START} / {@code DONE}
+         * 复位；其余动作（含 {@code PROGRESS} / {@code PAUSED} / {@code RESUME} / {@code LEAVE_VIEW}
+         * / {@code BACK_READY} / {@code BACK_COLD}）一律保留——否则断线后一次进度回调或一次
+         * 返回就会把 `Disconnected` 擦回在线。
          */
         public final boolean connectionLost;
 
@@ -110,7 +123,9 @@ public final class UiTransition {
         boolean scan = scanning;
         boolean closed = viewClosed;
         boolean confirm = confirmOpen;
-        boolean lost = false;
+        boolean lost = connectionLost;
+        // 默认**保留** connectionLost（B2「跨视图保留」）：只有 USB_ATTACHED（确认到索尼设备）、
+        // IMPORT_START、DONE 三处显式复位。断线状态不因回照片墙/回启动页而消失。
         switch (action) {
             case COLD:
                 next = UiState.State.COLD;
@@ -147,26 +162,25 @@ public final class UiTransition {
                 next = UiState.State.IMPORTING;
                 closed = false;
                 confirm = false;
+                lost = false;
                 break;
             case PROGRESS:
                 next = UiState.State.IMPORTING;
-                lost = connectionLost;
                 break;
             case DONE:
                 next = UiState.State.DONE;
                 closed = false;
                 confirm = false;
+                lost = false;
                 break;
             case PAUSED:
                 next = UiState.State.PAUSED;
-                lost = connectionLost;
                 break;
             case RESUME:
                 // 继续同一轮：回到进度屏、收起退出确认，但**不清**断线（B3）。
                 next = UiState.State.IMPORTING;
                 closed = false;
                 confirm = false;
-                lost = connectionLost;
                 break;
             case DISCARD_PARTIAL:
                 next = null;
@@ -181,16 +195,24 @@ public final class UiTransition {
                 next = null;
                 closed = true;
                 confirm = false;
+                lost = connectionLost;
                 break;
             case BACK_READY:
                 next = UiState.State.CATALOG_READY;
+                lost = connectionLost;
                 break;
             case BACK_COLD:
                 next = UiState.State.COLD;
+                lost = connectionLost;
                 break;
             case USB_DETACHED:
                 next = null;
                 lost = true;
+                break;
+            case USB_ATTACHED:
+                // 确认到索尼设备后断开状态结束；不换状态（B1）。
+                next = null;
+                lost = false;
                 break;
             default:
                 throw new IllegalArgumentException("未覆盖的迁移动作：" + action);
