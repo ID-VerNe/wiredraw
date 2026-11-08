@@ -24,7 +24,7 @@ import com.rea.mtpimport.ResumableTransfer.Kind;
 /**
  * JVM 纯逻辑自检（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
  *
- * 覆盖 build.gradle.kts 的 `pureJdkClasses` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
+ * 覆盖 gradle/self-test.gradle.kts 的 `pureJdkClasses` 清单里那些纯 JDK 类（Catalog / Selection / ImportPlan /
  * TransferProgress / Journal / AttachGate 等，清单本身是唯一事实来源）；
  * 它们不 import android.*，所以能在普通 JVM 里直接跑，这也是骨架里唯一
  * 「能拿门禁守住」的部分。真机相关的 MtpSession / CatalogScanner / MtpTransfer
@@ -1802,7 +1802,7 @@ public final class SelfTest {
         File src = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport");
         String round = readSourceOrNull(new File(src, "RoundFiles.java"));
         String service = readSourceOrNull(new File(src, "ImportService.java"));
-        String gradle = readSourceOrNull(new File(System.getProperty("user.dir"), "build.gradle.kts"));
+        String gradle = readSourceOrNull(new File(System.getProperty("user.dir"), "gradle/self-test.gradle.kts"));
         check("已导入索引：写入方 rebuildIndex 已移除（#20 裁决 B）",
                 round != null && !round.contains("rebuildIndex"),
                 round == null ? "读不到 RoundFiles.java" : "仍有 rebuildIndex");
@@ -1814,7 +1814,7 @@ public final class SelfTest {
                 "ImportedIndex.java 仍在");
         check("已导入索引：纯 JDK 清单不再列它（#20 裁决 B）",
                 gradle != null && !gradle.contains("ImportedIndex.java"),
-                gradle == null ? "读不到 build.gradle.kts" : "清单仍列 ImportedIndex.java");
+                gradle == null ? "读不到 gradle/self-test.gradle.kts" : "清单仍列 ImportedIndex.java");
     }
 
     // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------

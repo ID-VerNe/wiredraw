@@ -177,7 +177,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 合并评审（派发 + 评审清单） | `docs/contributing/REVIEW_DISPATCH.md`（派发文案用 `scripts/review_prompt.py` 生成，**不要手写**） |
 | MTP 枚举与下载 | `tools/android-mtp-probe/src/com/rea/mtpprobe/Main.java` |
 | APK 构建流程（探针） | `tools/android-mtp-probe/build.sh`（**keystore 必须在工程根目录**，见 §4） |
-| APK 构建流程（导片工具） | `tools/android-mtp-import/build.gradle.kts` + `gradle/wrapper/`（工具链版本锁在 wrapper 里，别用全局 Gradle） |
+| APK 构建流程（导片工具） | `tools/android-mtp-import/build.gradle.kts`（Android/Kotlin/依赖）+ `tools/android-mtp-import/gradle/*.gradle.kts`（纯 JDK 自检、验签、假数据、`local.properties` 解析）+ `gradle/wrapper/`（工具链版本锁在 wrapper 里，别用全局 Gradle） |
 | PTP/IP 连相机 | `tools/sony-ptpip/probe.py` |
 | pcap 解析 | `tools/sony-ptpip/parse_ptpip.py` |
 | 全部实测数据与历史 | `docs/research/a7c-usb-raw-2026-11.md` |

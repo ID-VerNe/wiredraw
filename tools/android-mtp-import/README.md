@@ -27,7 +27,7 @@
 | 你要做什么 | 该读 |
 |---|---|
 | 先看「现在能用到什么程度」 | 「它现在能做什么」的能力表 |
-| 理解代码分层与类职责 | 「类职责」（**非穷举**，纯 JDK / `import android.*` 的边界以 `build.gradle.kts` 的 `pureJdkClasses` 为准） |
+| 理解代码分层与类职责 | 「类职责」（**非穷举**，纯 JDK / `import android.*` 的边界以 `gradle/self-test.gradle.kts` 的 `pureJdkClasses` 为准） |
 | 构建、自检、装到手机 | 「构建与自检」→「安装运行」 |
 | 验收前在真机上跑一遍 | 「真机待验清单」 |
 | 想知道本轮明确不做什么 | 「待建清单」 |
@@ -66,7 +66,7 @@
 
 ## 类职责
 
-> **非穷举**，只给职责视角；`[android]` / `[纯 JDK]` 标签以 `build.gradle.kts` 的
+> **非穷举**，只给职责视角；`[android]` / `[纯 JDK]` 标签以 `gradle/self-test.gradle.kts` 的
 > `pureJdkClasses` 与 `checkPureJdkList` 为准，新类漏标时以构建门禁的红为准，不以本树为准。
 
 ```
@@ -116,7 +116,7 @@ Main                 Activity：USB 权限/attach → 扫描 → 照片墙选图
 `TransferProgress` / `ImportService` 保持原样；`PermGate` 只调整等待/重发实现，
 序号语义不变，`Main` 只负责把系统事件翻译成 `AppModel` 的可观察属性。
 
-纯 JDK 类的清单只有一处：`build.gradle.kts` 的 `pureJdkClasses`（主源集）与
+纯 JDK 类的清单只有一处：`gradle/self-test.gradle.kts` 的 `pureJdkClasses`（主源集）与
 `pureJdkDebugClasses`（`src/debug` 下的 `DemoTree` / `DemoTransfer`）。这些文件**不允许
 import android.\***，这样它们能在普通 JVM 上跑 `test/SelfTest.java`。**文档不写死数量**——
 以 `checkPureJdkList` 输出末行的 `N 个纯 JDK 文件，与清单一致` 为准。

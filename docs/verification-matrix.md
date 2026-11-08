@@ -164,7 +164,7 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 | 优先级 | issue | 待验点 | 状态 | 关闭情况 / 剩余项 |
 |---|---|---|---|---|
 | P1 | #204 | 门禁共享层 | 通过 | 仍 open：`_common.py` 已落地、`GATE_TRIGGERS` 单点、坏 JSON 退 2、`ci` 全绿；正文修复候选 2 未全覆盖（`check_sensitive.py` / `check_gates_manifest.py` / `run_gates.py` 未迁移、`review_prompt.py` 不在 `GATE_TRIGGERS`），构建链常量归代码线。 |
-| P2 | #207 | 单文件过载 | 通过 | 仍 open：三份长文都有读者地图、链接全可达；剩余项是 `build.gradle.kts` 的 EXIF / 假数据 / 纯 JDK 计数拆分，留给代码侧。 |
+| P2 | #207 | 单文件过载 | 通过 | 已实施 2026-11-08：三份长文都有读者地图、链接全可达；`build.gradle.kts` 按职责拆到 `gradle/*.gradle.kts`（纯 JDK 自检 / 验签 / 假数据 / `local.properties`），本文件只留 Android/Kotlin/依赖；`selfTest` 项数与拆分前一致。 |
 | P2 | #224 | opcode / RESP 表 | 通过 | 已关闭 2026-11-08：`0x101B` / `0x100B` / `0xA003` 与帧类型 1..14 均有用例。 |
 | P2 | #225 | 离线解析门槛与 GUID | 通过 | 已关闭 2026-11-08：三条 CLI 复现从抛栈改为可读提示 + 退出 2，17 项离线用例全过。 |
 | P2 | #226 | 死字段与 `pe_inspect` | 通过 | 已关闭 2026-11-08：`permAnswered` / `BULK` 零命中，PE 4 项用例全过，两条构建链成功。 |
