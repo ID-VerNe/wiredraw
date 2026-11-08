@@ -26,7 +26,7 @@ import java.util.Map;
  * </pre>
  *
  * 注意：句柄是**单次会话内**有效的（MTP 的 object handle 不跨会话稳定），而且下一次会话
- * 里同一个 handle 可能指向另一个文件。所以索引主键是 `relPath`，`size` 留在 {@link Rec}
+ * 里同一个 handle 可能指向另一个文件。所以账本主键是 `relPath`，`size` 留在 {@link Rec}
  * 里做同路径不同文件的判别；handle 只作为文件格式的一列保留，不再作索引，也没有任何
  * 按句柄查询的 API（#209 删掉了 `doneBytes(int)` / `isComplete(int,long)` 这两条死路径）。
  */

@@ -9,12 +9,12 @@ import java.io.IOException;
  * <p>**边界**：本方案不修「两个同名文件仍争同一落盘路径」这件事——relPath 里没有 storage 维度，
  * 两个存储的同名文件本来就只能对应一个目标路径。它保证的是**不覆盖已存在的文件、不把冲突项记成完成**：
  * 目标已存在且尺寸不同就显式拒绝覆盖；尺寸相同按 `relPath + size` 口径视为同一文件，
- * 但仍只算 `SKIPPED`（仅尺寸核对，内容未校验 #177；与 Journal / 已导入索引一致，
+ * 但仍只算 `SKIPPED`（仅尺寸核对，内容未校验 #177；与 Journal 一致，
  * 见 #20 的已知边界——同路径同尺寸但内容不同分辨不出来）。</p>
  *
  * <p>落点策略（issue #28）：默认应用私有目录 `getFilesDir()/imported`；请求相册时本期一律回退，
  * 且回退原因必须非空（相册权限 / MIME / RELATIVE_PATH 均未真机验证，不在未验时假装可用）。
- * 目录布局镜像 `relPath`，不重排日期、不加机型层——`relPath` 同时是 Journal / 索引主键，
+ * 目录布局镜像 `relPath`，不重排日期、不加机型层——`relPath` 同时是 Journal 主键，
  * 落点路径与识别键保持一致。</p>
  */
 public final class DestPolicy {

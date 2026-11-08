@@ -59,7 +59,7 @@ public final class SelfTest {
         journalCases();
         cancelTokenCases();
         importServiceCases();
-        importedIndexCases();
+        indexStoppedCases();
         storageConflictCases();
         destinationPolicyCases();
         pauseCancelCases();
@@ -1688,7 +1688,7 @@ public final class SelfTest {
         deleteTree(cancelOut);
     }
 
-    // ---------------- 已导入索引（issue #20） ----------------
+    // ---------------- 一轮导入的落盘文件（#219 / A2；索引已按 #20 裁决 B 停写） ----------------
 
     static void indexMkdirs(File dir) throws IOException {
         if (dir != null && !dir.exists() && !dir.mkdirs()) {
@@ -1705,129 +1705,38 @@ public final class SelfTest {
         return f;
     }
 
-    /** 读索引文件正文（去掉头部与空行），断言「文件里到底写了什么」。 */
-    static List<String> indexLines(File outDir) throws IOException {
-        File f = new File(outDir, ImportedIndex.FILE_NAME);
-        if (!f.isFile()) return new ArrayList<>();
-        List<String> raw = Files.readAllLines(f.toPath(),
-                java.nio.charset.StandardCharsets.UTF_8);
-        List<String> lines = new ArrayList<>();
-        for (String line : raw) {
-            if (!line.isEmpty() && !line.startsWith("#")) lines.add(line);
+    static String readSourceOrNull(File f) {
+        try {
+            return Files.readString(f.toPath());
+        } catch (IOException e) {
+            return null;
         }
-        return lines;
     }
 
-    static void importedIndexCases() throws Exception {
-        File out = Files.createTempDirectory("wiredraw-index").toFile();
-
-        int empty = ImportedIndex.save(out);
-        File indexFile = new File(out, ImportedIndex.FILE_NAME);
-        List<String> rawEmpty = indexFile.isFile()
-                ? Files.readAllLines(indexFile.toPath(), java.nio.charset.StandardCharsets.UTF_8)
-                : new ArrayList<String>();
-        check("已导入索引：空目录只写头、0 条（#20）",
-                empty == 0 && rawEmpty.size() == 1 && rawEmpty.get(0).equals(ImportedIndex.HEADER),
-                "条数=" + empty + " 行=" + rawEmpty);
-
-        // 成品两个 + 干扰项五个：journal、.part、索引自身、.tmp、0 字节文件。
-        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC0001.ARW"), 300);
-        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC0002.JPG"), 50);
-        writeSizedFile(new File(out, "import-journal.txt"), 10);
-        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC0001.ARW.300.part"), 7);
-        writeSizedFile(new File(out, ImportedIndex.FILE_NAME + ".tmp"), 9);
-        writeSizedFile(new File(out, "DCIM/empty.jpg"), 0);
-        // 存量索引写成 5 个 NUL：头部不对 = 损坏，按「还没生成」重写。
-        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 5);
-
-        int n = ImportedIndex.save(out);
-        List<String> lines = indexLines(out);
-        List<String> expected = Arrays.asList("300\tDCIM/100MSDCF/DSC0001.ARW",
-                "50\tDCIM/100MSDCF/DSC0002.JPG");
-        check("已导入索引：只收成品、按 relPath 排序（#20）",
-                n == 2 && lines.equals(expected), "条数=" + n + " 行=" + lines);
-        check("已导入索引：排除 journal / .part / 索引自身与 .tmp / 0 字节（#20）",
-                !String.join("\n", lines).contains("import-journal")
-                        && !String.join("\n", lines).contains(".part")
-                        && !String.join("\n", lines).contains("empty")
-                        && !String.join("\n", lines).contains(".tmp"),
-                "行=" + lines);
-
-        // 截断成 3 个 NUL，再 save：仍是磁盘真值（不读旧内容）。
-        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 3);
-        int n2 = ImportedIndex.save(out);
-        check("已导入索引：存量截断/乱码后重写为磁盘真值（#20）",
-                n2 == 2 && indexLines(out).equals(expected),
-                "条数=" + n2 + " 行=" + indexLines(out));
-
-        // 口径裁决（#210）：只有本工具命名的 `<stem>.<size>.part` 是半成品；用户的 foo.part 是普通文件。
-        File judge = Files.createTempDirectory("wiredraw-index-part-naming").toFile();
-        writeSizedFile(new File(judge, "DCIM/A.ARW"), 10);
-        writeSizedFile(new File(judge, "DCIM/A.ARW.10.part"), 7);
-        writeSizedFile(new File(judge, "foo.part"), 3);
-        ImportedIndex.save(judge);
-        List<String> judgeLines = indexLines(judge);
-        check("已导入索引：命名半成品不收、用户的 foo.part 照收（#210）",
-                judgeLines.equals(Arrays.asList("10\tDCIM/A.ARW", "3\tfoo.part")),
-                "行=" + judgeLines);
-        deleteTree(judge);
-
-        deleteTree(out);
-
-        // 集成：假传输把 .part rename 成成品，轮末索引从磁盘重建。
-        Catalog c = sample();
-        Selection s = new Selection(c);
-        s.setChecked(1, true);
-        ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(),
-                PhotoWall.Export.JPG_FIRST);
-
-        File live = Files.createTempDirectory("wiredraw-index-live").toFile();
-        FakeTransfer t1 = new FakeTransfer(live);
-        FinishRecorder r1 = new FinishRecorder();
-        new ImportService(Log.NOOP, t1, live).start(plan, r1);
-        check("已导入索引：集成一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
-        List<String> expectedLive = Arrays.asList("100\tDCIM/100MSDCF/DSC02183.JPG",
-                "50\tDCIM/DSC02999.ARW");
-        check("已导入索引：一轮 OK 后含两个成品（#20）",
-                r1.ok == 2 && indexLines(live).equals(expectedLive),
-                "ok=" + r1.ok + " 行=" + indexLines(live));
-
-        // 只删索引：Journal 仍能跳过，轮末从磁盘重建回原条目（#20 的降级要求）。
-        boolean removed = new File(live, ImportedIndex.FILE_NAME).delete();
-        check("已导入索引：能删掉索引文件以模拟丢失（#20）", removed, "delete 失败");
-        FakeTransfer t2 = new FakeTransfer(live);
-        FinishRecorder r2 = new FinishRecorder();
-        new ImportService(Log.NOOP, t2, live).start(plan, r2);
-        check("已导入索引：索引丢失不影响跳过（Journal 口径未变，#20）",
-                r2.done.await(5, TimeUnit.SECONDS) && r2.skipped == 2 && r2.ok == 0
-                        && t2.calls.isEmpty(),
-                "skipped=" + r2.skipped + " ok=" + r2.ok + " calls=" + t2.calls);
-        check("已导入索引：索引丢失后轮末重建回两个成品（#20）",
-                indexLines(live).equals(expectedLive), "行=" + indexLines(live));
-
-        // 索引写成乱码：轮末仍重写为磁盘真值。
-        writeSizedFile(new File(live, ImportedIndex.FILE_NAME), 4);
-        FakeTransfer t3 = new FakeTransfer(live);
-        FinishRecorder r3 = new FinishRecorder();
-        new ImportService(Log.NOOP, t3, live).start(plan, r3);
-        check("已导入索引：索引乱码后轮末仍重写为磁盘真值（#20）",
-                r3.done.await(5, TimeUnit.SECONDS) && indexLines(live).equals(expectedLive),
-                "skipped=" + r3.skipped + " 行=" + indexLines(live));
-
-        // 全失败一轮：只有 .part 残留，索引不记完成。
-        File failed = Files.createTempDirectory("wiredraw-index-failed").toFile();
-        writeSizedFile(new File(failed, "DCIM/leftover.99.part"), 9);
-        FakeTransfer t4 = new FakeTransfer();
-        t4.failAll = true;
-        FinishRecorder r4 = new FinishRecorder();
-        new ImportService(Log.NOOP, t4, failed).start(plan, r4);
-        check("已导入索引：全失败一轮不产条目（#20）",
-                r4.done.await(5, TimeUnit.SECONDS) && r4.failed == 2
-                        && indexLines(failed).isEmpty(),
-                "failed=" + r4.failed + " 行=" + indexLines(failed));
-
-        deleteTree(live);
-        deleteTree(failed);
+    /**
+     * #20 裁决 B：`imported-index.txt` 有写方、无读方，**先停写**。
+     *
+     * 停写的完成标准是「没有读方就不写」：轮末写入调用点、纯 JDK 类本身与
+     * `pureJdkClasses` 清单项必须一起消失。将来要恢复索引，读方与写方必须
+     * 同一个 PR 交付，并由界面真正用上。
+     */
+    static void indexStoppedCases() throws Exception {
+        File src = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport");
+        String round = readSourceOrNull(new File(src, "RoundFiles.java"));
+        String service = readSourceOrNull(new File(src, "ImportService.java"));
+        String gradle = readSourceOrNull(new File(System.getProperty("user.dir"), "build.gradle.kts"));
+        check("已导入索引：写入方 rebuildIndex 已移除（#20 裁决 B）",
+                round != null && !round.contains("rebuildIndex"),
+                round == null ? "读不到 RoundFiles.java" : "仍有 rebuildIndex");
+        check("已导入索引：ImportService 不再调写入方（#20 裁决 B）",
+                service != null && !service.contains("rebuildIndex"),
+                service == null ? "读不到 ImportService.java" : "仍调用 rebuildIndex");
+        check("已导入索引：纯 JDK 类已删除（#20 裁决 B）",
+                !new File(src, "ImportedIndex.java").exists(),
+                "ImportedIndex.java 仍在");
+        check("已导入索引：纯 JDK 清单不再列它（#20 裁决 B）",
+                gradle != null && !gradle.contains("ImportedIndex.java"),
+                gradle == null ? "读不到 build.gradle.kts" : "清单仍列 ImportedIndex.java");
     }
 
     // ---------------- 取消令牌与暂停/取消/恢复语义（PB / issue #50） ----------------
@@ -2699,8 +2608,9 @@ public final class SelfTest {
         writeSizedFile(new File(gone), 40);
 
         writeSizedFile(new File(out, "import-journal.txt"), 5);
-        writeSizedFile(new File(out, ImportedIndex.FILE_NAME), 5);
-        writeSizedFile(new File(out, ImportedIndex.FILE_NAME + ".tmp"), 5);
+        // 存量 `imported-index.txt`（#20 停写前留下的普通文件）：它不是半成品，必须原样保留。
+        writeSizedFile(new File(out, "imported-index.txt"), 5);
+        writeSizedFile(new File(out, "imported-index.txt.tmp"), 5);
         writeSizedFile(new File(out, "plain.part"), 5);
         writeSizedFile(new File(out, "DCIM/stray.300.part"), 5);
 
@@ -2748,10 +2658,10 @@ public final class SelfTest {
                 !new File(gone).exists(), "仍存在：" + gone);
         check("无主半成品：relPath + size 都能对上也不保留（不再续传，#177）",
                 !new File(keepSize).exists(), "仍存在：" + keepSize);
-        check("无主半成品：账本 / 索引 / .tmp / 无 size 段的 .part 不被动",
+        check("无主半成品：账本 / 存量索引 / .tmp / 无 size 段的 .part 不被动",
                 new File(out, "import-journal.txt").isFile()
-                        && new File(out, ImportedIndex.FILE_NAME).isFile()
-                        && new File(out, ImportedIndex.FILE_NAME + ".tmp").isFile()
+                        && new File(out, "imported-index.txt").isFile()
+                        && new File(out, "imported-index.txt.tmp").isFile()
                         && new File(out, "plain.part").isFile(),
                 "干扰项被删");
         check("无主半成品：子目录里的 .part 不被动（半成品只平铺在 outDir）",
@@ -4568,15 +4478,6 @@ public final class SelfTest {
         writeSizedFile(RoundFiles.journalFile(out), 5);
         check("RoundFiles.load：损坏文件按空日志继续（#219）",
                 RoundFiles.load(out, sink).size() == 0, "实际未按空日志");
-
-        // 索引重建：从磁盘真值重算，失败只记日志。
-        writeSizedFile(new File(out, "DCIM/100MSDCF/DSC02183.ARW"), 300);
-        logs.clear();
-        RoundFiles.rebuildIndex(out, sink);
-        check("RoundFiles.rebuildIndex：重建索引并记日志（#219）",
-                new File(out, ImportedIndex.FILE_NAME).isFile()
-                        && logs.size() == 1 && logs.get(0).contains("已导入索引已重建：1 条"),
-                "logs=" + logs);
 
         deleteTree(root);
     }
