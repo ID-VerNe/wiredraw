@@ -11,6 +11,10 @@
 
 只扫 `git ls-files` 里的文本文件，跳过二进制；Python 标准库，离线可跑。
 
+退出码（契约与 `scripts/_common.py` 同一张表，见 `docs/testing.md`）：
+`0` 绿 / `1` 命中敏感值（内容不达标）/ `2` 环境或参数问题
+（git 不可用、被跟踪文件读不到、allowlist 配置不合格）。
+
 已知边界（不要指望它兜住这些）：
 - **不扫 commit message、PR 正文与 git 历史**。PR 正文/评论由 `check_pr_body.py`（`support` 档，#125）
   覆盖，commit message 由 `check_commit_messages.py`（`support` 档 + `.githooks/commit-msg`，#134）
@@ -37,14 +41,17 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import contextlib
 import hashlib
+import io
 import re
-import subprocess
 import sys
 import tempfile
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
+
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, format_hit, git_ls_files, run
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -381,15 +388,8 @@ def _repo_slug() -> str | None:
     不能让门禁因为网络/远端缺失而假红。
     """
     try:
-        out = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except OSError:
+        out = run(["git", "remote", "get-url", "origin"])
+    except EnvProblem:
         return None
     if out.returncode != 0:
         return None
@@ -616,17 +616,8 @@ def _write_text(path: Path, text: str, encoding: tuple[str, bytes]) -> None:
 
 
 def tracked_files() -> list[str]:
-    out = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if out.returncode != 0:
-        raise SystemExit("[红] git ls-files 失败，确认当前目录是 git 仓库")
-    return [f for f in out.stdout.split("\0") if f]
+    """被跟踪文件清单；git 用不了抛 `EnvProblem`，由 main 映射成退出码 2（#204）。"""
+    return git_ls_files()
 
 
 def scan_repo(repo_slug: str | None) -> tuple[list[Hit], int, int]:
@@ -636,8 +627,9 @@ def scan_repo(repo_slug: str | None) -> tuple[list[Hit], int, int]:
         try:
             text = _read_text(ROOT / rel)
         except OSError as e:
-            raise SystemExit(
-                f"[红] 被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）"
+            # 读盘失败不是「内容不合格」而是「这次扫描没做成」：交给 main 映射成退出码 2（#204）。
+            raise EnvProblem(
+                f"被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）"
             ) from e
         if text is None:
             skipped += 1
@@ -662,12 +654,7 @@ def _summary(hits: list[Hit], scanned: int, skipped: int) -> str:
 
 def _print_hits(hits: list[Hit], warn: bool) -> None:
     for hit in hits:
-        tag = "WARN" if warn else "红"
-        encoded = "" if hit.encoding == "plain" else f"/{hit.encoding}"
-        print(
-            f"[{tag}] {hit.path}:{hit.line} [{hit.category}{encoded}] "
-            f"{hit.masked()} → {hit.placeholder()}"
-        )
+        print(format_hit(hit, tag="WARN" if warn else "红"))
 
 
 def _fix(hits: list[Hit]) -> list[str]:
@@ -996,11 +983,35 @@ def self_test() -> int:
         f"（明文 {plain_ph}，hex {hex_ph}，重分组 {grouped_ph}，另一值 {other_ph}）",
     )
 
+    # #204：机械逻辑收口到共享层，git 用不了必须映射成退出码 2（不许 SystemExit(str) 隐式退 1）。
+    self_src = Path(__file__).read_text(encoding="utf-8")
+    record("#204：git 清单走共享层 git_ls_files", "git_ls_files" in self_src)
+    record("#204：不再有本地 subprocess.run 样板", "subprocess.run" + "(" not in self_src)
+    record("#204：不再用 SystemExit(str) 隐式退 1", "raise SystemExit" + "(" not in self_src)
+
+    def _env_failure_exit() -> int | None:
+        """git 用不了时 main 必须退 ENV_FAIL；现状是让异常冒出来（traceback 退 1）。"""
+
+        def boom() -> list[str]:
+            raise EnvProblem("git 不可用（自检注入）")
+
+        real_tracked, real_slug = globals()["tracked_files"], globals()["_repo_slug"]
+        globals()["tracked_files"], globals()["_repo_slug"] = boom, lambda: None
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                return main(["--check"])
+        except EnvProblem:
+            return None
+        finally:
+            globals()["tracked_files"], globals()["_repo_slug"] = real_tracked, real_slug
+
+    record("#204：git 用不了时退 2（不隐式退 1）", _env_failure_exit() == ENV_FAIL)
+
     if bad:
         print(f"== 自检红 {bad} 项 ==", file=sys.stderr)
-        return 2
+        return ENV_FAIL
     print(f"== 自检全绿：{total} 项 ==")
-    return 0
+    return OK
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1018,40 +1029,49 @@ def main(argv: list[str] | None = None) -> int:
     bad_entries = _validate_allowlist()
     if bad_entries:
         print(f"[红] allowlist 第 {bad_entries} 条的理由不是具体事实，拒绝运行", file=sys.stderr)
-        return 1
+        # 脚本自身的配置不合格 = 这次检查没做成，不是「内容不达标」（#204）。
+        return ENV_FAIL
 
     repo_slug = _repo_slug()
     if not repo_slug:
         print("[提示] 读不到 origin 的 owner/repo，跳过「私有仓库名字面量」规则", file=sys.stderr)
 
-    hits, scanned, skipped = scan_repo(repo_slug)
+    try:
+        hits, scanned, skipped = scan_repo(repo_slug)
+    except EnvProblem as exc:
+        print(f"[红] {exc}", file=sys.stderr)
+        return ENV_FAIL
 
     if args.fix:
         if not hits:
             print(f"[绿] {_summary(hits, scanned, skipped)}")
-            return 0
+            return OK
         changed = _fix(hits)
         print(f"[改写] 共修改 {len(changed)} 个文件：{', '.join(changed) if changed else '无'}")
         # 自证：改写后按同一口径再扫一遍。
-        remaining, scanned2, skipped2 = scan_repo(repo_slug)
+        try:
+            remaining, scanned2, skipped2 = scan_repo(repo_slug)
+        except EnvProblem as exc:
+            print(f"[红] {exc}", file=sys.stderr)
+            return ENV_FAIL
         if remaining:
             _print_hits(remaining, warn=False)
             print(f"[红] 改写后仍有 {len(remaining)} 处命中，需人工处理", file=sys.stderr)
-            return 1
+            return CONTENT_FAIL
         print(f"[绿] 自证通过：{_summary(remaining, scanned2, skipped2)}")
-        return 0
+        return OK
 
     _print_hits(hits, warn=args.warn)
     summary = _summary(hits, scanned, skipped)
     if args.warn:
         print(f"[WARN] {summary}")
         print("[WARN] 当前为 warn 模式，只报告不阻断")
-        return 0
+        return OK
     if hits:
         print(f"[红] {summary}", file=sys.stderr)
-        return 1
+        return CONTENT_FAIL
     print(f"[绿] {summary}")
-    return 0
+    return OK
 
 
 if __name__ == "__main__":
