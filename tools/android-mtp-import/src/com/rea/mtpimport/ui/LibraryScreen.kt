@@ -87,6 +87,9 @@ fun LibraryScreen(model: AppModel) {
  *
  * 不写文字、不写数字：扫描分母（1526）按 C-09 只能出现在 `T-SCANNING`，
  * 这里只用宽度表达进度；照片墙仍是本状态唯一的内容区焦点。
+ *
+ * #265：轨道底用 `outline`（白底 4.47:1 ≥ 3:1），与进度环轨道同判定；
+ * `outlineSoft`（1.70:1）只作分隔细线与禁用底色，不再承载「用长度表达进度」的图形。
  */
 @Composable
 private fun ScanLine(model: AppModel) {
@@ -95,7 +98,7 @@ private fun ScanLine(model: AppModel) {
         Modifier
             .fillMaxWidth()
             .height(2.dp)
-            .background(UiColors.outlineSoft)
+            .background(UiColors.outline)
     ) {
         Box(
             Modifier
