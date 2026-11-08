@@ -72,6 +72,7 @@ public final class SelfTest {
         uiStateCases();
         uiTransitionCases();
         finishOutcomeCases();
+        probeVerdictCases();
         stalledDetectionCases();
         stalledServiceCases();
         importGateCases();
@@ -2771,6 +2772,43 @@ public final class SelfTest {
                 "判据放宽了");
 
         deleteTree(out);
+    }
+
+    // ---------------- 探活判定（#268） ----------------
+
+    /**
+     * 探活结论的唯一归属：`alive(hasSession, lockBusy, finished, error, gotInfo)`。
+     *
+     * #268 的根因是「等锁时间被算进 1200 ms 窗口」：锁被活跃 IO 持有时按存活处理，
+     * 窗口只约束 native 调用本身；否则单张 RAW（真机约 1.14 s）就会假超时，
+     * 暂停后立刻 Resume 把本来能续的一轮取消成 ERROR。
+     */
+    static void probeVerdictCases() {
+        check("探活：没有会话 → 判死（#268）",
+                !ProbeVerdict.alive(false, false, true, false, false), "误判为活");
+        check("探活：ioLock 被活跃 IO 持锁 → 判活，不等锁（#268）",
+                ProbeVerdict.alive(true, true, true, false, false), "误判为死");
+        check("探活：拿到锁、getObjectInfo 有返回 → 判活（#268）",
+                ProbeVerdict.alive(true, false, true, false, true), "误判为死");
+        check("探活：拿到锁但 getObjectInfo 返回 null → 判死（#268）",
+                !ProbeVerdict.alive(true, false, true, false, false), "误判为活");
+        check("探活：拿到锁但 native 调用抛异常 → 判死（#268）",
+                !ProbeVerdict.alive(true, false, true, true, false), "误判为活");
+        check("探活：窗口内没结束（真超时）→ 判死（#268）",
+                !ProbeVerdict.alive(true, false, false, false, false), "误判为活");
+
+        // 源码守卫：探活不得再用阻塞 lock()，否则等锁时间又会进超时窗口。
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src;
+        try {
+            src = Files.readString(main.toPath());
+        } catch (IOException e) {
+            src = null;
+        }
+        check("探活：Main 的探活用 tryLock，不再阻塞取锁（#268）",
+                src != null && src.contains("s.ioLock().tryLock()")
+                        && !src.contains("s.ioLock().lock();"),
+                src == null ? "读不到 " + main : "仍在阻塞取锁");
     }
 
     // ---------------- 无进展挂起判定（issue #63） ----------------

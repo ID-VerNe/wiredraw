@@ -52,6 +52,9 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
     /**
      * #59：会话探活的最长等待。探活在后台线程持 `ioLock` 发 `getObjectInfo`，
      * UI 线程只等这么久；超时即按失步处理（相机挂起时不能无限卡住界面）。
+     *
+     * #268：这个窗口只约束 **native 调用本身**。试锁用非阻塞 `tryLock()`，拿不到锁
+     * 说明有活跃 IO 正持锁（导入 / 缩略图），直接判活，不再把等锁时间算进来。
      */
     private static final long PROBE_JOIN_MS = 1200L;
 
@@ -1141,6 +1144,9 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
      *
      * #59：探活与缩略图 / 导入共用 `ioLock`，且不在 UI 线程直接发原生调用；
      * UI 线程最多等 {@link #PROBE_JOIN_MS}，超时按失步处理（相机挂起时不再无限卡住界面）。
+     *
+     * #268：试锁是非阻塞的 `tryLock()`，锁被活跃 IO 占用直接判活；结论由 {@link ProbeVerdict}
+     * 统一给出，避免「等锁」与「真挂起」混在同一个超时里。
      */
     private boolean probeSession(int handle, String when) {
         final MtpSession s = session;
@@ -1148,10 +1154,17 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             log.line(when + "：没有可用的 MTP 会话");
             return false;
         }
+        final boolean[] busy = {false};
         final boolean[] alive = {false};
         final Throwable[] error = {null};
         Thread probe = new Thread(() -> {
-            s.ioLock().lock();
+            // #268：先非阻塞试锁。拿不到锁说明有活跃 IO（导入 / 缩略图）正持锁，会话显然还活着，
+            // 直接判活——旧实现用阻塞 lock()，把等锁时间也算进 PROBE_JOIN_MS，单张 RAW 约 1.14 s，
+            // 暂停后立刻 Resume 就会假超时，把本来能续的一轮取消成 ERROR。
+            if (!s.ioLock().tryLock()) {
+                busy[0] = true;
+                return;
+            }
             try {
                 // 扫描取消 / onDestroy 摘掉会话后不再往已关闭/已换代的设备上发命令。
                 if (session != s) return;
@@ -1169,17 +1182,18 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             Thread.currentThread().interrupt();
             return false;
         }
-        if (probe.isAlive()) {
+        boolean timedOut = probe.isAlive();
+        if (timedOut) {
             log.line(when + "：探活超时（相机可能挂起）");
             probe.interrupt();
-            return false;
-        }
-        if (error[0] != null) {
+        } else if (busy[0]) {
+            log.line(when + "：ioLock 被活跃 IO 占用，按会话存活处理（#268）");
+        } else if (error[0] != null) {
             log.line(when + "：会话探活异常：" + error[0]);
-            return false;
+        } else if (!alive[0]) {
+            log.line(when + "：getObjectInfo(" + handle + ") 无返回");
         }
-        if (!alive[0]) log.line(when + "：getObjectInfo(" + handle + ") 无返回");
-        return alive[0];
+        return ProbeVerdict.alive(true, busy[0], !timedOut, error[0] != null, alive[0]);
     }
 
     /**
