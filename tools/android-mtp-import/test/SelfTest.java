@@ -492,6 +492,39 @@ public final class SelfTest {
                 UsbIdentity.shouldMarkDetached(null, "1-1"), "被忽略");
         check("USB 身份：没有活动会话 → 交给状态守卫（本层不拦）",
                 UsbIdentity.shouldMarkDetached("1-2", null), "被拦下");
+
+        // #267 复审：纯函数再绿也钉不住「调用点被摘掉 / 被短路」。补两条源码守卫：
+        // 1) DETACH 分支必须先过 `shouldMarkDetached(...)` 再调 `model.onUsbDetached()`；
+        // 2) `MtpSession.findSony` 必须走 `isSonyCamera(...)`，且不得退回只比 VID 的旧写法。
+        // 这两条是弱契约：只防上面两种具体回退，换行重排或改写表达式都会假红。
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> detachCalls = new ArrayList<>();
+        List<String> detachGuards = new ArrayList<>();
+        scanSourceText(srcRoot, "model.onUsbDetached(", null, detachCalls);
+        scanSourceText(srcRoot, "UsbIdentity.shouldMarkDetached(", null, detachGuards);
+        int callLine = -1;
+        int guardLine = -1;
+        for (String h : detachCalls) if (h.contains("Main.java")) callLine = hitLineOf(h);
+        for (String h : detachGuards) if (h.contains("Main.java")) guardLine = hitLineOf(h);
+        check("USB 身份：DETACH 分支调用 model.onUsbDetached() 恰好一处（Main.java）",
+                detachCalls.size() == 1 && callLine > 0,
+                "命中 " + detachCalls.size() + " 处：\n" + String.join("\n", detachCalls));
+        check("USB 身份：DETACH 分支先过 UsbIdentity.shouldMarkDetached(...) 再置断线（#267 复审）",
+                guardLine > 0 && callLine > guardLine && callLine - guardLine <= 3,
+                "守卫行 " + guardLine + "，调用行 " + callLine);
+
+        List<String> findSonyCalls = new ArrayList<>();
+        scanSourceText(srcRoot, "UsbIdentity.isSonyCamera(", null, findSonyCalls);
+        List<String> vidOnly = new ArrayList<>();
+        scanSourceText(srcRoot, "getVendorId() == SONY_VID) found", null, vidOnly);
+        int findSonyInSession = 0;
+        for (String h : findSonyCalls) if (h.contains("MtpSession.java")) findSonyInSession++;
+        check("USB 身份：MtpSession.findSony 走 UsbIdentity.isSonyCamera(...)（#267 复审）",
+                findSonyCalls.size() == 1 && findSonyInSession == 1,
+                "命中 " + findSonyCalls.size() + " 处（MtpSession.java " + findSonyInSession + " 处）：\n"
+                        + String.join("\n", findSonyCalls));
+        check("USB 身份：MtpSession.findSony 不得退回只看 VID 的旧写法（#267 复审）",
+                vidOnly.isEmpty(), "命中：\n" + String.join("\n", vidOnly));
     }
 
     // ---------------- AttachGate（#17 的墓碑） ----------------
