@@ -153,6 +153,7 @@ val pureJdkClasses = listOf(
     "UiState.java",
     "UiText.java",
     "UiTransition.java",
+    "UsbIdentity.java",
 )
 
 /**

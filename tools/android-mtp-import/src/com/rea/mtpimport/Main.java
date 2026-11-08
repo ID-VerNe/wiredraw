@@ -488,7 +488,14 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {
                 // P1-1（#44 复审）：传输中断线只把顶栏连接指示切 `Disconnected`，保留进度屏；
                 // 非传输态不动——`COLD` / `ERROR` 顶栏本来就有连接指示。
-                if (!demoActive()) model.onUsbDetached();
+                // #267：先按设备身份比对，无关 USB / MTP 设备被拔不得把断线标志误置。
+                UsbDevice gone = Build.VERSION.SDK_INT >= 33
+                        ? i.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class)
+                        : i.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if (!demoActive() && UsbIdentity.shouldMarkDetached(
+                        gone == null ? null : gone.getDeviceName(), activeCameraName())) {
+                    model.onUsbDetached();
+                }
             }
         }
     };
@@ -719,6 +726,17 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
 
     private UsbDevice findCamera() {
         return MtpSession.findSony((UsbManager) getSystemService(Context.USB_SERVICE), log);
+    }
+
+    /**
+     * 当前会话那台相机的 `deviceName`（如 `1-1`）；没有会话时返回 null。
+     * 只用于 #267 的 DETACH 身份比对，不参与任何界面状态。
+     */
+    private String activeCameraName() {
+        MtpSession s = session;
+        if (s == null) return null;
+        UsbDevice u = s.usbDevice();
+        return u == null ? null : u.getDeviceName();
     }
 
     /**
