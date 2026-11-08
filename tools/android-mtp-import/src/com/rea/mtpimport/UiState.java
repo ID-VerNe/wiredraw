@@ -83,4 +83,14 @@ public final class UiState {
     public static boolean showsLibrary(State s) {
         return s == State.CATALOG_READY;
     }
+
+    /**
+     * USB 拔出时是否要标断线（#44 复审 / P1-1）：只有传输态（`IMPORTING` / `PAUSED`）。
+     *
+     * 非传输态本来就有各自的连接指示（`COLD` / `ERROR` 的 `Disconnected`），
+     * 拔出事件不改它们的状态，避免把照片墙或完成页无谓地打回。
+     */
+    public static boolean detachMarksTransfer(State s) {
+        return isTransfer(s);
+    }
 }

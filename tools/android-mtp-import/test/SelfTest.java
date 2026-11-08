@@ -76,6 +76,8 @@ public final class SelfTest {
         stalledServiceCases();
         importGateCases();
         topBarSpecCases();
+        ringTrackCases();
+        detachCases();
         colorTokensCases();
         backNavCases();
         uiTextCases();
@@ -3057,6 +3059,81 @@ public final class SelfTest {
                         .filter(s -> s != UiState.State.CATALOG_READY)
                         .noneMatch(s -> TopBarSpec.showsCountPill(s, 511)),
                 "非 READY 状态出现了计数胶囊");
+        // P1-1（#44 复审）：连接指示在顶栏全状态常驻，传输态不再让位给环。
+        check("TopBarSpec：10 态都在顶栏渲染连接指示（P1-1）",
+                java.util.Arrays.stream(UiState.State.values())
+                        .allMatch(TopBarSpec::showsConnectionIndicator),
+                "传输态（IMPORTING / PAUSED）漏了连接指示");
+        check("TopBarSpec：在线时连接指示取设备短名",
+                "a7C".equals(TopBarSpec.connectionLabel(false, "a7C")),
+                "实际 " + TopBarSpec.connectionLabel(false, "a7C"));
+        check("TopBarSpec：断线时连接指示切 Disconnected",
+                "Disconnected".equals(TopBarSpec.connectionLabel(true, "a7C")),
+                "实际 " + TopBarSpec.connectionLabel(true, "a7C"));
+        // 页面必须真的用上这套判定，否则纯 JDK 用例再绿也钉不住 Compose。
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> indicatorUses = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "TransferConnectionIndicator", null, indicatorUses);
+        check("传输页顶栏调用 TransferConnectionIndicator（P1-1）",
+                scanned > 0 && !indicatorUses.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", indicatorUses));
+    }
+
+    /**
+     * P1-3（#44 复审）：进度环轨道从 `outlineSoft`（白底 1.7:1）改用 `outline`（4.47:1 ≥ 3:1）。
+     * 轨道颜色写在 Compose 里，纯 JDK 侧只能用源码扫描钉住；token 值本身由 `colorTokensCases` 守。
+     */
+    static void ringTrackCases() {
+        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        List<String> softTrack = new ArrayList<>();
+        int scanned = scanSourceText(srcRoot, "drawCircle(UiColors.outlineSoft", null, softTrack);
+        check("进度环轨道不再用 outlineSoft（白底 1.7:1，P1-3）",
+                scanned > 0 && softTrack.isEmpty(),
+                "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", softTrack));
+        List<String> outlineTrack = new ArrayList<>();
+        scanSourceText(srcRoot, "drawCircle(UiColors.outline,", null, outlineTrack);
+        check("进度环轨道改用 outline（P1-3）", !outlineTrack.isEmpty(),
+                "环轨道没找到 drawCircle(UiColors.outline,");
+        check("outline 于白底 ≥3:1（V-07 图标/描边下限）",
+                ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE) >= 3.0,
+                "实际 " + number(ColorTokens.contrastRatio(ColorTokens.OUTLINE, ColorTokens.SURFACE_WHITE)));
+    }
+
+    /**
+     * P1-1（#44 复审）：USB 拔出只在传输态把顶栏连接指示置为断线，保留进度屏；
+     * 新导入 / 完成等落点必须复位，进度与暂停回调不得把断线擦掉。
+     */
+    static void detachCases() {
+        check("USB 拔出：传输态判定为需要标断线",
+                UiState.detachMarksTransfer(UiState.State.IMPORTING)
+                        && UiState.detachMarksTransfer(UiState.State.PAUSED),
+                "传输态未判为断线目标");
+        check("USB 拔出：非传输态不标断线",
+                java.util.Arrays.stream(UiState.State.values())
+                        .filter(s -> !UiState.isTransfer(s))
+                        .noneMatch(UiState::detachMarksTransfer),
+                "非传输态被判为断线目标");
+        UiTransition.Result detach = UiTransition.resolve(
+                UiTransition.Action.USB_DETACHED, false, false, false, false);
+        check("USB 拔出：置 connectionLost", detach.connectionLost, "未置位");
+        check("USB 拔出：不换状态（保留进度屏）", detach.state == null,
+                "实际 " + detach.state);
+        check("USB 拔出后进度回调不清断线",
+                UiTransition.resolve(UiTransition.Action.PROGRESS, false, false, false, true)
+                        .connectionLost,
+                "PROGRESS 把 connectionLost 复位了");
+        check("USB 拔出后暂停回调不清断线",
+                UiTransition.resolve(UiTransition.Action.PAUSED, false, false, false, true)
+                        .connectionLost,
+                "PAUSED 把 connectionLost 复位了");
+        check("新导入复位断线",
+                !UiTransition.resolve(UiTransition.Action.IMPORT_START, false, false, false, true)
+                        .connectionLost,
+                "IMPORT_START 未复位 connectionLost");
+        check("完成复位断线",
+                !UiTransition.resolve(UiTransition.Action.DONE, false, false, false, true)
+                        .connectionLost,
+                "DONE 未复位 connectionLost");
     }
 
     // ---------------- 颜色 token 与对比度（PR-2 / issue #78） ----------------

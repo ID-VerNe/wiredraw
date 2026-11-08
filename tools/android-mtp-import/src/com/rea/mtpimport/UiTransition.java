@@ -44,7 +44,9 @@ public final class UiTransition {
         DEMO_RESET,
         LEAVE_VIEW,
         BACK_READY,
-        BACK_COLD
+        BACK_COLD,
+        /** USB 拔出（#44 复审 / P1-1）：不换状态，只把顶栏连接指示置为断线。 */
+        USB_DETACHED
     }
 
     /** 迁移结果：`state` 为 null 表示本动作不换状态，只处置跨状态字段。 */
@@ -53,29 +55,50 @@ public final class UiTransition {
         public final boolean backgroundScanning;
         public final boolean transferViewClosed;
         public final boolean exitConfirmOpen;
+        /**
+         * 传输态顶栏连接指示是否断线（#44 复审 / P1-1）。
+         *
+         * 只由 {@code USB_DETACHED} 置真，{@code PROGRESS} / {@code PAUSED} 保留原值，
+         * 其余落点复位——否则断线后一次进度回调就会把 `Disconnected` 擦回在线。
+         */
+        public final boolean connectionLost;
 
         Result(UiState.State state, boolean backgroundScanning,
-               boolean transferViewClosed, boolean exitConfirmOpen) {
+               boolean transferViewClosed, boolean exitConfirmOpen,
+               boolean connectionLost) {
             this.state = state;
             this.backgroundScanning = backgroundScanning;
             this.transferViewClosed = transferViewClosed;
             this.exitConfirmOpen = exitConfirmOpen;
+            this.connectionLost = connectionLost;
         }
+    }
+
+    /**
+     * 按当前跨状态字段算出一次迁移的终值（不带断线标志的旧重载）。
+     *
+     * 保留四参签名是为了不动既有 {@code SelfTest} 用例；新代码请用带 {@code connectionLost} 的重载。
+     */
+    public static Result resolve(Action action, boolean scanning, boolean viewClosed, boolean confirmOpen) {
+        return resolve(action, scanning, viewClosed, confirmOpen, false);
     }
 
     /**
      * 按当前跨状态字段算出一次迁移的终值。
      *
-     * @param action       迁移动作
-     * @param scanning     当前 `backgroundScanning`
-     * @param viewClosed   当前 `transferViewClosed`
-     * @param confirmOpen  当前 `exitConfirmOpen`
+     * @param action         迁移动作
+     * @param scanning       当前 `backgroundScanning`
+     * @param viewClosed     当前 `transferViewClosed`
+     * @param confirmOpen    当前 `exitConfirmOpen`
+     * @param connectionLost 当前顶栏连接指示是否断线
      */
-    public static Result resolve(Action action, boolean scanning, boolean viewClosed, boolean confirmOpen) {
+    public static Result resolve(Action action, boolean scanning, boolean viewClosed, boolean confirmOpen,
+                                 boolean connectionLost) {
         UiState.State next;
         boolean scan = scanning;
         boolean closed = viewClosed;
         boolean confirm = confirmOpen;
+        boolean lost = false;
         switch (action) {
             case COLD:
                 next = UiState.State.COLD;
@@ -115,6 +138,7 @@ public final class UiTransition {
                 break;
             case PROGRESS:
                 next = UiState.State.IMPORTING;
+                lost = connectionLost;
                 break;
             case DONE:
                 next = UiState.State.DONE;
@@ -123,6 +147,7 @@ public final class UiTransition {
                 break;
             case PAUSED:
                 next = UiState.State.PAUSED;
+                lost = connectionLost;
                 break;
             case DISCARD_PARTIAL:
                 next = null;
@@ -144,9 +169,13 @@ public final class UiTransition {
             case BACK_COLD:
                 next = UiState.State.COLD;
                 break;
+            case USB_DETACHED:
+                next = null;
+                lost = true;
+                break;
             default:
                 throw new IllegalArgumentException("未覆盖的迁移动作：" + action);
         }
-        return new Result(next, scan, closed, confirm);
+        return new Result(next, scan, closed, confirm, lost);
     }
 }

@@ -149,6 +149,15 @@ class AppModel {
     var transferViewClosed by mutableStateOf(false)
         private set
 
+    /**
+     * 传输态顶栏连接指示是否断线（#44 复审 / P1-1）。
+     *
+     * 只由 USB 拔出事件置位，经 [transition] 统一复位；`PROGRESS` / `PAUSED` 回调保留原值，
+     * 否则断线后一次进度回调就会把 `Disconnected` 擦回在线。
+     */
+    var connectionLost by mutableStateOf(false)
+        private set
+
     var filterKind by mutableStateOf(FilterKind.ALL)
         private set
     var filterDate: String? = null
@@ -252,11 +261,24 @@ class AppModel {
      * [setExitConfirm] 是用户开关覆盖层，也不是状态迁移。
      */
     private fun transition(action: UiTransition.Action) {
-        val r = UiTransition.resolve(action, backgroundScanning, transferViewClosed, exitConfirmOpen)
+        val r = UiTransition.resolve(
+            action, backgroundScanning, transferViewClosed, exitConfirmOpen, connectionLost
+        )
         r.state?.let { state = it }
         backgroundScanning = r.backgroundScanning
         transferViewClosed = r.transferViewClosed
         exitConfirmOpen = r.exitConfirmOpen
+        connectionLost = r.connectionLost
+    }
+
+    /**
+     * USB 拔出（#44 复审 / P1-1）：只在传输态把顶栏连接指示置为断线，保留进度屏。
+     *
+     * 非传输态本来就有各自的连接指示（`COLD` / `ERROR` 的 `Disconnected`），
+     * 这里不动状态，避免把照片墙或完成页无谓地打回。
+     */
+    fun onUsbDetached() {
+        if (UiState.detachMarksTransfer(state)) transition(UiTransition.Action.USB_DETACHED)
     }
 
     fun showCold() {

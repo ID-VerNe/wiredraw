@@ -41,6 +41,12 @@ fun TransferScreen(model: AppModel) {
                 IconAction(desc = "Back", onClick = { model.callbacks?.onCloseTransfer() }) {
                     BackGlyph(20.dp, UiColors.onSurface)
                 }
+                // P1-1（#44 复审）：传输态顶栏也要有连接指示，断线时切 `Disconnected`；
+                // 环仍是内容区唯一焦点，这里只作常驻指示。判定与 SelfTest 共用 `TopBarSpec`。
+                if (TopBarSpec.showsConnectionIndicator(model.state)) {
+                    Spacer(Modifier.weight(1f))
+                    TransferConnectionIndicator(model)
+                }
             }
         }
 

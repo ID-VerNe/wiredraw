@@ -54,7 +54,7 @@ fun TopBarRow(
 
 /** 短英文名号；`detailsEntry` 为真时长按仍进 Details（库页原有交互）。 */
 @Composable
-private fun TopBarLabel(
+internal fun TopBarLabel(
     text: String,
     model: AppModel,
     detailsEntry: Boolean,
@@ -124,6 +124,29 @@ fun LibraryTopBar(model: AppModel) {
             FilterGlyph(20.dp, UiColors.outline)
         }
     }
+}
+
+/**
+ * 传输态顶栏的连接指示（#44 复审 / P1-1）。
+ *
+ * 在线 = 相机线稿 + 设备短名；断线 = `V-28` 断线图标 + `Disconnected`。
+ * 文案口径由 `TopBarSpec.connectionLabel` 统一，Compose 与 SelfTest 共用（N-1）。
+ */
+@Composable
+internal fun TransferConnectionIndicator(model: AppModel) {
+    val lost = model.connectionLost
+    if (lost) {
+        UnpluggedGlyph(20.dp, UiColors.onSurface)
+    } else {
+        CameraGlyph(20.dp, UiColors.onSurface)
+    }
+    Spacer(Modifier.width(8.dp))
+    TopBarLabel(
+        TopBarSpec.connectionLabel(lost, model.deviceName),
+        model,
+        detailsEntry = false,
+        style = if (lost) TextSmall else TextBody
+    )
 }
 
 /**

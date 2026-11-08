@@ -469,6 +469,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
                 // 从前只写日志、不扫描（#17 的根因之一）：插线后应用看着像没反应。
                 if (!demoActive()) handleAttach("收到 USB_DEVICE_ATTACHED 广播");
+            } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {
+                // P1-1（#44 复审）：传输中断线只把顶栏连接指示切 `Disconnected`，保留进度屏；
+                // 非传输态不动——`COLD` / `ERROR` 顶栏本来就有连接指示。
+                if (!demoActive()) model.onUsbDetached();
             }
         }
     };
@@ -505,6 +509,7 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         IntentFilter f = new IntentFilter();
         f.addAction(ACTION_PERM);
         f.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        f.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
         } else {
