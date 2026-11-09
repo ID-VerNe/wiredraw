@@ -12,8 +12,10 @@ import java.io.IOException;
  * 但仍只算 `SKIPPED`（仅尺寸核对，内容未校验 #177；与 Journal 一致，
  * 见 #20 的已知边界——同路径同尺寸但内容不同分辨不出来）。</p>
  *
- * <p>落点策略（issue #28）：默认应用私有目录 `getFilesDir()/imported`；请求相册时本期一律回退，
- * 且回退原因必须非空（相册权限 / MIME / RELATIVE_PATH 均未真机验证，不在未验时假装可用）。
+ * <p>落点策略（issue #28）：用户可选，默认应用私有目录 `getFilesDir()/imported`；
+ * 选相册时由 Android 侧注入「相册可写」判定，不可写一律回退私有且回退原因必须非空
+ * （不得静默失败）。`Destination.root` 恒为**私有状态目录**（Journal / `.part`），
+ * `kind` 只表达成品去向；成品进 MediaStore 的写入由 PB 分节承接。
  * 目录布局镜像 `relPath`，不重排日期、不加机型层——`relPath` 同时是 Journal 主键，
  * 落点路径与识别键保持一致。</p>
  */
@@ -22,11 +24,11 @@ public final class DestPolicy {
     /** 应用私有落点目录名（`getFilesDir()/imported`，系统清理缓存不会带走）。 */
     public static final String PRIVATE_DIR = "imported";
 
-    /** 用户请求的落点（issue #28）：默认私有；相册本期未接入。 */
+    /** 用户请求的落点（issue #28）：默认私有；相册需可写才生效。 */
     public enum Kind {
         /** 应用私有目录。 */
         PRIVATE,
-        /** 公开相册（MediaStore）；本期请求一律回退，见 {@link #choose}。 */
+        /** 公开相册（MediaStore）；不可写时回退，见 {@link #choose}。 */
         GALLERY
     }
 
@@ -68,20 +70,48 @@ public final class DestPolicy {
     }
 
     /**
-     * 落点决策（issue #28）。默认私有；相册本期未接入，请求相册必须回退且带原因。
+     * 落点决策的兼容入口：调用方未声明相册可用性时，按「不可用」安全回退。
+     * 需要真正支持用户选相册的调用方，改用带 `galleryAvailable` 的三参重载。
      *
-     * <p>**边界**：本策略只决定「根」，不判断同名冲突——冲突仍由 {@link #resolve} /
-     * {@link #existing} 判定。相册写入依赖尚未真机验证的 MediaStore 行为，本单不实现。</p>
+     * <p>**边界**：本策略只决定「根」与「成品去向」，不判断同名冲突——冲突仍由
+     * {@link #resolve} / {@link #existing} 判定。</p>
      */
     public static Destination choose(File filesDir, Kind requested) {
+        // 两参入口 = 未声明相册可用性，按「不可用」安全回退（与接入前行为一致）。
+        return choose(filesDir, requested, false);
+    }
+
+    /**
+     * 落点决策（issue #28 · 用户可选）。`galleryAvailable` 由 Android 侧按权限 / 可写性注入，
+     * 策略层保持纯 JDK 可测。`root` 恒为**私有状态目录**（Journal / `.part`），
+     * `kind` 只表达成品去向；两棵根不得混用，否则换根会丢导入记录。
+     */
+    public static Destination choose(File filesDir, Kind requested, boolean galleryAvailable) {
         File root = privateRoot(filesDir);
         if (requested == Kind.GALLERY) {
-            // 相册写入依赖 MediaStore 权限 / MIME / RELATIVE_PATH，均未真机验证（#28）；
-            // 本期不做「看似可用」的落点，直接回退并把原因交给调用方展示。
+            if (galleryAvailable) {
+                // 成品走 MediaStore；Journal / .part 仍留在私有状态根。
+                return new Destination(Kind.GALLERY, root, "");
+            }
             return new Destination(Kind.PRIVATE, root,
-                    "相册位置尚未接入（真机未验证），已回退到应用私有目录");
+                    "相册不可写（未获授权或写入失败），已回退到应用私有目录");
         }
         return new Destination(Kind.PRIVATE, root, "");
+    }
+
+    /** 偏好串 → 落点；未知 / 空 / null 一律按默认私有，不让坏数据把用户送进相册路径。 */
+    public static Kind parseKind(String stored) {
+        if (stored == null) return Kind.PRIVATE;
+        try {
+            return Kind.valueOf(stored);
+        } catch (IllegalArgumentException e) {
+            return Kind.PRIVATE;
+        }
+    }
+
+    /** 落点 → 偏好串；null 按默认私有。 */
+    public static String storeKind(Kind kind) {
+        return (kind == null ? Kind.PRIVATE : kind).name();
     }
 
     /** 把 relPath 解析到 outDir 下的目标位置；越界（绝对路径/`..`）返回 null。 */
