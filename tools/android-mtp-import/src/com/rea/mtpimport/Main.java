@@ -79,7 +79,8 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
     /** 当前扫描线程：取消时 interrupt，让 3 秒睡眠 / 权限等待立刻退出（第五轮评审 B-1）。 */
     private volatile Thread scanThread;
 
-    private MtpSession session;
+    /** 主线程读（DETACH 身份比对）/ 扫描线程写（setter 与 closeCancelledSession），volatile 保证可见性（issue #280）。 */
+    private volatile MtpSession session;
     private Catalog catalog;
     /**
      * 最近一次扫描的结果（issue #52 清理开关）。
