@@ -34,7 +34,7 @@ import tempfile
 import types
 from pathlib import Path
 
-from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, run
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, resolve_python, run
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "gates.json"
@@ -173,7 +173,9 @@ def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
     if not re.search(r"^\s*(?:import\s+argparse|from\s+argparse\s+import)", source, re.M):
         return None
     try:
-        proc = run([sys.executable or "python", str(script), "--help"], timeout=15)
+        # 解释器收敛（issue #205）：探测别的脚本 --help 用的解释器与执行器同一源；
+        # PATH 上一个都没有时退回当前解释器（探测目的只是打印用法，版本族不影响判定）。
+        proc = run([resolve_python() or sys.executable or "python", str(script), "--help"], timeout=15)
     except EnvProblem as e:
         raise ProbeError(
             f"`{script.relative_to(ROOT)} --help` 跑不起来：{e}"

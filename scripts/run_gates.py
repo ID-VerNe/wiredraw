@@ -9,6 +9,7 @@
     python scripts/run_gates.py ci              # 跑 ci 档（= 本机全量）
     python scripts/run_gates.py ci --fail-fast  # 见到红就停
     python scripts/run_gates.py ci --shard static
+    python scripts/run_gates.py ci --prepush  # pre-push 钩子口径：按 gates.json 的 prePush 标记取分片
     python scripts/run_gates.py manual          # 跑需要真设备/真工具链的那一档
     python scripts/run_gates.py --self-test     # 执行器内置回归用例（不进清单）
 
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import io
 import json
 import os
@@ -27,7 +29,7 @@ import sys
 import time
 from pathlib import Path
 
-from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, run
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, git_ls_files, resolve_python, run
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "gates.json"
@@ -62,10 +64,40 @@ def resolve_bash() -> str:
 
 
 def resolve_cmd(cmd: list[str]) -> list[str]:
-    """把 cmd 里的 shell 换成解析过的绝对路径；其余命令原样返回。"""
+    """把 cmd 里的 shell / 解释器换成解析过的绝对路径；其余命令原样返回。"""
     if cmd and cmd[0] in ("bash", "sh"):
         return [resolve_bash()] + cmd[1:]
+    if cmd and cmd[0] == "python":
+        # gates.json 的 cmd 保持裸 python（清单可读、可手跑）；执行器统一解析（issue #205）。
+        # PATH 上一个都没有时不静默降级：抛 EnvProblem 让本次执行退 2，
+        # 而不是拿「python: command not found」冒充门禁红（退出码 1）。
+        resolved = resolve_python()
+        if not resolved:
+            raise EnvProblem("找不到 python（python3 也没有），无法执行清单里的门禁命令")
+        return [resolved] + cmd[1:]
     return cmd
+
+
+def select_entries(data: dict, tier: str, *, shard: str | None, prepush: bool) -> list[dict]:
+    """按 --shard / --prepush 过滤条目；分片名先对 gates.json 的 shards 声明校验。
+
+    --shard 的「未知名字明确报错」是 #243 定的；--prepush（issue #205）不写死分片名，
+    改读 shards 条目上的 prePush 标记，让「钩子跑哪几档」与「分片叫什么」解耦。
+    """
+    entries = data.get(tier, [])
+    if prepush:
+        if tier != "ci":
+            raise EnvProblem(f"--prepush 只用于 ci 档（当前 tier={tier}）")
+        names = [s["name"] for s in data.get("shards", []) if s.get("prePush")]
+        if not names:
+            raise EnvProblem("gates.json 的 shards 里没有 prePush 标记的分片")
+        return [e for e in entries if e.get("shard") in names]
+    if shard:
+        shards = [s["name"] for s in data.get("shards", [])]
+        if shard not in shards:
+            raise EnvProblem(f"未知分片：{shard!r}；已声明：{', '.join(shards)}")
+        return [e for e in entries if e.get("shard") == shard]
+    return entries
 
 
 def load_manifest() -> dict:
@@ -148,6 +180,8 @@ def self_test() -> int:
     check("#204：清单读不到退 2（返回值而非 SystemExit）", missing_exit == ENV_FAIL, f"实际 {missing_exit!r}/{raised}")
 
     # 子进程必须走共享层：run_entry 能注入 runner，绿/红两种结果都按退出码判定。
+    # cmd 首项用中性命令名：python / bash 会被 resolve_cmd 改写并带出前缀行，
+    # 本用例钉的是 runner 注入与退出码语义，与解释器解析（#205 用例）互不干扰。
     def fake_green(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 0, "ok", "")
 
@@ -155,8 +189,8 @@ def self_test() -> int:
         return subprocess.CompletedProcess(argv, 3, "boom", "")
 
     try:
-        ok_green, _, out_green = run_entry({"cmd": ["python", "-c", "x"]}, runner=fake_green)
-        ok_red, _, out_red = run_entry({"cmd": ["python", "-c", "x"]}, runner=fake_red)
+        ok_green, _, out_green = run_entry({"cmd": ["echo", "-c", "x"]}, runner=fake_green)
+        ok_red, _, out_red = run_entry({"cmd": ["echo", "-c", "x"]}, runner=fake_red)
         wired = ok_green and out_green == "ok" and not ok_red and "boom" in out_red
     except Exception:  # noqa: BLE001 - 未接共享层时 run_entry 不认识 runner
         wired = False
@@ -165,6 +199,99 @@ def self_test() -> int:
     runner_src = Path(__file__).read_text(encoding="utf-8")
     check("#204：执行器不再有本地 subprocess.run 样板", "subprocess.run" + "(" not in runner_src)
     check("#204：退出码常量与文档一致", (OK, CONTENT_FAIL, ENV_FAIL) == (0, 1, 2))
+
+    # ---- #205：解释器与分片名收口的守卫 ----
+    # 断言瞄准的字面量用拼接写法：本文件自己不许含那个字面量，否则验收 grep
+    # （全仓只剩探针一处）会先把本文件报出来。
+    inline_resolve = "command -v " + "python"
+
+    try:
+        resolved = resolve_cmd(["python", "-c", "pass"])
+        py_mapped = (
+            resolved[0] == resolve_python() and resolved[0] != "python" and resolved[1:] == ["-c", "pass"]
+        )
+    except EnvProblem:
+        py_mapped = False
+    check("#205：resolve_cmd 把裸 python 换成解析后的绝对路径", py_mapped)
+
+    real_which = shutil.which
+
+    def no_python(name):
+        return None
+
+    shutil.which = no_python
+    try:
+        fail_closed = False
+        try:
+            resolve_cmd(["python", "-c", "pass"])
+        except EnvProblem:
+            fail_closed = True
+    finally:
+        shutil.which = real_which
+    check("#205：PATH 无解释器时 resolve_cmd fail-closed（抛 EnvProblem，不拿裸 python 硬跑）", fail_closed)
+
+    # 端到端口径：main 的执行循环也要把 EnvProblem 映射成退 2（环境问题），
+    # 不许以 traceback 退 1 冒充门禁红（与上面 resolve_cmd 单测互补）。
+    shutil.which = no_python
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            no_py_exit = main(["ci"])
+    finally:
+        shutil.which = real_which
+    check("#205：PATH 无解释器时执行器退 2（环境问题，不伪装成门禁红）", no_py_exit == ENV_FAIL, f"实际 {no_py_exit!r}")
+
+    probe_rel = "scripts/resolve_python.sh"
+    shell_consumers = (
+        ".githooks/commit-msg",
+        ".githooks/pre-push",
+        "tools/android-mtp-probe/build.sh",
+    )
+    for rel in shell_consumers:
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        check(f"#205：{rel} 不再自带解释器查找（该字面量只活在探针里）", inline_resolve not in src)
+        check(f"#205：{rel} 引用共享探针 {probe_rel}", probe_rel in src)
+    tracked = git_ls_files()
+    probe_hits = [
+        p
+        for p in tracked
+        if (ROOT / p).is_file() and inline_resolve in (ROOT / p).read_text(encoding="utf-8", errors="ignore")
+    ]
+    check("#205：全仓解释器查找只剩探针一处", probe_hits == [probe_rel], f"实际 {probe_hits}")
+
+    pre_push_src = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
+    check("#205：pre-push 不再写死 --shard（分片名归 gates.json 管）", "--shard" not in pre_push_src)
+    check("#205：pre-push 走 --prepush 口径", "ci --prepush" in pre_push_src)
+
+    gates = json.loads((ROOT / "scripts" / "gates.json").read_text(encoding="utf-8"))
+    marked = [s["name"] for s in gates.get("shards", []) if s.get("prePush")]
+    check("#205：gates.json 分片声明带 prePush 标记", len(marked) >= 1, f"实际 {marked}")
+    try:
+        selected = select_entries(gates, "ci", shard=None, prepush=True)
+        filter_ok = selected == [e for e in gates["ci"] if e.get("shard") in marked] and bool(selected)
+    except EnvProblem:
+        filter_ok = False
+    check("#205：--prepush 只取 prePush 标记分片下的 ci 条目", filter_ok)
+    unmarked = copy.deepcopy(gates)
+    for s in unmarked["shards"]:
+        s.pop("prePush", None)
+    try:
+        select_entries(unmarked, "ci", shard=None, prepush=True)
+        marker_guards = False
+    except EnvProblem:
+        marker_guards = True
+    check("#205：分片丢掉 prePush 标记时 --prepush 报环境错（不伪装成清单空）", marker_guards)
+    try:
+        select_entries(gates, "ci", shard="staitc", prepush=False)
+        typo_guards = False
+    except EnvProblem as e:
+        typo_guards = "未知分片" in str(e)
+    check("#205：未知分片名仍报 EnvProblem 且列出已声明分片（#243 行为不回归）", typo_guards)
+
+    meta_src = (ROOT / "scripts" / "check_gates_manifest.py").read_text(encoding="utf-8")
+    check(
+        "#205：元门禁的解释器解析走共享 resolver（不再自带 sys.executable 兜底串）",
+        "run([resolve_python()" in meta_src and "[sys.executable or" not in meta_src,
+    )
 
     if failures:
         print(f"[红] 自检失败 {len(failures)} 项：{', '.join(failures)}", file=sys.stderr)
@@ -178,12 +305,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("tier", nargs="?", default="ci", choices=["ci", "manual", "support"])
     ap.add_argument("--list", action="store_true", help="只打印清单，不执行")
     ap.add_argument("--shard", help="只跑 ci 档里指定分片")
+    ap.add_argument(
+        "--prepush",
+        action="store_true",
+        help="跑 gates.json 里 prePush 标记的分片（.githooks/pre-push 的口径，分片名不写死在钩子里）",
+    )
     ap.add_argument("--fail-fast", action="store_true", help="第一条红即停")
     ap.add_argument("--self-test", action="store_true", help="跑执行器内置回归用例")
     args = ap.parse_args(argv)
 
     if args.self_test:
         return self_test()
+
+    if args.prepush and args.shard:
+        print("--prepush 与 --shard 互斥：prePush 标记本身就是分片选择", file=sys.stderr)
+        return ENV_FAIL
 
     try:
         data = load_manifest()
@@ -194,19 +330,11 @@ def main(argv: list[str] | None = None) -> int:
         print_list(data)
         return OK
 
-    entries = data.get(args.tier, [])
-    if args.shard:
-        # 分片名先对清单校验（issue #205）：未知名字若按「过滤后为空」处理，只会得到
-        # 「没有要跑的门禁」这种误导性提示——`.githooks/pre-push` 写死 `--shard static`
-        # 时，分片一旦改名就没人看得出是名字错了还是清单空了。
-        shards = [s["name"] for s in data.get("shards", [])]
-        if args.shard not in shards:
-            print(
-                f"未知分片：{args.shard!r}；已声明：{', '.join(shards)}",
-                file=sys.stderr,
-            )
-            return ENV_FAIL
-        entries = [e for e in entries if e.get("shard") == args.shard]
+    try:
+        entries = select_entries(data, args.tier, shard=args.shard, prepush=args.prepush)
+    except EnvProblem as exc:
+        print(str(exc), file=sys.stderr)
+        return ENV_FAIL
 
     if not entries:
         print(f"[{args.tier}] 没有要跑的门禁。", file=sys.stderr)
@@ -214,17 +342,23 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"== 门禁 [{args.tier}]  共 {len(entries)} 条 ==")
     failures: list[str] = []
-    for entry in entries:
-        ok, elapsed, out = run_entry(entry)
-        flag = "PASS" if ok else "FAIL"
-        print(f"\n[{flag}] {entry['name']}  ({elapsed:.2f}s)")
-        if out:
-            for line in out.splitlines():
-                print(f"    {line}")
-        if not ok:
-            failures.append(entry["name"])
-            if args.fail_fast:
-                break
+    try:
+        for entry in entries:
+            ok, elapsed, out = run_entry(entry)
+            flag = "PASS" if ok else "FAIL"
+            print(f"\n[{flag}] {entry['name']}  ({elapsed:.2f}s)")
+            if out:
+                for line in out.splitlines():
+                    print(f"    {line}")
+            if not ok:
+                failures.append(entry["name"])
+                if args.fail_fast:
+                    break
+    except EnvProblem as exc:
+        # #205：执行中才发现 PATH 上一个解释器都没有（清单 cmd 是裸 python、由本执行器
+        # 统一解析），属「这次执行没做成」：退 2，不许以 traceback 退 1 冒充门禁红。
+        print(f"[环境问题] {exc}", file=sys.stderr)
+        return ENV_FAIL
 
     print()
     if failures:

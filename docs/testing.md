@@ -17,6 +17,7 @@ python scripts/run_gates.py --list          # 看档位与执行顺序
 python scripts/run_gates.py ci              # 全量（最便宜的一档，本机日常）
 python scripts/run_gates.py ci --fail-fast  # 见到红就停
 python scripts/run_gates.py ci --shard static
+python scripts/run_gates.py ci --prepush    # pre-push 钩子口径：按 gates.json 的 prePush 标记取分片
 python scripts/run_gates.py manual          # 真机/工具链档（Android 构建）
 python scripts/run_gates.py support         # 需要 PR 上下文的一档
 ```

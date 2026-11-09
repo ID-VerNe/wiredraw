@@ -117,9 +117,13 @@ done
 KEYTOOL="$JDK/bin/keytool$EXE"
 [ -x "$KEYTOOL" ] || KEYTOOL="$(command -v keytool || true)"
 
-# 第 5 步打包 dex 用 Python 3
-PY="$(command -v python || command -v python3 || true)"
-[ -n "$PY" ] || die "找不到 python（第 5 步打包 dex 需要 Python 3）。"
+# 第 5 步打包 dex 用 Python 3；解释器解析收敛到共享探针（issue #205），本文件不再
+# 自带查找逻辑。探针相对当前目录定位：顶部已 cd 到本工程目录，仓库根就是 ../../，
+# 从任何目录调用 build.sh 都能找到 scripts/resolve_python.sh。
+if ! PY="$(sh ../../scripts/resolve_python.sh)"; then
+  die "找不到 python（第 5 步打包 dex 需要 Python 3）。" \
+      "解释器探针 scripts/resolve_python.sh 确认 PATH 里既无 python 也无 python3。"
+fi
 
 BT="$SDK/build-tools/$BT_VER"
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
