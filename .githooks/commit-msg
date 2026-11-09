@@ -45,11 +45,10 @@ case "$FIRST_LINE" in
     ;;
 esac
 
-# 解释器只解析一次（issue #205）：先前长度检查与敏感扫描各判一次 `command -v python`，
-# 且找不到时只打印一句就放行（fail-open）——而 pre-push 走 run_gates.py 时是硬失败。
-# 同仓库两种策略会让「换了台没有 python 的机器」变成静默不扫敏感值，所以这里改为缺解释器即拒绝。
-PYTHON=$(command -v python || command -v python3 || true)
-if [ -z "$PYTHON" ]; then
+# 解释器解析收敛到共享探针（issue #205）：本文件不再自带查找逻辑，策略改动只改
+# scripts/resolve_python.sh 一处。探针为空 = PATH 里既无 python 也无 python3，
+# 缺解释器即拒绝——不允许「静默跳过敏感扫描」（#243 定的策略，这里换唯一实现）。
+if ! PYTHON="$(sh scripts/resolve_python.sh)"; then
   echo "[commit-msg] 拒绝：找不到 python（python3 也没有）。" >&2
   echo "             本仓库的 commit message 敏感扫描依赖 Python 3；装好后重试。" >&2
   exit 1

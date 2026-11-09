@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -121,6 +122,18 @@ def git_ls_files(*patterns: str, runner=None) -> list[str]:
             f"{detail[-1] if detail else '确认当前目录是 git 仓库'}"
         )
     return [p for p in (proc.stdout or "").split("\0") if p.strip()]
+
+
+def resolve_python() -> str:
+    """门禁链上 Python 解释器的唯一解析（issue #205）：先 `python` 后 `python3`。
+
+    PATH 上一个都没有时返回空串，由调用方决定 fail-closed 的姿势：`run_gates.py`
+    的 `resolve_cmd` 直接拒（退 2），`check_gates_manifest.py` 退回当前解释器
+    （探测目的只是打印用法，版本族不影响判定）。shell 侧的对等实现是
+    `scripts/resolve_python.sh`——钩子与探针 `build.sh` 在还没有 Python 可用时
+    也要解析解释器，不能反过来依赖 Python。
+    """
+    return shutil.which("python") or shutil.which("python3") or ""
 
 
 def gate_hits(files: list[str]) -> list[str]:

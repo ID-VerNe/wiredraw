@@ -81,10 +81,18 @@ fi
 
 say "[pre-push] 跑 static 门禁……"
 
+# 解释器与分片名都收敛（issue #205）：解释器走共享探针（找不到即拒绝，与 commit-msg
+# 同口径，不靠 shell 的「命令不存在」裸错）；跑哪档由 gates.json 的 prePush 标记决定，
+# 钩子里不再写死分片名，改名时这里不用跟着改。
+if ! PY="$(sh scripts/resolve_python.sh)"; then
+  say "[pre-push] 拒绝：找不到 python（python3 也没有）；门禁执行器需要 Python 3。"
+  exit 1
+fi
+
 # 先把门禁输出收进变量再回显：门禁自己的退出码是唯一结论来源，
 # 不受调用方如何消费本钩子输出影响。PYTHONUNBUFFERED 让 stdout/stderr 合并后
 # 仍按真实顺序落进变量，否则「红 N 条」这种 stderr 摘要会跑到 PASS 列表前面。
-gate_out=$(PYTHONUNBUFFERED=1 python scripts/run_gates.py ci --shard static 2>&1)
+gate_out=$(PYTHONUNBUFFERED=1 "$PY" scripts/run_gates.py ci --prepush 2>&1)
 gate_status=$?
 
 say "$gate_out"
