@@ -136,13 +136,13 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 | P2 | #266 | 文件计数进度环最后一张前不显示 100% | 通过 | 2026-11-08 | 真机：构造 `done = total - 1`（671 计划、删 40 张本地副本重传），第 39 个完成瞬间环内 `99%`、环下 `670/671`，整轮结束才 `100%`；实现侧为 `UiText.percent` 的 `Math.min(…, 99)` 与自检「percent 511/512 未传完钉 99」。 |
 | P2 | #268 | 传输页 Resume 探活与 ioLock 争用 | 通过 | 2026-11-08 | 真机：暂停后 0.5 s 点 `Resume`，日志 `ioLock 被活跃 IO 占用，按会话存活处理（#268）`；整轮过滤 `超时\|timeout\|TIMEOUT\|假死\|无返回` 命中 0 行，完成 7 / 跳过 664 / 失败 0，未进 `ERROR`。 |
 | P2 | #269 | 传输态 attach 文案与行为一致 | 通过 | 2026-11-08 | 真机 + 静态：新串「传输进行中：本轮不打断，也不重扫（只恢复在线指示）」挂在两个 `[Done]` 之间，整轮无「扫描」关键字；旧串「先取消再重扫」在生产代码零命中，只留 `SelfTest` 反向断言。 |
+| P1 | #20 | 已导入索引与新片计数 | 通过（降级收口） | 2026-11-09 | 维护者裁决追评（2026-11-09）+ UI-SPEC §0.2 口径：立单前提不成立（相机即拍即传 NAS、本机不留存未导入旧片），首屏不承诺新片数、CTA 恒为 `Import all N`；防重传由 Journal 覆盖（E2 实测 671 计划跳过 664，见 #268 行）。零代码改动，纯文档收口。 |
 
 ### 4.2 仍 open（缺哪个验收点）
 
 | 优先级 | issue | 待验点 | 状态 | 已验部分 / 缺哪个验收点 | 复现动作（可粘贴） |
 |---|---|---|---|---|---|
 | P0 | #50 | 真实 MTP 导入落盘与统计 | 未验证 | 已验：`2026-11-07/DSC05053.JPG` 落盘 1,056,849 字节，手机侧与取回侧 MD5 均 `8fedf390…`；journal / index 已落账（**当时索引仍在写**，2026-11-08 已按 #20 裁决 B 停写）；`.part` 零残留；全量 `完成 0 / 跳过 671 / 失败 0`；拔线一轮 `完成 14 / 跳过 180 / 失败 477`。缺：PB 取消卡住时的重试与进度反馈、拔线后 `Details` 是否固定列 `Failed:` 明细、低空间预检拒绝与提示、worker 与 `onDestroy` 的 join。 | `adb shell am start -n com.rea.mtpimport/.Main` → 等扫描完 → 点 `Import all N` → `adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt` |
-| P1 | #20 | 已导入索引与新片计数 | 未通过 | 写方已按裁决 B 停写：`ImportService` 轮末不再重建索引，`ImportedIndex` 与 `pureJdkClasses` 清单项已删除。读方 / 首屏「新片」计数未落地，issue 保持 OPEN；恢复时读方与写方同 PR 交付，并由界面真正用上。设备上残留的 `imported-index.txt` 属停写前普通文件，清理与跳过都不受影响。 | 无需真机复验；恢复时按「读方 + 写方同 PR」的验收口径复验首屏「新片」计数 |
 | P1 | #40 | Compose 界面骨架与 demo 入口 | 未验证 | 已验：`CATALOG_READY` 一态（顶栏 512、组头 `Jun 7 · 43 · 74.0 MB`、CTA `Import all 512`）。缺：三屏 + 10 态截图、`U-44` / `U-45` / `U-47` / `U-51` / `U-52` / `U-53` / `U-54` 逐条对照，以及真实 MTP 的取消 / 竞态 / 120 s 权限窗口 / 挂起重连。 | `adb shell am start -n com.rea.mtpimport/.Main --es demo_state CATALOG_READY` → `adb exec-out uiautomator dump /dev/tty`；再逐态截图 |
 | P1 | #52 | `.part` 残留堆积 | 前提不满足 | 原前提「格式化卡」未执行，改用植入 3 个 `.part`：下一轮日志「已清理无主半成品：3 个」，`.part` 清零。缺：`ScanResult.complete == false` 时「不清理并留计数」分支。原「`relPath + size` 合法 `.part` 保留」判据已随 #177 废止（`PartResidue.keepNames()` 恒返回空集），不再是待验点。 | 导入中拔线 → `adb exec-out run-as com.rea.mtpimport ls -l files/imported`；另造 `scan.complete == false` 看是否保留计数 |
 | P1 | #60 | 冷启动 57 s 才出照片墙 | 未验证 | 已验：冷启动 `TotalTime 677 ms`，3 s 内见首格与主 CTA，全量扫描 75 s。缺：滚到未加载组是否出格 / 滚出是否取消加载、取消 / 拔线 / USB 挂起三条路径不崩、全量补齐后的计数与容量一致性。 | `adb logcat -c` → `adb shell am force-stop com.rea.mtpimport` → `adb shell am start -n com.rea.mtpimport/.Main` → 等 70 s → `adb logcat -d -s MTPIMPORT:*` |
@@ -153,9 +153,10 @@ E2 的两条基础证据要**合解**才得到上面的语义：R0–R3（#179�
 | P2 | #96 | 纯 JPG 首屏渐进发布 | 环境不支持 | 静态成立（`Catalog.photoFiles` 按 `isRaw() \|\| isJpeg()` 计数，`hasPhotoFile()` 以此为门槛）；没有纯 JPG 卡环境，运行时行为未验。 | 相机只留 JPG → `adb shell am start -n com.rea.mtpimport/.Main` → 看照片墙是否在扫描进度走完前出现（本环境不可执行） |
 | P2 | #127 | `Skipped` 文案与早退 | 未验证 | 代码级成立（`ImportRoundListener` 复用 `UiText.skippedLine` 且 `skipped == 0` 时不打；`ImportEntry.begin` 先 `resetSkipped()`）。缺：真机「先跑出 `Skipped N existing` → 失步进 `ERROR` → 打开 `Details` 确认不残留」。 | 真机重复导入到 `ERROR` → 打开 `Details` → `adb exec-out uiautomator dump /dev/tty` |
 
-**统计（2026-11-08 快照）**：已关闭 19 行，均为 `通过` 类：18 行纯 `通过`，1 行 `通过（第 3 条前提不满足）`（#267）。
+**统计（2026-11-09 快照）**：已关闭 20 行，均为 `通过` 类：18 行纯 `通过`，1 行 `通过（第 3 条前提不满足）`（#267），
+1 行 `通过（降级收口）`（#20，维护者裁决即终态，无运行时行为可验）。
 纯 `通过` 里只有静态证据的 5 行（#214 / #215 / #116 / #217 / #221）、
-含 `V-26` 降级的 1 行（#44）。仍 open 11 行：`未验证` 5（#50 / #40 / #60 / #205 / #127）、`未通过` 2（#20 / #28）、
+含 `V-26` 降级的 1 行（#44）。仍 open 10 行：`未验证` 5（#50 / #40 / #60 / #205 / #127）、`未通过` 1（#28）、
 `环境不支持` 2（#54 / #96）、`前提不满足` 1（#52）、`未复现` 1（#63）。
 `needs-live-verify` 的 open issue 以 `gh issue list --state open --label needs-live-verify` 为准；
 关闭的 issue 仍可能带这个标签，状态判断以 `state` 为准。
