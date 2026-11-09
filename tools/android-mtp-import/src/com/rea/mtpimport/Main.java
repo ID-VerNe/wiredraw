@@ -766,7 +766,11 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             }
             case NOTHING_NO_DEVICE:
                 log.line(trigger + " → 没找到索尼设备（VID 0x054C）：检查 OTG 线、相机 USB 模式是否 MTP");
-                model.showCold();
+                // #285：传输态（IMPORTING / PAUSED）下「设备在场但不是相机」不得把暂停屏打回冷启动页；
+                // IMPORTING 靠下次进度回调自愈，PAUSED 没有回调会丢屏。
+                if (!UiState.isTransfer(model.getState())) {
+                    model.showCold();
+                }
                 break;
             case NOTHING_TRANSFERRING:
                 // #269：本分支只打日志，不取消也不重扫；文案必须如实（旧文案声称会「先取消、再重扫」，

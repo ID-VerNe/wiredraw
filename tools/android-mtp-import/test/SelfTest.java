@@ -81,6 +81,7 @@ public final class SelfTest {
         scanLineCases();
         detachCases();
         requestScanLogCases();
+        noDeviceColdGuardCases();
         usbIdentityCases();
         colorTokensCases();
         backNavCases();
@@ -3259,6 +3260,36 @@ public final class SelfTest {
         check("传输中扫描准入：日志如实写明本轮不打断（#269）",
                 src != null && src.contains("本轮不打断"),
                 src == null ? "读不到 " + main : "新文案缺失");
+        // #285：NOTHING_NO_DEVICE 分支在传输态（IMPORTING / PAUSED）不得 showCold()。
+        // 取「case NOTHING_NO_DEVICE:」到「case NOTHING_TRANSFERRING:」的切片，
+        // 钉住守卫（UiState.isTransfer）与动作（showCold()）同时在场：缺守卫 = 暂停屏被打回，
+        // 缺 showCold() = 非传输态失去回冷启动页的原有行为。
+        if (src != null) {
+            int noDevice = src.indexOf("case NOTHING_NO_DEVICE:");
+            int transferring = src.indexOf("case NOTHING_TRANSFERRING:");
+            String slice = noDevice < 0 || transferring < 0 || transferring < noDevice
+                    ? "" : src.substring(noDevice, transferring);
+            check("无设备回落：NOTHING_NO_DEVICE 分支含传输态守卫（#285）",
+                    slice.contains("UiState.isTransfer"), "切片缺 UiState.isTransfer 守卫");
+            check("无设备回落：NOTHING_NO_DEVICE 分支仍保留 showCold()（#285）",
+                    slice.contains("showCold()"), "切片缺 showCold() 调用");
+        } else {
+            check("无设备回落：能读到 Main.java 源码（#285）", false, "读不到 " + main);
+        }
+    }
+
+    // ---------------- 无关设备在场时 NOTHING_NO_DEVICE 的调用点守卫（issue #285） ----------------
+
+    /**
+     * 墓碑（#285）：钉住「危险在调用点」——{@code UiTransition} 表本身无状态守卫，
+     * {@code Action.COLD} 从任何态（包括 PAUSED）解析都到 COLD。所以「PAUSED 不得回冷启动页」
+     * 的守卫只能放在 Main 的 {@code case NOTHING_NO_DEVICE:} 调用点（见 requestScanLogCases
+     * 的切片断言）；若有人把守卫挪进迁移表或删掉调用点守卫，迁移表语义不变、险情照旧。
+     */
+    static void noDeviceColdGuardCases() {
+        UiTransition.Result r = UiTransition.resolve(UiTransition.Action.COLD, false, false, false);
+        check("无设备回落：UiTransition 表无状态守卫（Action.COLD 恒到 COLD，故守卫必须在 Main 调用点，#285）",
+                r.state == UiState.State.COLD, "实际 " + r.state);
     }
 
     // ---------------- 颜色 token 与对比度（PR-2 / issue #78） ----------------
