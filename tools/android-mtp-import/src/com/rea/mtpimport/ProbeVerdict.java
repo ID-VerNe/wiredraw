@@ -24,6 +24,8 @@ public final class ProbeVerdict {
     public static boolean alive(boolean hasSession, boolean lockBusy,
                                 boolean finished, boolean error, boolean gotInfo) {
         if (!hasSession) return false;
+        // #281：顺序是判据本身——hasSession 假必须先于 lockBusy 真判死，
+        // 否则无会话一代会被旧会话的在飞 IO 误判为活。
         // 有活跃 IO 正持锁 → 会话必然还在工作，直接判活；不把等锁算进超时窗口。
         if (lockBusy) return true;
         if (!finished) return false;
