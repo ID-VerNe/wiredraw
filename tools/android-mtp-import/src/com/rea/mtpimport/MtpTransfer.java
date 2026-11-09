@@ -37,6 +37,12 @@ import java.util.function.LongConsumer;
  * 随后同一会话继续导入正常。
  *
  * 相机侧只读：`importFile()` 是 GetObject 族，不删除、不格式化、不改设置、不触发快门。
+ *
+ * **落点用户可选（issue #28 分节 PB）**：私有落点仍走 `part.renameTo(dest)`；相册落点属跨
+ * provider，`renameTo` 不可用，改由 {@link GalleryStore} 用 ContentResolver 流式复制
+ * （`RELATIVE_PATH=Pictures/...` + `IS_PENDING` + `image/x-sony-arw`）。同名异尺寸拒绝覆盖；
+ * 写入失败一律回退私有，非空原因经 {@link Log#fallback} 进日志与界面，绝不静默失败。
+ * 跨 provider 复制真机未验（issue #28 留 `needs-live-verify`）。
  */
 public final class MtpTransfer implements ResumableTransfer {
 
@@ -44,11 +50,23 @@ public final class MtpTransfer implements ResumableTransfer {
     private final Log log;
     /** 与缩略图（#59）共用的会话 I/O 锁：同一 MtpDevice 不并行发命令。 */
     private final ReentrantLock ioLock;
+    /** 成品去向（issue #28 分节 PB）：PRIVATE 走 renameTo，GALLERY 走 MediaStore 流式复制。 */
+    private final DestPolicy.Kind productKind;
+    /** 相册写入器；PRIVATE 落点时为 null。 */
+    private final GalleryStore gallery;
 
+    /** 兼容入口：未注入相册写入器时按默认私有落点，与接入前行为一致。 */
     public MtpTransfer(MtpDevice device, Log log, ReentrantLock ioLock) {
+        this(device, log, ioLock, DestPolicy.Kind.PRIVATE, null);
+    }
+
+    public MtpTransfer(MtpDevice device, Log log, ReentrantLock ioLock,
+                       DestPolicy.Kind productKind, GalleryStore gallery) {
         this.device = device;
         this.log = log;
         this.ioLock = ioLock;
+        this.productKind = productKind == null ? DestPolicy.Kind.PRIVATE : productKind;
+        this.gallery = gallery;
     }
 
     @Override
@@ -189,6 +207,16 @@ public final class MtpTransfer implements ResumableTransfer {
             // 保留 .part；本轮绝不能记成完成。下一轮从 0 重写（#177）。
             return new Result(Kind.FAILED, UiText.sizeMismatch(item.size, got));
         }
+        return productKind == DestPolicy.Kind.GALLERY
+                ? finishGallery(item, part, dest)
+                : finishPrivate(item, part, dest);
+    }
+
+    /**
+     * 私有落点：对账 + 落盘冲突检查 + rename（issue #54 / #177）。
+     * 目标已存在同尺寸按 SKIPPED、异尺寸拒绝覆盖，绝不静默丢数据。
+     */
+    private Result finishPrivate(ImportPlan.Item item, File part, File dest) {
         try {
             Dirs.ensure(dest.getParentFile());
         } catch (IOException e) {
@@ -204,15 +232,63 @@ public final class MtpTransfer implements ResumableTransfer {
         if (existing == DestPolicy.Existing.SAME_SIZE) {
             // #177：本轮没有写成品，只是「已存在同尺寸文件」。按 SKIPPED 记，不记 OK；
             // 尺寸相同不等于内容正确（#20 的同路径同尺寸边界仍在）。
-            if (part.exists() && !part.delete()) log.line("半成品删除失败（不影响结果）：" + part);
+            discardPart(part);
             log.line(UiText.sameSizeExists() + "：" + item.relPath);
             return new Result(Kind.SKIPPED, UiText.sameSizeExists());
         }
         if (!part.renameTo(dest)) {
             return new Result(Kind.FAILED, "改名失败：" + part + " → " + dest);
         }
-        log.line("已导入（尺寸核对通过，内容未校验）：" + item.relPath + "（" + got + " 字节）");
+        log.line("已导入（尺寸核对通过，内容未校验）：" + item.relPath + "（" + item.size + " 字节）");
         return new Result(Kind.OK, "尺寸核对通过（内容未校验）");
+    }
+
+    /**
+     * 相册落点（issue #28 分节 PB）：成品进 MediaStore 属跨 provider，不能用 renameTo，
+     * 改走 `GalleryStore.publish` 的 ContentResolver 流式复制。
+     *
+     * 同名异尺寸拒绝覆盖（与私有落点同口径）；写入失败一律回退私有并把非空原因经
+     * {@link Log#fallback} 写进日志与界面，绝不静默失败。
+     */
+    private Result finishGallery(ImportPlan.Item item, File part, File dest) {
+        if (gallery == null) {
+            return fallbackToPrivate(item, part, dest, "相册写入器未注入");
+        }
+        long existing = gallery.existingSize(item.relPath);
+        DestPolicy.Existing e = DestPolicy.existingBySize(existing, item.size);
+        if (e == DestPolicy.Existing.DIFFERENT_SIZE) {
+            return new Result(Kind.FAILED,
+                    "相册同名文件尺寸不同（现有 " + existing + " / 期望 " + item.size
+                            + "），拒绝覆盖：" + item.relPath);
+        }
+        if (e == DestPolicy.Existing.SAME_SIZE) {
+            discardPart(part);
+            log.line(UiText.sameSizeExists() + "：" + item.relPath);
+            return new Result(Kind.SKIPPED, UiText.sameSizeExists());
+        }
+        String error = gallery.publish(part, item.relPath);
+        if (error != null) {
+            return fallbackToPrivate(item, part, dest, error);
+        }
+        // 流式复制后 part 只是中间文件：删掉，避免 `.part` 残留（真机验项之一）。
+        discardPart(part);
+        log.line("已导入相册（尺寸核对通过，内容未校验）：" + item.relPath
+                + "（" + item.size + " 字节）");
+        return new Result(Kind.OK, "尺寸核对通过（内容未校验）");
+    }
+
+    /**
+     * 写入失败回退私有（issue #28 分节 PB）：原因非空、经 `Log.fallback` 进日志与界面；
+     * 再把成品按私有 renameTo 落地。私有也落不下去时如实失败，不冒充回退成功。
+     */
+    private Result fallbackToPrivate(ImportPlan.Item item, File part, File dest, String cause) {
+        String reason = DestPolicy.writeFallbackReason(cause);
+        log.fallback(reason);
+        Result privateResult = finishPrivate(item, part, dest);
+        if (privateResult.kind == Kind.FAILED) {
+            return privateResult;
+        }
+        return new Result(privateResult.kind, reason);
     }
 
     /**

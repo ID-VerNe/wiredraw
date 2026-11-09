@@ -43,4 +43,32 @@ public final class SkipRule {
             return Verdict.STALE;
         }
     }
+
+    /**
+     * 成品存在性探针（issue #28 分节 PB）：成品进 MediaStore 后不再是 `outDir` 下的 File，
+     * 由 Android 侧注入按 `relPath` 查询相册条目尺寸的实现；返回 &lt;0 表示不存在 / 查询失败。
+     */
+    @FunctionalInterface
+    public interface ProductProbe {
+        long sizeOf(String relPath);
+    }
+
+    /**
+     * 按「账本 + 成品探针」合判一次（issue #28 分节 PB）。
+     *
+     * 成品进 MediaStore 后不再是 `outDir` 下的 File，由注入的探针查相册条目尺寸；
+     * 探针返回 &lt;0（不存在 / 查询失败）或尺寸不符都归 `STALE`，与私有 File 路径同口径：
+     * 账本说完成也不单独作数（#177），这样既不会把整文件重下，也不会在成品被用户删掉后静默跳过。
+     */
+    public static Verdict check(Journal journal, ProductProbe probe, String relPath, long size) {
+        if (!journal.isComplete(relPath, size)) return Verdict.TODO;
+        long existing;
+        try {
+            existing = probe.sizeOf(relPath);
+        } catch (RuntimeException e) {
+            return Verdict.STALE;
+        }
+        return DestPolicy.existingBySize(existing, size) == DestPolicy.Existing.SAME_SIZE
+                ? Verdict.SKIP : Verdict.STALE;
+    }
 }

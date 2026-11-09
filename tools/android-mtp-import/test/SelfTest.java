@@ -104,6 +104,7 @@ public final class SelfTest {
         entryPathCases();
         skipRuleCases();
         locationChoiceCases();
+        productDestinationCases();
         tempDirCases();
 
         System.out.println();

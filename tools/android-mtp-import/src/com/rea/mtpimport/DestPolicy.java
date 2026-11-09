@@ -2,6 +2,7 @@ package com.rea.mtpimport;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Locale;
 
 /**
  * 落盘冲突策略（issue #54）：纯 JDK，便于 JVM 自检覆盖。
@@ -112,6 +113,78 @@ public final class DestPolicy {
     /** 落点 → 偏好串；null 按默认私有。 */
     public static String storeKind(Kind kind) {
         return (kind == null ? Kind.PRIVATE : kind).name();
+    }
+
+    /** 相册成品根前缀（MediaStore `RELATIVE_PATH` 的顶层目录）。 */
+    public static final String GALLERY_DIR = "Pictures";
+
+    /** ARW 入 `MediaStore.Images` 表的 MIME（手机侧已证免运行时权限）。 */
+    public static final String ARW_MIME = "image/x-sony-arw";
+
+    /** JPG 入 `MediaStore.Images` 表的 MIME。 */
+    public static final String JPEG_MIME = "image/jpeg";
+
+    /**
+     * 成品去向（issue #28 分节 PB）：把「成品根」从状态目录里分出去。
+     *
+     * `Destination.root` 恒为私有状态目录（Journal / `.part`），这里只算**成品**的相对去向：
+     * `PRIVATE` 镜像 `relPath`（落在私有状态根下，与旧行为一致），`GALLERY` 加 `Pictures/`
+     * 前缀交给 MediaStore 流式复制。两棵根不混用，换成品去向不会丢导入记录。
+     * 越界（绝对路径 / `..` 路径段 / 空串）返回 null，避免把成品写到相册根之外。
+     */
+    public static String productRelativePath(Kind kind, String relPath) {
+        String safe = safeRelative(relPath);
+        if (safe == null) return null;
+        return kind == Kind.GALLERY ? GALLERY_DIR + "/" + safe : safe;
+    }
+
+    /** MediaStore 的 `RELATIVE_PATH`：带 `Pictures/` 前缀与尾斜杠，越界返回 null。 */
+    public static String galleryRelativeDir(String relPath) {
+        String safe = safeRelative(relPath);
+        if (safe == null) return null;
+        int slash = safe.lastIndexOf('/');
+        String dir = slash < 0 ? "" : safe.substring(0, slash);
+        return GALLERY_DIR + (dir.isEmpty() ? "" : "/" + dir) + "/";
+    }
+
+    /** MediaStore 的 `DISPLAY_NAME`：只取文件名，越界返回 null。 */
+    public static String galleryDisplayName(String relPath) {
+        String safe = safeRelative(relPath);
+        if (safe == null) return null;
+        return safe.substring(safe.lastIndexOf('/') + 1);
+    }
+
+    /** 入 `MediaStore.Images` 表的 MIME：ARW 用专用值、JPG 用标准值，其余返回 null（不支持入表）。 */
+    public static String galleryMime(String relPath) {
+        if (relPath == null) return null;
+        String lower = relPath.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".arw")) return ARW_MIME;
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return JPEG_MIME;
+        return null;
+    }
+
+    /** 按查询到的相册条目尺寸判定同名冲突；`existingSize` &lt; 0 表示不存在。 */
+    public static Existing existingBySize(long existingSize, long expectedSize) {
+        if (existingSize < 0) return Existing.NONE;
+        if (existingSize == expectedSize) return Existing.SAME_SIZE;
+        return Existing.DIFFERENT_SIZE;
+    }
+
+    /** 写入失败回退私有：原因必须非空、含「回退」与原始失败原因，供日志与界面告知用户。 */
+    public static String writeFallbackReason(String cause) {
+        String detail = cause == null || cause.isEmpty() ? "相册不可用" : cause;
+        return "已回退到应用私有目录（" + detail + "）";
+    }
+
+    /** 统一校验并归一化 relPath：绝对路径 / `..` 段 / `.` 段 / 空段 / 尾斜杠一律拒绝。 */
+    private static String safeRelative(String relPath) {
+        if (relPath == null || relPath.isEmpty()) return null;
+        String p = relPath.replace('\\', '/');
+        if (p.startsWith("/") || p.endsWith("/")) return null;
+        for (String seg : p.split("/")) {
+            if (seg.isEmpty() || seg.equals("..") || seg.equals(".")) return null;
+        }
+        return p;
     }
 
     /** 把 relPath 解析到 outDir 下的目标位置；越界（绝对路径/`..`）返回 null。 */
