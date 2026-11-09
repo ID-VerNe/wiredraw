@@ -45,6 +45,7 @@ public final class SelfTest {
         progressiveGateCases();
         truncationCases();
         attachCases();
+        sessionVisibilityCases();
         permissionCases();
         allowCases();
         resolveCases();
@@ -4682,6 +4683,29 @@ public final class SelfTest {
         Catalog.Entry base = u.hasArw() ? u.arw : u.jpg;
         check("PhotoWall.Unit 的 relPath 与 Entry.path 同源（#219）",
                 u.relPath.equals(base.path()), "unit=" + u.relPath + " path=" + base.path());
+    }
+
+    // ---------------- session 可见性（issue #280） ----------------
+
+    /**
+     * issue #280：`Main.session` 主线程读（DETACH 广播里的 `activeCameraName()` 身份比对）、
+     * 扫描线程写（`session(...)` setter 与 `closeCancelledSession()` 的置 null），
+     * 非 volatile 时主线程可能读到旧值 `null`，把无关设备的拔出误置断线。
+     * 真并发可见性在 JVM 用例里无法可靠复现，这里钉住字段声明本身
+     * （handoff #298 §三第 1 步批准的口径：源码守卫）。
+     */
+    static void sessionVisibilityCases() {
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src;
+        try {
+            src = Files.readString(main.toPath());
+        } catch (IOException e) {
+            src = null;
+        }
+        check("会话字段可见性：Main.session 声明为 volatile（#280）",
+                src != null && Pattern.compile("private\\s+volatile\\s+MtpSession\\s+session;")
+                        .matcher(src).find(),
+                src == null ? "读不到 " + main : "session 声明缺 volatile");
     }
 
     static void check(String name, boolean ok, String detail) {
