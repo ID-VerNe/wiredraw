@@ -74,6 +74,7 @@ public final class SelfTest {
         uiTransitionCases();
         finishOutcomeCases();
         probeVerdictCases();
+        probeBusyRecheckCases();
         stalledDetectionCases();
         stalledServiceCases();
         importGateCases();
@@ -2784,7 +2785,9 @@ public final class SelfTest {
         check("探活：窗口内没结束（真超时）→ 判死（#268）",
                 !ProbeVerdict.alive(true, false, false, false, false), "误判为活");
 
-        // 源码守卫：探活不得再用阻塞 lock()，否则等锁时间又会进超时窗口。
+        // 源码守卫（#281 结构化，不再钉死 receiver 字符串）：正向匹配任意 receiver 的
+        // ioLock() 后紧跟无参 tryLock()；负向拦带参超时形式 tryLock(n, ...) 与任意
+        // receiver 的阻塞 lock()——等锁时间重新进超时窗口或退回阻塞取锁都判红。
         File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
         String src;
         try {
@@ -2792,10 +2795,55 @@ public final class SelfTest {
         } catch (IOException e) {
             src = null;
         }
-        check("探活：Main 的探活用 tryLock，不再阻塞取锁（#268）",
-                src != null && src.contains("s.ioLock().tryLock()")
-                        && !src.contains("s.ioLock().lock();"),
-                src == null ? "读不到 " + main : "仍在阻塞取锁");
+        boolean tryLockNoArg = false;
+        boolean badLockForm = false;
+        if (src != null) {
+            tryLockNoArg = Pattern.compile("ioLock\\(\\)\\s*\\.\\s*tryLock\\(\\)").matcher(src).find();
+            badLockForm = Pattern.compile("tryLock\\s*\\(\\s*[^)\\s]").matcher(src).find()
+                    || Pattern.compile("\\.\\s*lock\\(\\)").matcher(src).find();
+        }
+        check("探活：Main 的探活用 ioLock().tryLock()，不用带参超时形式或阻塞 lock()（#268/#281）",
+                tryLockNoArg && !badLockForm,
+                src == null ? "读不到 " + main : "探活取锁形式不对（应为无参 tryLock()）");
+    }
+
+    // ---------------- 探活 busy 分支会话复核（issue #281） ----------------
+
+    /**
+     * #281（#273 评审跟进）三条各钉一个能红的断言：
+     * 1. busy 分支持锁 IO 属旧会话时不得按活判 → 守卫 Main 的 busy 分支切片含 {@code session == s}；
+     * 2. 生产调用 hasSession 不得恒真 → 守卫调用点切片由会话身份派生且不含 {@code alive(true,} 字面量；
+     * 3. 源码守卫结构化（见 probeVerdictCases 的 regex 守卫），带参超时形式会被负向拦住。
+     * 逻辑侧：无会话但锁被占用必须判死（hasSession 假优先于 lockBusy 真）。
+     */
+    static void probeBusyRecheckCases() {
+        check("探活：无会话但 ioLock 被活跃 IO 占用 → 判死（#281）",
+                !ProbeVerdict.alive(false, true, true, false, false), "误判为活");
+
+        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
+        String src;
+        try {
+            src = Files.readString(main.toPath());
+        } catch (IOException e) {
+            src = null;
+        }
+        if (src == null) {
+            check("探活：能读到 Main.java 源码做 #281 守卫", false, "读不到 " + main);
+            return;
+        }
+        int busyIdx = src.indexOf("s.ioLock().tryLock()");
+        String busySlice = busyIdx < 0 ? "" : src.substring(busyIdx, Math.min(src.length(), busyIdx + 300));
+        check("探活：busy 分支持锁时复核会话身份 session == s（#281）",
+                busySlice.contains("session == s"),
+                "busy 分支未复核 session == s，旧会话在飞 IO 会被判活");
+
+        int aliveIdx = src.indexOf("ProbeVerdict.alive(");
+        String callSlice = aliveIdx < 0 ? ""
+                : src.substring(Math.max(0, aliveIdx - 300), Math.min(src.length(), aliveIdx + 300));
+        check("探活：hasSession 由调用点派生，不写字面 true（#281）",
+                callSlice.contains("session == s && s.device() != null")
+                        && !callSlice.contains("alive(true,"),
+                "调用点 hasSession 未由会话身份派生，或仍写死 alive(true, ...)");
     }
 
     // ---------------- 无进展挂起判定（issue #63） ----------------

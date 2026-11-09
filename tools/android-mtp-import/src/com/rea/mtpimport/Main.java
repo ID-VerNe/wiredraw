@@ -1182,7 +1182,9 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             // 直接判活——旧实现用阻塞 lock()，把等锁时间也算进 PROBE_JOIN_MS，单张 RAW 约 1.14 s，
             // 暂停后立刻 Resume 就会假超时，把本来能续的一轮取消成 ERROR。
             if (!s.ioLock().tryLock()) {
-                busy[0] = true;
+                // #281：持锁 IO 可能属于已摘掉的旧会话；会话换代重叠窗口里，旧会话的在飞 IO
+                // 不得把新一代判活。复核身份与拿到锁的分支同口径：仍是当前会话才按活判。
+                busy[0] = session == s;
                 return;
             }
             try {
@@ -1213,7 +1215,9 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         } else if (!alive[0]) {
             log.line(when + "：getObjectInfo(" + handle + ") 无返回");
         }
-        return ProbeVerdict.alive(true, busy[0], !timedOut, error[0] != null, alive[0]);
+        // #281：hasSession 由调用点真实派生（会话仍是当前、代数未换代且设备在），不再恒真。
+        boolean hasSession = session == s && s.device() != null;
+        return ProbeVerdict.alive(hasSession, busy[0], !timedOut, error[0] != null, alive[0]);
     }
 
     /**
