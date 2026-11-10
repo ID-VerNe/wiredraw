@@ -39,19 +39,7 @@ fun StatusScreen(model: AppModel) {
     val cb = model.callbacks
 
     when (model.state) {
-        UiState.State.COLD -> StatusLayout(
-            model = model,
-            icon = { CameraGlyph(56.dp, UiColors.onSurface) },
-            title = "No camera",
-            actions = {
-                // §2.1：主按钮水平 16 dp、底部 `inset + 8 dp`（inset 已由 `systemBarsPadding` 吃掉）。
-                PrimaryButton(
-                    "Connect camera",
-                    onClick = { cb?.onConnectCamera() },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-        )
+        UiState.State.COLD -> NoCameraStatus(model)
 
         UiState.State.PERMISSION_PENDING -> StatusLayout(
             model = model,
@@ -157,19 +145,32 @@ fun StatusScreen(model: AppModel) {
             }
         )
 
-        else -> StatusLayout(
-            model = model,
-            icon = { CameraGlyph(56.dp, UiColors.onSurface) },
-            title = "No camera",
-            actions = {
-                PrimaryButton(
-                    "Connect camera",
-                    onClick = { cb?.onConnectCamera() },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-        )
+        else -> NoCameraStatus(model)
     }
+}
+
+/**
+ * 无相机状态屏（`T-COLD` / issue #309）：`COLD` 与兜底的未枚举态呈现的是同一块屏。
+ *
+ * 两处原本各写一份 11 行载荷，改 CTA 文案、图标尺寸或 padding 时只改一处会让兜底屏与
+ * `COLD` 视觉分叉。这里只收敛**载荷**，两个分支头仍各自保留：`COLD` 是有名状态，
+ * 将来要分化时改它自己的分支即可。
+ */
+@Composable
+private fun NoCameraStatus(model: AppModel) {
+    StatusLayout(
+        model = model,
+        icon = { CameraGlyph(56.dp, UiColors.onSurface) },
+        title = "No camera",
+        actions = {
+            // §2.1：主按钮水平 16 dp、底部 `inset + 8 dp`（inset 已由 `systemBarsPadding` 吃掉）。
+            PrimaryButton(
+                "Connect camera",
+                onClick = { model.callbacks?.onConnectCamera() },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+    )
 }
 
 /**
