@@ -89,8 +89,9 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 5 | `static` | `check_line_refs.py` | `python scripts/check_line_refs.py` | 被跟踪文件（md/java/kt/kts/py，含代码注释）不许写物理行号（AGENTS.md §2 第 10 条，规则原在 UI-SPEC 只覆盖自身，#252 上收为全仓）：行号随上方插行漂移，而文档与注释都没有编译门禁能发现。扩展名白名单避开主机端口与章节号；md 跳围栏代码块（issue/PR 模板里的行号示例属一次性上下文）与 docs/archive/ 冻结证据（失效是预期），代码类型不剥围栏；门禁自身的测试夹具按精确路径排除（夹具必须字面含违规形态才能验证判红），不做值级白名单；裸冒号数字误报不可控，不进这条门禁 |
 | 6 | `static` | `py_compile` | `python -m compileall -q scripts tools` | scripts/ 与 tools/ 下所有 Python 必须能编译。探针是「只读连相机」的工具，语法崩在真机上才发现代价最高 |
 | 7 | `static` | `check_sensitive.py` | `python scripts/check_sensitive.py --check` | 敏感信息门禁：相机 GUID 及其 hex/14 位去横线/4-4-4-2 重分组/Base64/URL 编码、序列号、内网 IP、私人路径、私有仓库标识、通用密钥形态。命中即阻断（#110）。相机 AP 公开示例网关与 Android debug keystore 公开口令走脚本内 ALLOWLIST，只按「类别 + 精确值」放行，不做网段/通配；其余行内豁免必须带具体理由。--fix 才改写，--warn 只用于排查基线 |
+| 8 | `static` | `check_format_codes.py` | `python scripts/check_format_codes.py` | 跨工程格式码比对（#322）：导片工具 `Catalog.java` 与探针 `Main.java` 是两个独立编译单元（Gradle `java.srcDirs` 与手搓 `build.sh` 的 `find src`），MTP 格式码常量与 ARW / JPEG 判定各写一份。逐项比对 `FMT_*` 的值、ARW 后缀集合、JPEG 后缀（按登记值，已知 `.JPEG` 单侧重合显式标注），不一致即红——新增格式或改判定只改一个工程时，探针直方图与导片工具分类会给出不同数字，静态检查不发现就只能真机复测。只读，不改产品源码；共享源收口另立单 |
 
-共 7 个 CI 门禁，分 1 个分片（static 7）；manual 2、support 3 见 `scripts/gates.json`。
+共 8 个 CI 门禁，分 1 个分片（static 8）；manual 2、support 3 见 `scripts/gates.json`。
 <!-- gates:ci:end -->
 
 ### 0.2 证据与验证纪律
