@@ -48,7 +48,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
+from sensitive_scan import Hit, _repo_slug, scan_text  # noqa: E402
 from _common import (  # noqa: E402
     CONTENT_FAIL,
     ENV_FAIL,
