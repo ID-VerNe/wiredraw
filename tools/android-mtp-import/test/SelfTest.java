@@ -1,30 +1,6 @@
 package com.rea.mtpimport;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.LongConsumer;
-import java.util.regex.Pattern;
-import com.rea.mtpimport.ResumableTransfer.Kind;
-
 import static com.rea.mtpimport.TestSupport.*;
-import static com.rea.mtpimport.Fixtures.*;
-import static com.rea.mtpimport.TestFakes.*;
-import static com.rea.mtpimport.SourceGuard.*;
-import static com.rea.mtpimport.TempDirs.*;
 import static com.rea.mtpimport.CatalogCases.*;
 import static com.rea.mtpimport.DeviceCases.*;
 import static com.rea.mtpimport.SelectionCases.*;
