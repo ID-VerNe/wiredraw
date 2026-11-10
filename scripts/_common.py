@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -157,6 +158,32 @@ def load_json_file(path) -> object:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise EnvProblem(f"{_shown(target)} 不是合法 JSON：{exc}") from exc
+
+
+def read_event_payload() -> dict | None:
+    """读 GitHub Actions 的事件载荷（`GITHUB_EVENT_PATH`）；没有 PR 上下文时返回 `None`。
+
+    support 档三条门禁（PR 正文 / commit message / PR 分段结构）原本各写一份
+    「取环境变量 → 判文件 → `read_text` + `json.loads` → 把两种失败映射成 `EnvProblem`」
+    的前缀（#311）。载荷要加 BOM 容忍、大小上限或把「文件存在但读失败」单独归类时，
+    只改一处会让三条门禁对同一份载荷给出不同结论。
+
+    只负责「拿到载荷」：`pull_request` 在不在、缺不缺 `number` / `base.sha` / `head.sha`，
+    由调用方各自收窄——那几处的错误文案与判据不同，不往这里搬。
+
+    每次调用都现读环境变量：三个脚本的 `self_test` 都靠改 `os.environ` 构造载荷，
+    缓存或默认参数会让用例失效。
+    """
+    path = os.environ.get("GITHUB_EVENT_PATH")
+    if not path:
+        return None
+    target = Path(path)
+    if not target.is_file():
+        return None
+    try:
+        return json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EnvProblem(f"读不到事件载荷 {_shown(target)}：{exc}") from exc
 
 
 def resolve_python() -> str:
@@ -388,6 +415,47 @@ def self_test() -> int:
             "load_json_file 正常 JSON 原样返回",
             load(ROOT / "scripts" / "gates.json").get("version") is not None,
         )
+
+    # 8. 事件载荷读取只许活在本模块（#311）：support 档三条门禁对同一份
+    #    `GITHUB_EVENT_PATH` 各解析一份，载荷要加 BOM 容忍或大小上限时会三处不同步。
+    dup_event = "json.loads(Path(path)" + ".read_text"
+    event_offenders = [n for n, src in siblings.items() if dup_event in src]
+    check("GITHUB_EVENT_PATH 解析只在共享层一处", event_offenders == [], f"实际 {event_offenders}")
+
+    read_event = globals().get("read_event_payload")
+    check("共享层提供 read_event_payload", callable(read_event))
+    if callable(read_event):
+        saved_event = os.environ.pop("GITHUB_EVENT_PATH", None)
+        try:
+            check("缺少 GITHUB_EVENT_PATH 时返回 None", read_event() is None)
+            os.environ["GITHUB_EVENT_PATH"] = str(ROOT / "scripts" / "__missing_event.json")
+            check("事件载荷路径不存在时返回 None", read_event() is None)
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
+                fh.write("{not json")
+                bad_event = Path(fh.name)
+            os.environ["GITHUB_EVENT_PATH"] = str(bad_event)
+            try:
+                bad_event_result = outcome(read_event)
+            finally:
+                bad_event.unlink()
+            check("事件载荷坏 JSON 时抛 EnvProblem", bad_event_result == "", bad_event_result)
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
+                json.dump({"pull_request": {"number": 7}}, fh)
+                good_event = Path(fh.name)
+            os.environ["GITHUB_EVENT_PATH"] = str(good_event)
+            try:
+                payload = read_event()
+            finally:
+                good_event.unlink()
+            check(
+                "事件载荷正常时原样返回",
+                isinstance(payload, dict) and payload.get("pull_request", {}).get("number") == 7,
+                f"实际 {payload!r}",
+            )
+        finally:
+            os.environ.pop("GITHUB_EVENT_PATH", None)
+            if saved_event is not None:
+                os.environ["GITHUB_EVENT_PATH"] = saved_event
 
     for name, ok, detail in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f"  — {detail}" if detail and not ok else ""))

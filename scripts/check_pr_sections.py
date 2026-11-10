@@ -32,7 +32,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from _common import ENV_FAIL, EnvProblem, gh_json, gate_hits, run
+from _common import ENV_FAIL, EnvProblem, gh_json, gate_hits, read_event_payload, run
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -316,13 +316,9 @@ def from_event() -> tuple[str, list[str]] | None:
     没有 PR 上下文（非 pull_request 事件）返回 None → 上层 SKIP。
     有 PR 上下文但 base/head 缺失、或 `git diff` 跑不通 → 抛 `EnvProblem` → 上层红。
     """
-    path = os.environ.get("GITHUB_EVENT_PATH")
-    if not path or not Path(path).is_file():
+    event = read_event_payload()
+    if event is None:
         return None
-    try:
-        event = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        raise EnvProblem(f"读不到事件载荷 {path}：{e}") from e
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
         return None

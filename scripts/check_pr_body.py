@@ -49,7 +49,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
-from _common import EnvProblem, format_hit, gh_json  # noqa: E402
+from _common import EnvProblem, format_hit, gh_json, read_event_payload  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -91,13 +91,9 @@ def fetch_comments(number: int, runner=None) -> list[tuple[str, str]]:
 
 def fetch_event_body() -> tuple[int, str] | None:
     """返回 (PR 编号, 正文)；没有 PR 上下文返回 None；有 PR 但缺编号抛 EnvProblem。"""
-    path = os.environ.get("GITHUB_EVENT_PATH")
-    if not path or not Path(path).is_file():
+    payload = read_event_payload()
+    if payload is None:
         return None
-    try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise EnvProblem(f"读不了 GITHUB_EVENT_PATH：{exc}") from exc
     pr = payload.get("pull_request")
     if not pr:
         return None
