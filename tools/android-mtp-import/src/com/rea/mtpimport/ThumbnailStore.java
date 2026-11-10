@@ -41,28 +41,29 @@ public final class ThumbnailStore {
     /** 2 张整张 JPG 的缓存，够返回上一张再前进时直接命中，又不至于长期吃内存。 */
     private static final int FULL_BYTES = 24 << 20;
 
-    private final LruCache<Integer, Bitmap> cache = new LruCache<Integer, Bitmap>(CACHE_BYTES) {
+    /**
+     * 三档缓存共用的计量口径：一条位图占多少字节（issue #307）。
+     *
+     * 三档容量不同（24 / 8 / 24 MiB），被复制的从来不是容量而是「怎么算一张图的大小」。
+     * 计量只在这里定义一次，否则要换成 {@code getAllocationByteCount()} 或加
+     * {@code Math.max(1, ...)} 时只会改到其中一档，三档的实际容量上限悄悄分叉。
+     */
+    private static final class ByteCountCache extends LruCache<Integer, Bitmap> {
+        ByteCountCache(int maxBytes) {
+            super(maxBytes);
+        }
+
         @Override
         protected int sizeOf(Integer key, Bitmap value) {
             return value.getByteCount();
         }
-    };
+    }
 
-    private final LruCache<Integer, Bitmap> previewCache =
-            new LruCache<Integer, Bitmap>(PREVIEW_BYTES) {
-                @Override
-                protected int sizeOf(Integer key, Bitmap value) {
-                    return value.getByteCount();
-                }
-            };
+    private final LruCache<Integer, Bitmap> cache = new ByteCountCache(CACHE_BYTES);
 
-    private final LruCache<Integer, Bitmap> fullCache =
-            new LruCache<Integer, Bitmap>(FULL_BYTES) {
-                @Override
-                protected int sizeOf(Integer key, Bitmap value) {
-                    return value.getByteCount();
-                }
-            };
+    private final LruCache<Integer, Bitmap> previewCache = new ByteCountCache(PREVIEW_BYTES);
+
+    private final LruCache<Integer, Bitmap> fullCache = new ByteCountCache(FULL_BYTES);
 
     /** 缓存代际：清空 / 换会话时自增，挡住旧会话的在飞请求写进新会话缓存。 */
     private final Object epochLock = new Object();
