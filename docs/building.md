@@ -75,7 +75,7 @@ Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOM
 - 纯 JDK 边界由编译期强制：`compilePureJdkJava` 编译这批文件时不给 `android.jar`，
   偷 `import android.*` 会直接编译失败。
 - `manual` 档还会跑 `verifyApk`，用 SDK 的 `apksigner` 实测验签。
-- 完整类职责与真机待验清单见[导片工具 README](../tools/android-mtp-import/README.md)。
+- 完整类职责见[导片工具 README](../tools/android-mtp-import/README.md)；发布前的逐条待验状态与证据见[验证环境矩阵 §四](verification-matrix.md)。
 
 ## 五、安装到测试机
 

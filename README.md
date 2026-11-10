@@ -18,7 +18,7 @@
 |---|---|---|
 | MTP 枚举 + 下载 | ILCE-7C 固件 2.00 / 魅族 20 Infinity / Android 15 (API 35) / USB 有线（矩阵 E1） | 通过（2026-11-04，证据见[主报告](docs/research/a7c-usb-raw-2026-11.md) §12） |
 | PTP‑IP 握手 + 取最新一张 | ILCE-7C / Wi‑Fi PTP‑IP（复刻 IED 协议） | 通过；同一会话下存储枚举 `AccessDenied` |
-| 导片工具（照片墙 / 选择 / 进度；断点续传已停用） | 矩阵 E1 + E2（魅族 20 Infinity / MI 9，均 Android 15 API 35，USB） | 实现状态与真机待验项见[导片工具 README](tools/android-mtp-import/README.md) |
+| 导片工具（照片墙 / 选择 / 进度；断点续传已停用） | 矩阵 E1 + E2（魅族 20 Infinity / MI 9，均 Android 15 API 35，USB） | 实现状态见[导片工具 README](tools/android-mtp-import/README.md)；逐条真机待验状态与证据见[验证环境矩阵 §四](docs/verification-matrix.md) |
 | 安装最低版本 | Android 12（API 31）及以上 | 两个 APK 均 `minSdk = 31`、`targetSdk = 35`（[探针构建脚本](tools/android-mtp-probe/build.sh)、[导片工具构建配置](tools/android-mtp-import/build.gradle.kts)） |
 | 其他机型 / 固件 | — | 未验证 |
 
