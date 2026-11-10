@@ -8,26 +8,13 @@
 """
 import re
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+from _harness import check, setup_imports, summary
+
+ROOT = setup_imports()
 
 import parse_ptpip  # noqa: E402
 import probe  # noqa: E402
-
-checks = 0
-failed = 0
-
-
-def check(name, cond, detail=""):
-    global checks, failed
-    checks += 1
-    if cond:
-        print(f"[PASS] {name}")
-    else:
-        failed += 1
-        print(f"[FAIL] {name} {detail}")
 
 
 # 1) probe.py 的 OP 表不允许有死项，唯一例外是文档明确保留的写名常量
@@ -60,5 +47,4 @@ frame_names = getattr(parse_ptpip, "FRAME_NAMES", {})
 missing = [t for t in range(1, 15) if t not in frame_names]
 check("帧类型 1..14 均具名", not missing, f"缺失={missing}")
 
-print(f"\n== 全过：{checks} 条 ==" if failed == 0 else f"\n== 失败：{failed}/{checks} 条 ==")
-sys.exit(0 if failed == 0 else 1)
+sys.exit(summary())
