@@ -23,6 +23,10 @@ TSHARK = os.environ.get("TSHARK", "tshark")
 # 与 probe.py 的 MIN_OBJINFO_LEN 取同一个值，避免两边门槛漂移（#225）。
 MIN_OBJINFO_LEN = 53
 
+# 单帧长度上界：帧头越界即按「失步」逐字节重找。与 probe.py 的 MAX_FRAME_LEN 同值同义，
+# 两边必须一起改，否则同一帧在在线排障与离线解析两条链路上结论相反（#315）。
+MAX_FRAME_LEN = 16 * 1024 * 1024
+
 OP_NAMES = {
     0x1001: "GetDeviceInfo", 0x1002: "OpenSession", 0x1003: "CloseSession",
     0x1004: "GetStorageIDs", 0x1005: "GetStorageInfo", 0x1006: "GetNumObjects",
@@ -90,7 +94,7 @@ class Side:
             if len(self.buf) < 8:
                 break
             length, ptype = struct.unpack_from("<II", self.buf, 0)
-            if length < 8 or length > 0x8000000:
+            if length < 8 or length > MAX_FRAME_LEN:
                 del self.buf[0]  # 失步，逐字节重找
                 continue
             if len(self.buf) < length:

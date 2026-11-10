@@ -32,6 +32,11 @@ START_DATA, DATA, CANCEL, END_DATA = 9, 10, 11, 12
 # 与 parse_ptpip.py 的同一常量同值（#225）。
 MIN_OBJINFO_LEN = 53
 
+# 单帧长度上界：既是「缓冲区最多攒多少」的上限，也是判断帧头是否失步的阈值。
+# 实测抓包里最大的 DATA-START total 约 1 MiB（Data 阶段由多个帧切分），16 MiB 留足余量；
+# 与 parse_ptpip.py 的 MAX_FRAME_LEN 同值同义，两边必须一起改（#315）。
+MAX_FRAME_LEN = 16 * 1024 * 1024
+
 # 只保留本探针实际下发的只读 opcode。`GetObject` / `GetThumb` /
 # `GetPartialObject`(0x101B) / `GetDevicePropValue2`(0x920E) 均无调用，已删。
 # `SetDevicePropValueEx`(0x9209) 是写 opcode，探针从不调用，但
@@ -85,11 +90,11 @@ class Chan:
         while True:
             if len(self.buf) >= 8:
                 length, ptype = struct.unpack_from("<II", self.buf, 0)
-                if 8 <= length <= 0x1000000 and len(self.buf) >= length:
+                if 8 <= length <= MAX_FRAME_LEN and len(self.buf) >= length:
                     body = bytes(self.buf[8:length])
                     del self.buf[:length]
                     return ptype, body
-                if length < 8 or length > 0x1000000:
+                if length < 8 or length > MAX_FRAME_LEN:
                     del self.buf[0]          # 失步，逐字节重找
                     continue
             chunk = self.s.recv(65536)
