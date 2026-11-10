@@ -61,46 +61,48 @@ final class RepoCases {
      * 账本完成但成品缺失 / 截断 / 路径越界都归 STALE（重新导入），不许静默跳过。
      */
     static void skipRuleCases() throws Exception {
-        File out = Files.createTempDirectory("wiredraw-skiprule").toFile();
-        String rel = "DCIM/100MSDCF/DSC02183.ARW";
-        File dest = new File(out, "DCIM/100MSDCF/DSC02183.ARW");
-        writeSizedFile(dest, 300);
-        Journal j = new Journal();
+        withTempDir("wiredraw-skiprule", out -> {
+            String rel = "DCIM/100MSDCF/DSC02183.ARW";
+            File dest = new File(out, "DCIM/100MSDCF/DSC02183.ARW");
+            writeSizedFile(dest, 300);
+            Journal j = new Journal();
 
-        check("SkipRule：账本无记录 → TODO（#209）",
-                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.TODO,
-                "实际 " + SkipRule.check(j, out, rel, 300));
+            check("SkipRule：账本无记录 → TODO（#209）",
+                    SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.TODO,
+                    "实际 " + SkipRule.check(j, out, rel, 300));
 
-        j.markDone(3, 300, 300, rel);
-        check("SkipRule：账本完成 + 磁盘同尺寸 → SKIP（#209）",
-                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.SKIP,
-                "实际 " + SkipRule.check(j, out, rel, 300));
+            j.markDone(3, 300, 300, rel);
+            check("SkipRule：账本完成 + 磁盘同尺寸 → SKIP（#209）",
+                    SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.SKIP,
+                    "实际 " + SkipRule.check(j, out, rel, 300));
 
-        // #177：账本说完成，但成品被截断 → 必须重新导入。
-        writeSizedFile(dest, 299);
-        check("SkipRule：账本完成 + 成品截断 → STALE（#177）",
-                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.STALE,
-                "实际 " + SkipRule.check(j, out, rel, 300));
+            // #177：账本说完成，但成品被截断 → 必须重新导入。
+            writeSizedFile(dest, 299);
+            check("SkipRule：账本完成 + 成品截断 → STALE（#177）",
+                    SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.STALE,
+                    "实际 " + SkipRule.check(j, out, rel, 300));
 
-        // 成品整个不在 → 也必须重新导入。
-        deleteTree(dest.getParentFile());
-        check("SkipRule：账本完成 + 成品缺失 → STALE（#209）",
-                SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.STALE,
-                "实际 " + SkipRule.check(j, out, rel, 300));
+            // 成品整个不在（文件与所在目录都删掉）→ 也必须重新导入。
+            // 这里不用 deleteTree：它是临时目录的清理入口，用例里「删一个已有成品」是另一回事。
+            Files.deleteIfExists(dest.toPath());
+            Files.deleteIfExists(dest.getParentFile().toPath());
+            check("SkipRule：账本完成 + 成品缺失 → STALE（#209）",
+                    SkipRule.check(j, out, rel, 300) == SkipRule.Verdict.STALE,
+                    "实际 " + SkipRule.check(j, out, rel, 300));
 
-        // relPath 越界时 resolve 返回 null，不许因为账本有记录就跳过。
-        Journal jTrav = new Journal();
-        jTrav.markDone(9, 300, 300, "../../etc/passwd");
-        check("SkipRule：relPath 越界 → STALE（#209）",
-                SkipRule.check(jTrav, out, "../../etc/passwd", 300) == SkipRule.Verdict.STALE,
-                "实际 " + SkipRule.check(jTrav, out, "../../etc/passwd", 300));
+            // relPath 越界时 resolve 返回 null，不许因为账本有记录就跳过。
+            Journal jTrav = new Journal();
+            jTrav.markDone(9, 300, 300, "../../etc/passwd");
+            check("SkipRule：relPath 越界 → STALE（#209）",
+                    SkipRule.check(jTrav, out, "../../etc/passwd", 300) == SkipRule.Verdict.STALE,
+                    "实际 " + SkipRule.check(jTrav, out, "../../etc/passwd", 300));
 
-        // 同名但大小变了：账本主键含 size，新尺寸查不到记录 → TODO。
-        check("SkipRule：同名但大小变了 → TODO（账本键含 size）",
-                SkipRule.check(j, out, rel, 301) == SkipRule.Verdict.TODO,
-                "实际 " + SkipRule.check(j, out, rel, 301));
+            // 同名但大小变了：账本主键含 size，新尺寸查不到记录 → TODO。
+            check("SkipRule：同名但大小变了 → TODO（账本键含 size）",
+                    SkipRule.check(j, out, rel, 301) == SkipRule.Verdict.TODO,
+                    "实际 " + SkipRule.check(j, out, rel, 301));
+        });
 
-        deleteTree(out);
     }
 
     // ---------------- 目录创建收口（G9b / A14，#219） ----------------
@@ -110,42 +112,42 @@ final class RepoCases {
      * 不许像原来那样「建目录失败只记一条日志继续跑」。
      */
     static void dirsCases() throws Exception {
-        File base = Files.createTempDirectory("wiredraw-dirs").toFile();
+        withTempDir("wiredraw-dirs", base -> {
 
-        // 已存在的目录直接返回，不重复建。
-        Dirs.ensure(base);
-        check("Dirs.ensure：已存在目录直接返回（#219）", base.isDirectory(), "实际 " + base);
+            // 已存在的目录直接返回，不重复建。
+            Dirs.ensure(base);
+            check("Dirs.ensure：已存在目录直接返回（#219）", base.isDirectory(), "实际 " + base);
 
-        // 多层目录一次建成（Journal / .part 都依赖它）。
-        File nested = new File(base, "DCIM/100MSDCF");
-        Dirs.ensure(nested);
-        check("Dirs.ensure：多层目录一次建成（#219）", nested.isDirectory(), "实际 " + nested);
+            // 多层目录一次建成（Journal / .part 都依赖它）。
+            File nested = new File(base, "DCIM/100MSDCF");
+            Dirs.ensure(nested);
+            check("Dirs.ensure：多层目录一次建成（#219）", nested.isDirectory(), "实际 " + nested);
 
-        // null 不许静默：调用方要以 IOException 转成 Result / 日志 / UI 文案。
-        boolean nullThrew = false;
-        try {
-            Dirs.ensure(null);
-        } catch (IOException e) {
-            nullThrew = true;
-        }
-        check("Dirs.ensure：null 目录抛 IOException（#219）", nullThrew, "未抛异常");
+            // null 不许静默：调用方要以 IOException 转成 Result / 日志 / UI 文案。
+            boolean nullThrew = false;
+            try {
+                Dirs.ensure(null);
+            } catch (IOException e) {
+                nullThrew = true;
+            }
+            check("Dirs.ensure：null 目录抛 IOException（#219）", nullThrew, "未抛异常");
 
-        // 同名文件占位 → mkdirs 必然失败；异常文案必须带路径，否则五个调用点无法定位。
-        File blocker = new File(base, "blocker");
-        writeSizedFile(blocker, 1);
-        File bad = new File(blocker, "child");
-        boolean badThrew = false;
-        String msg = "";
-        try {
-            Dirs.ensure(bad);
-        } catch (IOException e) {
-            badThrew = true;
-            msg = e.getMessage();
-        }
-        check("Dirs.ensure：建目录失败抛带路径的 IOException（#219）",
-                badThrew && msg != null && msg.contains(bad.getName()), "实际 " + msg);
+            // 同名文件占位 → mkdirs 必然失败；异常文案必须带路径，否则五个调用点无法定位。
+            File blocker = new File(base, "blocker");
+            writeSizedFile(blocker, 1);
+            File bad = new File(blocker, "child");
+            boolean badThrew = false;
+            String msg = "";
+            try {
+                Dirs.ensure(bad);
+            } catch (IOException e) {
+                badThrew = true;
+                msg = e.getMessage();
+            }
+            check("Dirs.ensure：建目录失败抛带路径的 IOException（#219）",
+                    badThrew && msg != null && msg.contains(bad.getName()), "实际 " + msg);
+        });
 
-        deleteTree(base);
     }
 
     // ---------------- 轮次持久化外移（G9b / A2，#219） ----------------
@@ -155,39 +157,39 @@ final class RepoCases {
      * 不再自己拼 `outDir/import-journal.txt`、自己处理 `mkdirs`。
      */
     static void roundFilesCases() throws Exception {
-        File root = Files.createTempDirectory("wiredraw-roundfiles").toFile();
-        // 故意让 outDir 还不存在：save 必须自己把目录建出来（原来由 ImportService.saveJournal 负责）。
-        File out = new File(root, "nested/deep");
-        List<String> logs = new ArrayList<>();
-        Log sink = logs::add;
+        withTempDir("wiredraw-roundfiles", root -> {
+            // 故意让 outDir 还不存在：save 必须自己把目录建出来（原来由 ImportService.saveJournal 负责）。
+            File out = new File(root, "nested/deep");
+            List<String> logs = new ArrayList<>();
+            Log sink = logs::add;
 
-        check("RoundFiles.journalFile：固定落在 outDir/import-journal.txt（#219）",
-                new File(out, "import-journal.txt").equals(RoundFiles.journalFile(out)),
-                "实际 " + RoundFiles.journalFile(out));
+            check("RoundFiles.journalFile：固定落在 outDir/import-journal.txt（#219）",
+                    new File(out, "import-journal.txt").equals(RoundFiles.journalFile(out)),
+                    "实际 " + RoundFiles.journalFile(out));
 
-        Journal empty = RoundFiles.load(out, sink);
-        check("RoundFiles.load：目录不存在按空日志、不抛异常（#219）",
-                empty.size() == 0 && !empty.isComplete("DCIM/x.ARW", 300),
-                "size=" + empty.size());
+            Journal empty = RoundFiles.load(out, sink);
+            check("RoundFiles.load：目录不存在按空日志、不抛异常（#219）",
+                    empty.size() == 0 && !empty.isComplete("DCIM/x.ARW", 300),
+                    "size=" + empty.size());
 
-        Journal j = new Journal();
-        j.markDone(3, 300, 300, "DCIM/100MSDCF/DSC02183.ARW");
-        RoundFiles.save(out, j, sink);
-        check("RoundFiles.save：父目录不存在时自己建目录（#219）",
-                RoundFiles.journalFile(out).isFile(), "文件不存在");
+            Journal j = new Journal();
+            j.markDone(3, 300, 300, "DCIM/100MSDCF/DSC02183.ARW");
+            RoundFiles.save(out, j, sink);
+            check("RoundFiles.save：父目录不存在时自己建目录（#219）",
+                    RoundFiles.journalFile(out).isFile(), "文件不存在");
 
-        Journal back = RoundFiles.load(out, sink);
-        check("RoundFiles.save/load：往返后账本可判完成、异 size 不算（#219）",
-                back.size() == 1 && back.isComplete("DCIM/100MSDCF/DSC02183.ARW", 300)
-                        && !back.isComplete("DCIM/100MSDCF/DSC02183.ARW", 301),
-                "size=" + back.size());
+            Journal back = RoundFiles.load(out, sink);
+            check("RoundFiles.save/load：往返后账本可判完成、异 size 不算（#219）",
+                    back.size() == 1 && back.isComplete("DCIM/100MSDCF/DSC02183.ARW", 300)
+                            && !back.isComplete("DCIM/100MSDCF/DSC02183.ARW", 301),
+                    "size=" + back.size());
 
-        // 坏文件按空日志继续（坏行/坏头一律跳过，不让导片起不来）。
-        writeSizedFile(RoundFiles.journalFile(out), 5);
-        check("RoundFiles.load：损坏文件按空日志继续（#219）",
-                RoundFiles.load(out, sink).size() == 0, "实际未按空日志");
+            // 坏文件按空日志继续（坏行/坏头一律跳过，不让导片起不来）。
+            writeSizedFile(RoundFiles.journalFile(out), 5);
+            check("RoundFiles.load：损坏文件按空日志继续（#219）",
+                    RoundFiles.load(out, sink).size() == 0, "实际未按空日志");
+        });
 
-        deleteTree(root);
     }
 
     // ---------------- relPath 兜底收口（G9b / A12，#219） ----------------

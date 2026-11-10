@@ -1,7 +1,6 @@
 package com.rea.mtpimport;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -147,32 +146,32 @@ final class ProbeCases {
         ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(), PhotoWall.Export.JPG_FIRST);
         check("挂起用例清单恰为 1 个文件", plan.count() == 1, "实际 " + plan.count());
 
-        File out = Files.createTempDirectory("wiredraw-63-stall").toFile();
-        long t0 = 10_000_000_000L;
-        ManualClock clock = new ManualClock(t0);
-        FakeTransfer h = new FakeTransfer(FakeTransfer.Mode.HANGING);
-        FinishRecorder r = new FinishRecorder();
-        ImportService svc = new ImportService(Log.NOOP, h, out, clock);
-        svc.start(plan, r);
-        check("挂起：worker 已进入 importFile", h.entered.await(5, TimeUnit.SECONDS), "等待超时");
+        withTempDir("wiredraw-63-stall", out -> {
+            long t0 = 10_000_000_000L;
+            ManualClock clock = new ManualClock(t0);
+            FakeTransfer h = new FakeTransfer(FakeTransfer.Mode.HANGING);
+            FinishRecorder r = new FinishRecorder();
+            ImportService svc = new ImportService(Log.NOOP, h, out, clock);
+            svc.start(plan, r);
+            check("挂起：worker 已进入 importFile", h.entered.await(5, TimeUnit.SECONDS), "等待超时");
 
-        check("挂起：一次传输进行 59.5 s 仍不判挂起",
-                !svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS - 500_000_000L),
-                "实际 true");
-        check("挂起：一次传输满 60 s 判挂起（未点取消也有出路）",
-                svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 false");
+            check("挂起：一次传输进行 59.5 s 仍不判挂起",
+                    !svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS - 500_000_000L),
+                    "实际 true");
+            check("挂起：一次传输满 60 s 判挂起（未点取消也有出路）",
+                    svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 false");
 
-        svc.pause();
-        check("挂起：暂停中不判挂起",
-                !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
-        svc.resume();
+            svc.pause();
+            check("挂起：暂停中不判挂起",
+                    !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
+            svc.resume();
 
-        svc.cancel();
-        check("挂起：取消后交给 isCancelStuck，不判挂起",
-                !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
+            svc.cancel();
+            check("挂起：取消后交给 isCancelStuck，不判挂起",
+                    !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
 
-        h.release.countDown();
-        check("挂起：放行后本轮 5 s 内收尾", r.done.await(5, TimeUnit.SECONDS), "等待超时");
-        deleteTree(out);
+            h.release.countDown();
+            check("挂起：放行后本轮 5 s 内收尾", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+        });
     }
 }
