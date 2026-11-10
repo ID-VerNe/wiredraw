@@ -601,17 +601,16 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         return s.awaitWorker(remainingMs);
     }
 
-    /** 扫描线程版本；中断请求后只等一次，不循环。 */
+    /**
+     * 扫描线程版本；中断请求后只等一次，不循环。
+     *
+     * 绝对 deadline 契约留在本方法里（剩余时间由此换算），有界 join 的收尾模板
+     * 与 `ImportService.awaitWorker` 共用 {@link ImportService.WorkerWait#finishJoin}。
+     */
     private static boolean awaitIdle(Thread t, long deadlineNanos) {
         if (t == null) return true;
         long remainingMs = Math.max(1L, (deadlineNanos - System.nanoTime()) / 1_000_000L);
-        try {
-            t.join(remainingMs);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-        return !t.isAlive();
+        return ImportService.WorkerWait.finishJoin(t, remainingMs);
     }
 
     @Override
