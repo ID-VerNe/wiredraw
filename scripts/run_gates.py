@@ -21,7 +21,6 @@ import argparse
 import contextlib
 import copy
 import io
-import json
 import os
 import shutil
 import subprocess
@@ -209,6 +208,18 @@ def self_test() -> int:
         "load_json_file(MANIFEST)" in runner_src
         and "MANIFEST.read_text" + "(encoding=" not in runner_src,
     )
+    # 自检里直接读清单做比对也必须走共享层：内联读法没有 EnvProblem 映射，清单缺失/损坏时
+    # 以 traceback 退 1，而 load_manifest() 同一失败退 2——这正是 #312 要消灭的分叉。
+    # 判据：本文件里不许有一行同时出现 `json.loads` 与清单文件名（清单名拆开写，避免自命中）。
+    gate_name = "gates" + ".json"
+    inline_manifest = [
+        line.strip() for line in runner_src.splitlines() if "json.loads" in line and gate_name in line
+    ]
+    check(
+        "#312：自检不内联解析清单（失败须与 load_manifest 同退 2）",
+        inline_manifest == [],
+        f"实际 {inline_manifest}",
+    )
 
     # ---- #205：解释器与分片名收口的守卫 ----
     # 断言瞄准的字面量用拼接写法：本文件自己不许含那个字面量，否则验收 grep
@@ -272,7 +283,7 @@ def self_test() -> int:
     check("#205：pre-push 不再写死 --shard（分片名归 gates.json 管）", "--shard" not in pre_push_src)
     check("#205：pre-push 走 --prepush 口径", "ci --prepush" in pre_push_src)
 
-    gates = json.loads((ROOT / "scripts" / "gates.json").read_text(encoding="utf-8"))
+    gates = load_json_file(ROOT / "scripts" / "gates.json")
     marked = [s["name"] for s in gates.get("shards", []) if s.get("prePush")]
     check("#205：gates.json 分片声明带 prePush 标记", len(marked) >= 1, f"实际 {marked}")
     try:

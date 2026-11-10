@@ -349,6 +349,22 @@ def self_test() -> int:
     check("gates.json 机械读取段只在共享层一处", read_offenders == [], f"实际 {read_offenders}")
     check("gates.json 解析失败映射只在共享层一处", err_offenders == [], f"实际 {err_offenders}")
 
+    # 第三种形态：换掉变量名、把清单路径内联进 `json.loads(...)` 的参数——上面两条字面量都抓不到。
+    # 评审在 `run_gates.py` 的自检里逮到过这一行：#312 要消灭的正是「第二个读清单的地方失败时
+    # 走 traceback 退 1，而 load_manifest 同一失败退 2」的分叉。判据按 issue 原文：
+    # 兄弟脚本里同一行同时出现 `json.loads` 与清单文件名即红（清单名拆开写，避免本文件自命中）。
+    gate_name = "gates" + ".json"
+    inline_offenders = [
+        n
+        for n, src in siblings.items()
+        if any("json.loads" in line and gate_name in line for line in src.splitlines())
+    ]
+    check(
+        "兄弟脚本不再把清单文件内联进 json.loads",
+        inline_offenders == [],
+        f"实际 {inline_offenders}",
+    )
+
     load = globals().get("load_json_file")
     check("共享层提供 load_json_file", callable(load))
     if callable(load):
