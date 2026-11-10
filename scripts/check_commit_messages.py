@@ -46,7 +46,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
-from _common import EnvProblem, format_hit, run  # noqa: E402
+from _common import EnvProblem, format_hit, read_event_payload, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -61,13 +61,9 @@ MESSAGE_LABEL = "commit message"
 
 def from_event() -> tuple[str, str] | None:
     """返回事件载荷里的 (base, head)；没有 PR 上下文返回 None；有 PR 但缺 sha 抛 EnvProblem。"""
-    path = os.environ.get("GITHUB_EVENT_PATH")
-    if not path or not Path(path).is_file():
+    payload = read_event_payload()
+    if payload is None:
         return None
-    try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise EnvProblem(f"读不了 GITHUB_EVENT_PATH：{exc}") from exc
     pr = payload.get("pull_request")
     if not isinstance(pr, dict):
         return None
