@@ -102,9 +102,8 @@ fun PhotoScreen(model: AppModel) {
                         BackGlyph(20.dp, UiColors.surfaceWhite)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
-                        LocationGlyph(20.dp, UiColors.surfaceWhite)
-                    }
+                    // `Details` 入口与状态屏 `DONE` 共用 `DetailsAction`（#310），着色跟随照片背景。
+                    DetailsAction(model, UiColors.surfaceWhite)
                 }
             }
 

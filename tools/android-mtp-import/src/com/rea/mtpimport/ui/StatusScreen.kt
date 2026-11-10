@@ -131,9 +131,8 @@ fun StatusScreen(model: AppModel) {
                 )
                 Spacer(Modifier.height(8.dp))
                 // `Location` 必须是可点节点（U-47）；路径只在 Location details 里出现。
-                IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
-                    LocationGlyph(20.dp, UiColors.onSurface)
-                }
+                // 与看图页顶栏共用 `DetailsAction`（#310），着色跟随画布背景。
+                DetailsAction(model, UiColors.onSurface)
             }
         )
 
