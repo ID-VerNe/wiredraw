@@ -49,7 +49,15 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
-from _common import EnvProblem, format_hit, gh_json, read_event_payload  # noqa: E402
+from _common import (  # noqa: E402
+    CONTENT_FAIL,
+    ENV_FAIL,
+    OK,
+    EnvProblem,
+    format_hit,
+    gh_json,
+    read_event_payload,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -150,11 +158,11 @@ def _report(hits: list[Hit], comments: list[tuple[str, str]]) -> int:
     scope = "PR 正文" if not comments else f"PR 正文 + {len(comments)} 条评论"
     if not hits:
         print(f"[绿] {scope}：无敏感信息命中")
-        return 0
+        return OK
     for hit in hits:
         print(format_hit(hit))
     print(f"[红] {scope}：命中 {len(hits)} 处。只显示打码值，原值不落日志")
-    return 1
+    return CONTENT_FAIL
 
 
 def _report_all(
@@ -163,7 +171,7 @@ def _report_all(
     """`--all` 的汇总报告：先总后分，命中只打码。"""
     if not hits_by_pr:
         print(f"[绿] 历史 PR 回扫：{pr_count} 个 PR、{comment_count} 条评论，无敏感信息命中")
-        return 0
+        return OK
     for number, hits in hits_by_pr:
         print(f"[红] PR #{number}：命中 {len(hits)} 处")
         for hit in hits:
@@ -173,7 +181,7 @@ def _report_all(
         f"[红] 历史 PR 回扫：{pr_count} 个 PR、{comment_count} 条评论，"
         f"命中 {total} 处（{len(hits_by_pr)} 个 PR）。只显示打码值，原值不落日志"
     )
-    return 1
+    return CONTENT_FAIL
 
 
 def main(argv: list[str] | None = None, runner=None) -> int:
@@ -190,10 +198,10 @@ def main(argv: list[str] | None = None, runner=None) -> int:
         return _self_test()
     if args.pr and args.body_file:
         print("[红] --pr 与 --body-file 只能二选一", file=sys.stderr)
-        return 2
+        return ENV_FAIL
     if args.all and (args.pr or args.body_file):
         print("[红] --all 不能与 --pr/--body-file 同用", file=sys.stderr)
-        return 2
+        return ENV_FAIL
 
     try:
         if args.all:
@@ -210,13 +218,13 @@ def main(argv: list[str] | None = None, runner=None) -> int:
             event = fetch_event_body()
             if event is None:
                 print("[SKIP] 无 PR 上下文（事件不是 pull_request，也未给 --pr/--body-file）")
-                return 0
+                return OK
             number, body = event
             comments = fetch_comments(number, runner)
     except EnvProblem as exc:
         print(f"[红] {exc}", file=sys.stderr)
         print("[红] 取不到 PR 正文/评论，拒绝报绿（#125）", file=sys.stderr)
-        return 2
+        return ENV_FAIL
 
     return _report(scan_sources(body, comments, _repo_slug()), comments)
 
@@ -411,9 +419,9 @@ def _self_test() -> int:
 
     if bad:
         print(f"== 自检失败：{bad} / {total} 项 ==", file=sys.stderr)
-        return 2
+        return ENV_FAIL
     print(f"== 自检全绿：{total} 项 ==")
-    return 0
+    return OK
 
 
 if __name__ == "__main__":

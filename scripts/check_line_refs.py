@@ -36,7 +36,7 @@ import re
 import sys
 from pathlib import Path
 
-from _common import CONTENT_FAIL, ENV_FAIL, EnvProblem, git_ls_files, strip_fences
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, git_ls_files, strip_fences
 
 ROOT = Path(__file__).resolve().parent.parent
 # 冻结证据目录：见模块 docstring「不扫什么」。
@@ -191,7 +191,7 @@ def self_test() -> int:
             print(f)
         return ENV_FAIL
     print("[绿] 自检通过：正样本 10 条、负样本 10 条、定位行号 1 条、结构 7 条")
-    return 0
+    return OK
 
 
 def main() -> int:
@@ -256,7 +256,7 @@ def main() -> int:
         return CONTENT_FAIL
 
     print("[绿] 0 处物理行号引用（规则见 AGENTS.md §2 第 10 条）")
-    return 0
+    return OK
 
 
 if __name__ == "__main__":

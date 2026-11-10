@@ -16,7 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from _common import ENV_FAIL, EnvProblem, git_ls_files
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, git_ls_files
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -78,10 +78,10 @@ def main() -> int:
     if problems:
         for p in problems:
             print(f"[红] {p}", file=sys.stderr)
-        return 1
+        return CONTENT_FAIL
 
     print(f"[绿] 已跟踪 {len(files)} 个文件：无 vendored 目录、忽略规则齐全、无超 5 MB 的大文件")
-    return 0
+    return OK
 
 
 def _cli() -> argparse.Namespace:

@@ -46,7 +46,15 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_sensitive import Hit, _repo_slug, scan_text  # noqa: E402
-from _common import EnvProblem, format_hit, read_event_payload, run  # noqa: E402
+from _common import (  # noqa: E402
+    CONTENT_FAIL,
+    ENV_FAIL,
+    OK,
+    EnvProblem,
+    format_hit,
+    read_event_payload,
+    run,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -124,11 +132,11 @@ def scan_records(records: list[tuple[str, str]], repo_slug: str | None) -> list[
 def _report(source: str, records: list[tuple[str, str]], hits: list[Hit]) -> int:
     if not hits:
         print(f"[绿] {source}：{len(records)} 条提交 message，无敏感信息命中")
-        return 0
+        return OK
     for hit in hits:
         print(format_hit(hit))
     print(f"[红] {source}：{len(records)} 条提交、命中 {len(hits)} 处。只显示打码值，原值不落日志")
-    return 1
+    return CONTENT_FAIL
 
 
 def main(argv: list[str] | None = None, runner=None) -> int:
@@ -142,7 +150,7 @@ def main(argv: list[str] | None = None, runner=None) -> int:
         return _self_test()
     if args.range and args.message_file:
         print("[红] --range 与 --message-file 只能二选一", file=sys.stderr)
-        return 2
+        return ENV_FAIL
 
     try:
         if args.message_file:
@@ -163,14 +171,14 @@ def main(argv: list[str] | None = None, runner=None) -> int:
             event = from_event()
             if event is None:
                 print("[SKIP] 无 PR 上下文（事件不是 pull_request，也未给 --range/--message-file）")
-                return 0
+                return OK
             base, head = event
             records = fetch_range(f"{base}..{head}", runner)
             source = "pull_request 事件载荷 base..head"
     except EnvProblem as exc:
         print(f"[红] {exc}", file=sys.stderr)
         print("[红] 取不到 commit message，拒绝报绿（#134）", file=sys.stderr)
-        return 2
+        return ENV_FAIL
 
     return _report(source, records, scan_records(records, _repo_slug()))
 
@@ -324,9 +332,9 @@ def _self_test() -> int:
 
     if bad:
         print(f"== 自检失败：{bad} / {total} 项 ==", file=sys.stderr)
-        return 2
+        return ENV_FAIL
     print(f"== 自检全绿：{total} 项 ==")
-    return 0
+    return OK
 
 
 if __name__ == "__main__":
