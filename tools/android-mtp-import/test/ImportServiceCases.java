@@ -150,10 +150,10 @@ final class ImportServiceCases {
      * 同一个 PR 交付，并由界面真正用上。
      */
     static void indexStoppedCases() throws Exception {
-        File src = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport");
+        File src = source("com/rea/mtpimport");
         String round = readSourceOrNull(new File(src, "RoundFiles.java"));
         String service = readSourceOrNull(new File(src, "ImportService.java"));
-        String gradle = readSourceOrNull(new File(System.getProperty("user.dir"), "gradle/self-test.gradle.kts"));
+        String gradle = readSourceOrNull(new File(REPO_ROOT, "gradle/self-test.gradle.kts"));
         check("已导入索引：写入方 rebuildIndex 已移除（#20 裁决 B）",
                 round != null && !round.contains("rebuildIndex"),
                 round == null ? "读不到 RoundFiles.java" : "仍有 rebuildIndex");

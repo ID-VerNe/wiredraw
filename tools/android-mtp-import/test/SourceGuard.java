@@ -12,6 +12,26 @@ import static com.rea.mtpimport.TestSupport.*;
 /** 源码文本护栏的公共件（#318 从 SelfTest.java 抽出）：读源码、递归扫文本、命中行解析。 */
 final class SourceGuard {
 
+    /**
+     * 仓库根（gradle 的 selfTest 以工程目录为工作目录）。
+     *
+     * 全仓**唯一**一处 `user.dir`：`src/` 根与完整源码路径都由它派生，不再让调用方各自拼字面量。
+     * 换工作目录或改产物布局时只改这里（#319）。
+     */
+    static final File REPO_ROOT = new File(System.getProperty("user.dir"));
+
+    /** 产品源码根 `src/`：递归扫描与单文件读取共用同一个根。 */
+    static final File SRC_ROOT = new File(REPO_ROOT, "src");
+
+    /** 按 `src/` 下的相对路径取源码文件；读不到由调用方判红，不在这里兜底。 */
+    static File source(String relPath) {
+        return new File(SRC_ROOT, relPath);
+    }
+
+    /**
+     * 读源码，读不到返回 null。**这是纯 JDK 自检里读源码的唯一入口**（#319）：
+     * 六处内联 `Files.readString` 一律走这里，免得 IO 兜底散成多份。
+     */
     static String readSourceOrNull(File f) {
         try {
             return Files.readString(f.toPath());

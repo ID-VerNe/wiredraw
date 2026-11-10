@@ -1,8 +1,6 @@
 package com.rea.mtpimport;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -222,7 +220,7 @@ final class UiStateCases {
         // 守卫行 `if (TopBarSpec.showsConnectionIndicator(model.state)) {` 与其后 ≤2 行的调用，
         // 两行都必须在 TransferScreen.kt（声明行 `(model: AppModel)` 不含右括号，不会误命中）。
         // 守卫被换成 `if (false)` → 守卫 0 命中；守卫与调用间再套一层 `if (false)` → 行距 2 变 3。
-        File uiDir = new File(new File(System.getProperty("user.dir"), "src"), "com/rea/mtpimport/ui");
+        File uiDir = new File(SRC_ROOT, "com/rea/mtpimport/ui");
         List<String> indicatorGuards = new ArrayList<>();
         List<String> indicatorCalls = new ArrayList<>();
         scanSourceText(uiDir, "if (TopBarSpec.showsConnectionIndicator(model.state)) {", null, indicatorGuards);
@@ -245,7 +243,7 @@ final class UiStateCases {
      * token 值本身由 `colorTokensCases` 与最后一条对比度断言守，别把源码扫描当强契约。
      */
     static void ringTrackCases() {
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> softTrack = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "drawCircle(UiColors.outlineSoft", null, softTrack);
         check("进度环轨道不再用 outlineSoft（白底 1.7:1，P1-3）",
@@ -265,14 +263,8 @@ final class UiStateCases {
      * 旧底色 `outlineSoft`（白底 1.70:1）不达标，改 `outline`（白底 4.47:1）。
      */
     static void scanLineCases() {
-        File lib = new File(System.getProperty("user.dir"),
-                "src/com/rea/mtpimport/ui/LibraryScreen.kt");
-        String src = null;
-        try {
-            src = Files.readString(lib.toPath());
-        } catch (IOException e) {
-            src = null;
-        }
+        File lib = source("com/rea/mtpimport/ui/LibraryScreen.kt");
+        String src = readSourceOrNull(lib);
         check("扫描细线底不再用 outlineSoft（白底 1.70:1，#265）",
                 src != null && !src.contains(".background(UiColors.outlineSoft)"),
                 src == null ? "读不到 " + lib : "仍在用 outlineSoft");
@@ -367,13 +359,8 @@ final class UiStateCases {
      * 行为保持不变，只把文案改成如实描述。
      */
     static void requestScanLogCases() {
-        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
-        String src;
-        try {
-            src = Files.readString(main.toPath());
-        } catch (IOException e) {
-            src = null;
-        }
+        File main = source("com/rea/mtpimport/Main.java");
+        String src = readSourceOrNull(main);
         check("传输中扫描准入：日志不再声称取消与重扫（#269）",
                 src != null && !src.contains("先取消再重扫"),
                 src == null ? "读不到 " + main : "旧文案仍在");

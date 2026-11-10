@@ -135,7 +135,7 @@ final class WallCases {
 
     /** F-09/F-20 的结构守卫：聚合与勾选订阅不得在页面里各写一份。 */
     static void derivedSourceCases() {
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> hits = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "group.count()", null, hits);
         check("组头聚合只在 PhotoWall：src 里 group.count() 0 命中", scanned > 0 && hits.isEmpty(),
@@ -225,7 +225,7 @@ final class WallCases {
 
     /** F-11 / F-16 / F-21 的结构守卫：排版与尺寸不得在页面里各写一份。 */
     static void typeSourceCases() {
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> hits = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "480.dp", null, hits);
         check("抽屉高度只在 Dims：src 里 480.dp 0 命中", scanned > 0 && hits.isEmpty(),
@@ -247,7 +247,7 @@ final class WallCases {
      * 各只允许有一份实现。页面里再抄一遍即红。
      */
     static void layoutShapeCases() {
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> hits = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "BottomCenter", "src/com/rea/mtpimport/ui/Widgets.kt", hits);
         check("抽屉骨架只在 Widgets：页面不得各写一份 BottomCenter", scanned > 0 && hits.isEmpty(),

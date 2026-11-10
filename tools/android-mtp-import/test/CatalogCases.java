@@ -185,7 +185,7 @@ final class CatalogCases {
                 "snapshot folder=" + snap.folderCount() + " files=" + snap.fileCount()
                         + " bytes=" + snap.fileBytes() + " raw=" + snap.rawCount());
 
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> hits = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "String isoDateOf(", null, hits);
         check("日期解析一处实现：isoDateOf 已删（全 src/ 0 命中）", scanned > 0 && hits.isEmpty(),
@@ -235,7 +235,7 @@ final class CatalogCases {
                         && tryRead(10, 0, (offset, want, buf) -> 1) == null,
                 "非正数参数仍进入读取");
 
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> hits = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "private static Bitmap decodeFull", null, hits);
         check("缩略图：decodeFull 已并入 decode(bytes, maxEdge)", scanned > 0 && hits.isEmpty(),
