@@ -148,5 +148,25 @@ final class DestCases {
                 SkipRule.check(new Journal(), r -> { probed[0] = true; return size; }, rel, size)
                         == SkipRule.Verdict.TODO && !probed[0],
                 "probed=" + probed[0]);
+
+        // 混合落点：相册写入失败会回退私有，探针只认相册会让回退成品每轮按 STALE 重下。
+        File outDir = Files.createTempDirectory("wiredraw-mixed").toFile();
+        File fallback = new File(outDir, rel);
+        Files.createDirectories(fallback.getParentFile().toPath());
+        Files.write(fallback.toPath(), new byte[]{1, 2, 3, 4, 5, 6, 7});
+        SkipRule.ProductProbe mixed = SkipRule.productProbe(
+                r -> "DCIM/IN_GALLERY.ARW".equals(r) ? size : -1L, outDir);
+        check("成品去向：混合探针相册命中优先（不被私有回退文件盖掉）",
+                mixed.sizeOf("DCIM/IN_GALLERY.ARW") == size,
+                "实际 " + mixed.sizeOf("DCIM/IN_GALLERY.ARW"));
+        check("成品去向：混合探针相册未命中时认私有回退成品",
+                mixed.sizeOf(rel) == 7L, "实际 " + mixed.sizeOf(rel));
+        check("成品去向：混合探针两边都没有 → -1（交给 STALE 重导）",
+                mixed.sizeOf("DCIM/NOWHERE.ARW") == -1L, "实际 " + mixed.sizeOf("DCIM/NOWHERE.ARW"));
+
+        Journal j2 = new Journal();
+        j2.markDone(1, 7L, 7L, rel);
+        check("成品去向：账本完成 + 私有回退成品 → SKIP（混合落点收敛，不重下）",
+                SkipRule.check(j2, mixed, rel, 7L) == SkipRule.Verdict.SKIP, "未 SKIP");
     }
 }

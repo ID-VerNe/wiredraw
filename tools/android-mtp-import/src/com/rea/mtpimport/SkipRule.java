@@ -71,4 +71,24 @@ public final class SkipRule {
         return DestPolicy.existingBySize(existing, size) == DestPolicy.Existing.SAME_SIZE
                 ? Verdict.SKIP : Verdict.STALE;
     }
+
+    /**
+     * 混合落点探针（issue #28 分节 PB）：先查相册条目，未命中再查私有 `outDir` 下的成品。
+     *
+     * 相册写入失败会按 {@link DestPolicy#writeFallbackReason} 回退私有（如视频暂不入 images 表）；
+     * 若探针只认相册，这些**已成功回退**的成品下一轮仍判 `STALE` 并整文件重下，
+     * 与 #177 的收敛口径冲突。回退成品仍在私有状态根下镜像 `relPath`，所以两种去向都要看。
+     */
+    public static ProductProbe productProbe(ProductProbe gallery, File outDir) {
+        return relPath -> {
+            long inGallery = gallery.sizeOf(relPath);
+            if (inGallery >= 0) return inGallery;
+            try {
+                File f = DestPolicy.resolve(outDir, relPath);
+                return f != null && f.isFile() ? f.length() : -1L;
+            } catch (IOException e) {
+                return -1L;
+            }
+        };
+    }
 }

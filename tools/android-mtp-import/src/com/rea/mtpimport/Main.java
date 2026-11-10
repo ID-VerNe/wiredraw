@@ -1120,7 +1120,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
                 ? new GalleryStore(getContentResolver(), log) : null;
         final ImportService round = new ImportService(
                 log, new MtpTransfer(s.device(), log, s.ioLock(), dest.kind, gallery), out);
-        if (gallery != null) round.setProductProbe(gallery::existingSize);
+        if (gallery != null) {
+            // 相册优先、私有兜底：回退私有的成品也要能被账本认出来，否则每轮整文件重下。
+            round.setProductProbe(SkipRule.productProbe(gallery::existingSize, out));
+        }
         service = round;
         // 回调转发与「迟到回调丢弃」收进纯 JDK 的 ImportRoundListener（G9a）；
         // 新一轮自然从 lastProgress == null 开始，不需要在这里手工清。
