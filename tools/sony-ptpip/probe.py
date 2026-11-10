@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import uuid
+from collections import namedtuple
 
 INIT_REQ, INIT_ACK, INIT_EVT_REQ, INIT_EVT_ACK, INIT_FAIL = 1, 2, 3, 4, 5
 OP_REQ, OP_RSP, EVENT = 6, 7, 8
@@ -312,103 +313,107 @@ def _positionals(argv):
     return out
 
 
-def main():
-    argv = sys.argv[1:]
+MAX_ATTEMPTS = 6
+RETRY_DELAY = 4.0
+
+# parse_args 的产物：已校验的位置参数与三个取值 flag，外加待打印的启动提示。
+Config = namedtuple("Config", "host limit replay guid notes")
+
+
+def parse_args(argv):
+    """解析 `sys.argv[1:]`，返回 `(Config, err)`；`err` 非空时由 main 打印并以 2 退出。
+
+    所有校验都在建立连接之前完成——错误参数一个字节都不发给相机（用例见
+    `tests/test_cli.py`）。错误以「可直接打印的多行字符串」返回，与
+    `parse_ptpip._parse_argv` 同一套约定，避免异常冒到栈顶。
+    """
     positional = _positionals(argv)
-    host = positional[0] if positional else None
-    if host is None:
-        print("缺相机 IP。用法：python probe.py <相机IP> --guid <已配对GUID> [--limit N] [--replay <文件>]")
-        print("配对 GUID 与 replay 文件的获取方法见 README §6。")
-        return 2
+    if not positional:
+        return None, (
+            "缺相机 IP。用法：python probe.py <相机IP> --guid <已配对GUID> "
+            "[--limit N] [--replay <文件>]\n"
+            "配对 GUID 与 replay 文件的获取方法见 README §6。")
+    host = positional[0]
+
     limit = 80
     if "--limit" in argv:
         i = argv.index("--limit")
         if len(argv) <= i + 1 or argv[i + 1].startswith("-"):
-            print("--limit 必须显式给整数，例如 --limit 80。")
-            return 2
+            return None, "--limit 必须显式给整数，例如 --limit 80。"
         try:
             limit = int(argv[i + 1])
         except ValueError:
-            print(f"--limit 需要整数，收到 {argv[i + 1]!r}；例如 --limit 80。")
-            return 2
+            return None, f"--limit 需要整数，收到 {argv[i + 1]!r}；例如 --limit 80。"
 
+    notes = []
     replay = None
     if "--replay" in argv:
         i = argv.index("--replay")
         if len(argv) <= i + 1:
-            print("用法：python probe.py <相机IP> --guid <已配对GUID> [--limit N] [--replay <IED 握手 payload 文件>]")
-            print("--replay 必须显式给路径，仓库里没有默认文件。")
-            print("文件内容 = Init_Command_Request 的 data 段，去掉空白后的连续十六进制字符串")
-            print("（无 0x 前缀）。它含配对凭据，不随仓库分发；生成方法见 README §6。")
-            return 2
+            return None, (
+                "用法：python probe.py <相机IP> --guid <已配对GUID> [--limit N] "
+                "[--replay <IED 握手 payload 文件>]\n"
+                "--replay 必须显式给路径，仓库里没有默认文件。\n"
+                "文件内容 = Init_Command_Request 的 data 段，去掉空白后的连续十六进制字符串\n"
+                "（无 0x 前缀）。它含配对凭据，不随仓库分发；生成方法见 README §6。")
         p = argv[i + 1]
         try:
             replay = open(p).read().strip()
             size = len(bytes.fromhex(replay))
         except OSError as e:
-            print(f"找不到 replay 文件：{p}（{e}），生成方法见 README §6")
-            return 2
+            return None, f"找不到 replay 文件：{p}（{e}），生成方法见 README §6"
         except ValueError as e:
-            print(f"replay 文件内容不是有效十六进制：{p}（{e}），生成方法见 README §6")
-            return 2
+            return None, f"replay 文件内容不是有效十六进制：{p}（{e}），生成方法见 README §6"
         # 空文件不抛异常：bytes.fromhex("") 返回 0 字节，会一路进握手重试。
         # 与其让相机端超时 6 次，不如当场判空并给指引。
         if not replay:
-            print(f"replay 文件内容为空：{p}，生成方法见 README §6")
-            return 2
-        print(f"[0] 用 IED 原始握手 payload 重放（{size} 字节）")
+            return None, f"replay 文件内容为空：{p}，生成方法见 README §6"
+        notes.append(f"[0] 用 IED 原始握手 payload 重放（{size} 字节）")
 
     guid = None
     if "--guid" in argv:
         i = argv.index("--guid")
         if len(argv) <= i + 1 or argv[i + 1].startswith("-"):
-            print("--guid 必须显式给值：它就是你本机 IED 首次配对时用过的 GUID，获取方法见 README §6。")
-            return 2
+            return None, ("--guid 必须显式给值：它就是你本机 IED 首次配对时用过的 GUID，"
+                          "获取方法见 README §6。")
         guid = argv[i + 1]
         if not _guid_ok(guid):
-            print(f"--guid 形态不对：{guid!r}。必须是 16 字节 ASCII（形如 xxxxxxxx-xxxx-xx，"
-                  f"实际 {len(guid)} 字节）。")
-            print("获取方法见 README §6；真实值不要写进仓库。")
-            return 2
+            return None, (
+                f"--guid 形态不对：{guid!r}。必须是 16 字节 ASCII（形如 xxxxxxxx-xxxx-xx，"
+                f"实际 {len(guid)} 字节）。\n"
+                "获取方法见 README §6；真实值不要写进仓库。")
 
     if replay is None and guid is None:
-        print("缺握手凭据：请用 --guid 传入你自己配对得到的 GUID，或用 --replay 重放 IED 的原始握手。")
-        print("获取方法见 README §6；相机不在线时不要尝试连接。")
-        return 2
+        return None, ("缺握手凭据：请用 --guid 传入你自己配对得到的 GUID，"
+                      "或用 --replay 重放 IED 的原始握手。\n"
+                      "获取方法见 README §6；相机不在线时不要尝试连接。")
+    return Config(host, limit, replay, guid, tuple(notes)), None
 
-    # 相机偶尔会因为上一轮的残留会话直接拒握手，退避重试几次。
-    c, conn, cam = None, None, None
+
+def connect_with_retry(host, cfg):
+    """六次握手退避：相机偶尔会因上一轮残留会话直接拒握手。
+
+    成功返回 `(PtpIp, connection, 相机名)`；六次全失败抛 `RuntimeError`，
+    由 main 收敛成一行提示 + 退出码 1。
+    """
     last = None
-    for attempt in range(1, 7):
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        c = None
         try:
             c = PtpIp(host)
-            conn, cam = c.init(replay=replay, guid=guid)
-            break
+            conn, cam = c.init(replay=cfg.replay, guid=cfg.guid)
+            return c, conn, cam
         except Exception as e:
             last = e
             print(f"[!] 第 {attempt} 次握手失败: {e}")
             if c:
                 c.cmd.close()
-            c = None
-            time.sleep(4)
-    if c is None:
-        print(f"\n放弃：{last}")
-        return 1
-    print(f"[1] 命令通道握手 OK → 相机 {cam!r}  connection={conn} (0x{conn:08X})")
+            time.sleep(RETRY_DELAY)
+    raise RuntimeError(f"放弃：{last}")
 
-    c.open_event_channel(conn)
-    print(f"[2] 事件通道已建立（第二条 TCP，body=connection number）")
 
-    rc, _, _ = c.op(OP["OpenSession"], [1], timeout=12)
-    print(f"[3] OpenSession(1) → {RC.get(rc, hex(rc))}")
-    if rc != 0x2001:
-        print("    会话打不开：先结束 IED 的 Remote/ied/Viewer 进程再试")
-        c.close()
-        return 1
-
-    print("[3.5] 索尼私有引导序列：")
-    ok = c.sony_init()
-
+def read_storage_ids(c):
+    """GetStorageIDs；失败时逐条试探替代枚举路径，返回 None 让调用方收口。"""
     rc, data, _ = c.op(OP["GetStorageIDs"], data_in=True)
     if rc != 0x2001:
         print(f"[4] GetStorageIDs → {RC.get(rc, hex(rc))}")
@@ -426,11 +431,14 @@ def main():
                 print(f"      {label:<42} → {RC.get(r, hex(r))}  data={len(d)}B prm={p}")
             except Exception as e:
                 print(f"      {label:<42} → 异常 {e}")
-        c.close()
-        return 1
+        return None
     storages = u32_array(data)
     print(f"[4] 存储介质: {[hex(s) for s in storages]}")
+    return storages
 
+
+def read_object_handles(c, storages):
+    """逐个介质取 GetObjectHandles，返回 [(storage, handle)] 的扁平列表。"""
     all_handles = []
     for st in storages:
         rc, data, _ = c.op(OP["GetObjectHandles"], [st, 0, 0xFFFFFFFF], data_in=True)
@@ -440,35 +448,93 @@ def main():
         hs = u32_array(data)
         print(f"[5] 介质 {hex(st)}: {len(hs)} 个对象")
         all_handles += [(st, h) for h in hs]
+    return all_handles
 
-    if not all_handles:
-        print("\n卡里没枚举到对象。可能相机处于 PC Remote 模式只暴露待拍句柄，")
-        print("试试把相机的 USB 连接模式切到「Mass Storage」或退出遥控模式。")
-        c.close()
-        return 0
 
-    print(f"\n合计 {len(all_handles)} 个对象，取前 {min(limit, len(all_handles))} 个的 ObjectInfo：\n")
-    print(f"{'storage':>9} {'handle':>10} {'格式':>5} {'大小MB':>8} {'尺寸':>11}  文件名")
-    for st, h in all_handles[:limit]:
+def collect_rows(c, handles, limit):
+    """逐对象取 ObjectInfo，返回可渲染的行：(storage, handle, info, 失败原因)。"""
+    rows = []
+    for st, h in handles[:limit]:
         rc, data, _ = c.op(OP["GetObjectInfo"], [h], data_in=True)
         if rc != 0x2001:
-            print(f"{hex(st):>9} {h:>10}  失败 {RC.get(rc, hex(rc))}")
+            rows.append((st, h, None, f"失败 {RC.get(rc, hex(rc))}"))
             continue
         oi = object_info(data)
+        rows.append((st, h, oi, "" if oi else f"解析失败 len={len(data)}"))
+    return rows
+
+
+def render_report(rows, evt_log, total):
+    """打印 ObjectInfo 表格与期间收到的事件。`total` 是枚举到的对象总数。"""
+    print(f"\n合计 {total} 个对象，取前 {len(rows)} 个的 ObjectInfo：\n")
+    print(f"{'storage':>9} {'handle':>10} {'格式':>5} {'大小MB':>8} {'尺寸':>11}  文件名")
+    for st, h, oi, why in rows:
         if not oi:
-            print(f"{hex(st):>9} {h:>10}  解析失败 len={len(data)}")
+            print(f"{hex(st):>9} {h:>10}  {why}")
             continue
         print(f"{hex(st):>9} {h:>10} {FMT.get(oi['format'], hex(oi['format'])):>5} "
               f"{oi['size']/1048576:>8.2f} {str(oi['w'])+'x'+str(oi['h']):>11}  {oi['name']}")
 
-    if c.evt_log:
-        print(f"\n期间收到 {len(c.evt_log)} 个事件（前 10 个）：")
-        for code, prm in c.evt_log[:10]:
+    if evt_log:
+        print(f"\n期间收到 {len(evt_log)} 个事件（前 10 个）：")
+        for code, prm in evt_log[:10]:
             print(f"  0x{code:04X} {prm}")
 
-    c.close()
-    print("\n已关闭会话。")
-    return 0
+
+def run_session(c, conn, cam, cfg):
+    """OpenSession → 索尼私有引导 → 枚举 → 报告。
+
+    返回 `(退出码, 是否走完报告)`：只有走完报告的路径由 main 补一句「已关闭会话。」，
+    其余分支（会话打不开 / 介质取不到 / 卡里没对象）保持原有提示与退出码。
+    """
+    print(f"[1] 命令通道握手 OK → 相机 {cam!r}  connection={conn} (0x{conn:08X})")
+    c.open_event_channel(conn)
+    print(f"[2] 事件通道已建立（第二条 TCP，body=connection number）")
+
+    rc, _, _ = c.op(OP["OpenSession"], [1], timeout=12)
+    print(f"[3] OpenSession(1) → {RC.get(rc, hex(rc))}")
+    if rc != 0x2001:
+        print("    会话打不开：先结束 IED 的 Remote/ied/Viewer 进程再试")
+        return 1, False
+
+    print("[3.5] 索尼私有引导序列：")
+    c.sony_init()
+
+    storages = read_storage_ids(c)
+    if storages is None:
+        return 1, False
+
+    handles = read_object_handles(c, storages)
+    if not handles:
+        print("\n卡里没枚举到对象。可能相机处于 PC Remote 模式只暴露待拍句柄，")
+        print("试试把相机的 USB 连接模式切到「Mass Storage」或退出遥控模式。")
+        return 0, False
+
+    render_report(collect_rows(c, handles, cfg.limit), c.evt_log, len(handles))
+    return 0, True
+
+
+def main():
+    cfg, err = parse_args(sys.argv[1:])
+    if err:
+        print(err)
+        return 2
+    for note in cfg.notes:
+        print(note)
+
+    try:
+        c, conn, cam = connect_with_retry(cfg.host, cfg)
+    except RuntimeError as e:
+        print(f"\n{e}")
+        return 1
+
+    try:
+        code, reported = run_session(c, conn, cam, cfg)
+    finally:
+        c.close()
+    if reported:
+        print("\n已关闭会话。")
+    return code
 
 
 if __name__ == "__main__":
