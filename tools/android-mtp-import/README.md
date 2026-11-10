@@ -29,7 +29,7 @@
 | 先看「现在能用到什么程度」 | 「它现在能做什么」的能力表 |
 | 理解代码分层与类职责 | 「类职责」（**非穷举**，纯 JDK / `import android.*` 的边界以 `gradle/self-test.gradle.kts` 的 `pureJdkClasses` 为准） |
 | 构建、自检、装到手机 | 「构建与自检」→「安装运行」 |
-| 验收前在真机上跑一遍 | 「真机待验清单」 |
+| 验收前查某条能力验没验过 | [验证环境矩阵 §四](../../docs/verification-matrix.md)（本文件只留复现命令） |
 | 想知道本轮明确不做什么 | 「待建清单」 |
 | 查界面规则本身 | [UI-SPEC.md](UI-SPEC.md)（界面约束与验收断言的唯一归属） |
 
@@ -367,108 +367,35 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
    一出现就发布快照（之后每 200 个对象一次），照片墙先可用，剩余对象在后台静默补齐；
    补齐期间主 CTA 禁用（扫描与导入不能在同一 MTP 会话上并行发命令）。
 
-## 真机待验清单（验收前必须在 ILCE-7C 上跑）
+## 真机验收状态（2026-11-06 快照，已停更）
 
-- [x] 插线后 App 自动拉起、自动拿到 USB 权限（不弹窗）；**首次**要在系统弹窗里勾一次「一律打开」，
-      应用侧没有正规接口能绕过这一步（#17）。实测 2026-11-05 18:48：插回后 `permissions_manager`
-      只有既有 `uids=10269`，日志无 `尚无 USB 权限，发起申请`
-- [x] 插线或冷启动时自动开始扫描，不需要手动点 `Connect camera`；同一次插拔重复投递两次也不得开两个会话（#17）。
-      实测 2026-11-05 18:48：广播路径 `→ 开始扫描`，attach intent 路径 `→ 扫描已在进行中，忽略本次重复事件`，
-      单次会话扫出 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`
-- [ ] 扫描完成，照片墙的日期组 / 照片数与卡内一致（探针对照值：1526 对象 / 503 文件夹 / 511 ARW）；
-      顶栏计数胶囊 = 511，`Import all 511` 与计数胶囊同分母（U-53）
-- [ ] 渐进加载（#60）：插线后**首批 ARW 出现即**看到照片墙，不必等满 1526 个对象；
-      顶栏下方 2 dp 细线推进、临时 `Cancel` 可点、主 CTA 禁用；补齐完成后细线与 `Cancel` 消失、
-      CTA 启用、计数胶囊从中间值变为 511；点 `Cancel` 必须丢弃部分结果回 `COLD` —— **未验**
-      （2026-11-06 相机被另一会话探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
-- [ ] 渐进态取消不得误删上一轮完整结果：扫完一轮 → 拔插重扫 → 在 `SCANNING` 的
-      `session.open()` / `storageIds()` 窗口点 `Cancel` → 回照片墙后 `Import all N` 仍能进
-      `IMPORTING`（日志不得出现「先扫描」）—— **未验**（同上，相机被占用）
-- [ ] 缩略图（#59）：照片墙格子必须显示真实缩略图，不是灰块 + 文件名；格子滚出可视区后
-      位图必须被移出缓存（滚回会重新发 `getThumbnail`，属预期，不是重复请求缺陷）；
-      内存里最多 24 MiB 位图（LRU 兜底）。
-      ARW 句柄 `getThumbnail` 若不支持，日志出现 `ARW 缩略图失败` 但**同名 JPG** 回退成功；
-      两者都没有时才退回 V-19 灰块，且**不得**崩溃 —— **未验**（2026-11-06 相机被另一会话
-      探针占用：`ResumedActivity=com.rea.mtpprobe/.Main`，本轮未动真机）
-- [ ] 看图页（#61）：长按任一格进入 `photo` 页，必须出现该张照片的像素（全幅 `Fit`），
-      不是只有黑底 + `ARW · <size>` 胶囊；加载中与失败时才保持胶囊，**不得**出现占位块/假图；
-      返回再进同一张不重复读相机（8 MiB 预览缓存）；拔线/会话挂起时退回胶囊且不崩
-      —— **未验**（同上，相机被占用）
-- [ ] 点格切换已选（`Import all N` ↔ `Import N`；已选 0 时主 CTA 仍可点 = 全部 ARW，见下一条），长按格子进 `photo` 页
-      （有像素时全幅 `Fit`，否则单行 `ARW · <size>` 胶囊）；组头可折叠，过滤抽屉只改可见集、
-      不改计数胶囊与 `Import all N` 分母
-- [ ] 空勾选点主 CTA（#80）：照片墙刚出现、一格都不勾时点 `Import all 511`，必须进入 `IMPORTING`，
-      日志出现 `计划：511 个文件 / 12766800000 字节`（不得再出现「没有勾选任何文件」）；计划只含 ARW、
-      不含同目录 JPG（511 个而不是 1023 个）；剩余空间不足时按 `P-09` 禁用 CTA + 一行 `Low space`
-      —— **未验**（本轮按任务约束未装包、未碰真机；空勾选路径此前没有单独上过真机，验收留到 #80 的真机复验）
-- [ ] 日期组一键全选（#62）：组头整行长按 500 ms → 本组全部 ARW 进入 `V-11` 已选态，CTA 变为
-      `Import <组内张数>`；再长按 → 全不选、CTA 回 `Import all 511`；部分选中时长按**补齐**（不反选）；
-      折叠组长按后自动展开；`uiautomator dump` 里组头高度 ≥48 dp 且带 `long-clickable`，
-      组头文字不新增、网格内无 per-cell 标记 —— **未验**（同上，设备被另一会话占用）
-- [x] 点 `Import all N` → 进入 `IMPORTING`，真实传输落盘到 `files/imported/<relPath>`，每个文件字节数
-      与相机侧 `ImportPlan.Item.size` 一致（PA / issue #50）
-      —— 2026-11-06 实测：`DSC04541.ARW` 25393920 字节，落盘一致，文件头 `49 49 2a 00`
-- [x] 同一批照片再点一次 `Import all N`：日志必须出现 `Skipped N existing`，不重复搬字节（PA / issue #50）
-      —— 2026-11-06 实测：`Skipped 1 existing`（4 张里 3 张新传、1 张跳过）
-- [x] 导入中（第 1 张还没传完）点 `Pause`：当前这张必须传完并落盘，进度停在文件边界，后续文件不启动；
-      点 `Resume` 从下一个文件继续（PB / issue #50）
-      —— 2026-11-06 实测：58%（33/57）时界面切到 `Resume`/`Cancel`；恢复后日志出现
-      `继续已暂停的一轮`，从下一张 `DSC02705` 继续，`Skipped 30 existing`
-- [x] `Pause & exit` 回照片墙后，已完成的文件不再重传，再点 `Import all N` 会继续被暂停的那轮；
-      期间不得被迟到的进度回调拽回 `IMPORTING`（#48 / PB）
-      —— 2026-11-06 实测：`Pause & exit` 后回照片墙，再点 `Import` 继续同一轮，未回跳 `IMPORTING`
-      —— 2026-11-06 三审 B-1 复核：`Pause & exit` 后停 **90 秒**再点 `Import`，恢复前只读探活通过
-      （日志无「恢复前探活失败」），`继续已暂停的一轮`，剩余 2 张继续落盘，`完成 3 / 跳过 0 / 失败 0`
-      （ILCE-7C 2.00 / MI 9 / Android 15 API 35 / USB MTP）
-- [ ] `Pause & exit` 回照片墙后**改勾选 / filter / 档位**再点 `Import N`：必须按新计划重开一轮
-      （日志 `暂停轮次的清单已变化（旧 N 个 / 新 M 个）：取消旧轮次，按当前勾选重新开始`），
-      不得把新勾选静默忽略、也不得继续跑旧清单；已完成文件仍由 Journal 跳过（#57）
-      —— **未验**（相机已断开，判定的纯逻辑由 SelfTest 覆盖）
-- [x] 导入中点 `Cancel`：当前 `importFile` 在本次机型约 0.6 s 返回（不是等整张传完；
-      回到照片墙；再次导入必须重传被取消的那个文件（`import-journal.txt` 里不得留下它）
-      —— 2026-11-06 实测：`DSC02707.ARW` 取消后 `已取消（未传满，半成品已删除）`、
-      `[CANCELLED]`、无 `[OK]`；随后同一会话的下一轮把它正常传完并记账，`.part` 无残留
-- [x] 取消后同一会话继续导入是否可用（pfd 关闭中断原生读，MTP 会话可能失步）：
-      下一轮开始前会用只读 `getObjectInfo(handle)` 探活，失败必须落 `ERROR`（不是整轮全失败才发现）
-      —— 2026-11-06 实测：取消后立即再导入，探活通过、无 `ERROR`，继续落盘 7 张
-- [ ] 续传停用止血（#177）：导入中断线 / 杀进程，`files/imported/` 留下
-      `<relPath 压平>.<size>.part` 残留；重新插线再点 `Import N`，日志必须出现
-      「作废旧半成品（… 续传已停用，从 0 重传）」，且成品 MD5 与整文件传输一致；
-      **不得**出现「发现半成品：… 从断点续传」，也不得把满尺寸残渣直接 rename 当成品
-      —— **未验**（本轮设备被另一会话独占；控制流由 SelfTest 的「忽略 offset」假 reader 覆盖）
-- [ ] 若 `pfd.close()` 打不断原生调用（`MtpTransfer` 未验项）：取消宽限 3 秒后必须判定「卡死」，
-      点 `Import` 落 `ERROR`（`相机连接可能已失步，请拔插数据线`）；旧 worker 未退出前
-      `Connect camera` / 新导入都必须保持 `ERROR`（不得 `session.close()` 撞上原生调用），
-      且旧轮迟到 `finally` 不得覆写 `import-journal.txt`
-      —— **未验**（2026-11-06 实测 pfd 关闭约 0.6 s 就返回，没造出卡死条件；放弃逻辑由 SelfTest 覆盖）
-- [ ] 暂停恰好落在最后一个文件、且用户已 `Pause & exit`：worker 在文件边界正常结束，
-      `onFinished(cancelled=false)` 不得把停在照片墙的界面拽回 `DONE` —— **未验**（时窗太短，三次尝试都没卡进这个边界；逻辑由 `model.getTransferViewClosed()` 分支覆盖）
-- [ ] 3 秒宽限是按「与扫描重试 3 秒口径一致」取的，不是实测推导：**慢取消**（原生调用超过 3 秒才返回）
-      会被误判成「取消卡死」，后果是落 `ERROR` 并要求拔插数据线（正常约 0.6 s，未造出慢取消）——**未验**
-- [ ] 拔线重插后能重新扫描（会话重建）
-- [ ] `SCANNING` 点 `Cancel` 必须停在 `COLD`（已有照片墙则回 `CATALOG_READY`），且此后再点
-      `Connect camera` 能重新开始扫描，**不得**出现「扫描已在进行中，忽略本次重复事件」（U-06 / P-02）
-- [ ] `Cancel` 后**立刻**点 `Connect camera` 只在扫描线程退出后才成立：`MtpDevice.open()` 可能阻塞较久
-      （会话结束后相机会挂起 USB，口径见 `AGENTS.md` §4），这个窗口内仍可能拿到「扫描已在进行中」——**未验**
-- [ ] `onDestroy` 的竞态（PD / issue #50）：先 `cancel` 传输与扫描，再 1 s 有界 join；
-      全部退出才 `session.close()`，否则跳过并记日志（1 s 预算）——**未验**（逻辑由 `ImportService.awaitWorker`
-      的 SelfTest 覆盖，真机尚未造出「取消打不断原生调用」窗口）
-- [ ] `Main.awaitPermission` 的「判取消」与 `Main.requestPermission` 非原子，
-      取消后仍可能弹一次系统权限框——**未验**
-- [ ] 连续两次申请 USB 权限并在两次系统弹窗都点**拒绝**：第二次必须等回调/超时后落到 `ERROR`
-      并提示 `未获得 USB 权限`，**不得**出现 `openDevice() 返回 null`
-      （#11：2026-11-05 用同源、不同包名的副本验过；原包要验得先让系统清掉它的 USB 授权，
-      目前只在拔插后才会清，故留给下次真机）
-- [ ] `P-09` 导入前空间预检（PD / issue #50）：目标剩余空间 < 计划 + 5% 缓冲时主 CTA 必须禁用、
-      上方出现一行 `Low space`、差额进 `Location details`；空间恢复（删文件）后勾选变化必须重新放行
-      —— **未验**（逻辑由 SelfTest 覆盖；真机未造出低空间条件）
-- [ ] 逐文件失败上报（PD / issue #50）：制造一个单文件失败（拔线/相机休眠），`Location details`
-      必须固定显示 `Failed: <relPath> · <原因>`，不被后续日志挤掉；DONE 首屏不得出现 `Failed N`
-      —— **未验**
-- [ ] 单文件重试（PD / issue #50）：首次 `importFile` 失败后必须自动重试 1 次（重试也从 0 重写，#177），
-      重试成功仍记完成；连续失败只累计 `failed`，不得无限重试或整轮自动重跑
-      —— **未验**（SelfTest 覆盖「首次失败→第二次成功」与「全失败恰好 2 次」）
-- [ ] `import-journal.txt` 能写出来且格式可读（结构见 `Journal` javadoc）
+> **逐条待验状态、证据与复现动作见[验证环境矩阵 §四](../../docs/verification-matrix.md)。**
+> 本节曾是逐条打勾的验收台账，2026-11-06 之后停更：相机被另一会话的探针占用
+> （`ResumedActivity=com.rea.mtpprobe/.Main`），后续条目没有再动真机。31 条勾选记录已按
+> `AGENTS.md` §3「单点快照只留一处」删除，本文件不再维护第二份清单——两处各写一份时，
+> 同一能力会同时出现「通过」与「未验」两种相反结论。
+
+停更前的两轮实测留下这些本工具专有数值（仍被 #50 / #177 等回签引用）：
+
+- 单张 ARW 落盘 `25,393,920` 字节、与相机侧 `ImportPlan.Item.size` 一致，文件头 `49 49 2a 00`
+- 同一批照片再导一次打 `Skipped 1 existing`，不重复搬字节
+- 暂停落在 58%（33/57）时界面切 `Resume` / `Cancel`，恢复后从下一张 `DSC02705` 继续
+- `Cancel` 后本次机型约 0.6 s 从 `importFile` 返回（不等整张传完），`.part` 无残留
+- `Pause & exit` 后停 90 秒再点 `Import`：只读探活通过，`继续已暂停的一轮`，剩余 2 张继续落盘
+
+本工具特有的复现动作（矩阵 §四 4.2 的「复现动作」列给的是通用入口，下面是导片工具专有命令）：
+
+```bash
+# 冷启动 + 扫描（约 70 s 出全量）
+adb logcat -c && adb shell am force-stop com.rea.mtpimport && adb shell am start -n com.rea.mtpimport/.Main && adb logcat -d -s MTPIMPORT:*
+# 落盘结果与跨会话账面
+adb exec-out run-as com.rea.mtpimport ls -l files/imported
+adb exec-out run-as com.rea.mtpimport cat files/imported/import-journal.txt
+# DONE / ERROR 态的 Location details（逐文件失败、低空间差额）
+adb exec-out uiautomator dump /dev/tty
+# 拔线重扫（会话重建）
+adb shell am force-stop com.rea.mtpimport && adb shell am start -n com.rea.mtpimport/.Main
+```
 
 > **放弃卡死轮次的代价（三审 B-2）**：`ImportService.run()` 只在开始时 `loadJournal()` 一次，
 > `markDone` 只改内存，`saveJournal()` 在 `finally` 整文件覆写。被放弃的轮次跳过保存，意味着
@@ -477,9 +404,6 @@ demo 走同一条 `loadPreview` 的 demo 分支取整图。
 >
 > **异常处置（三审建议）**：`orphanService` 的 worker 不退出时，界面唯一出路是 `Connect camera`
 > 重扫（会保持 `ERROR`，不会死键）；物理拔插数据线是唯一恢复手段。若拔插后仍不退出，只能杀进程重启。
-
-> 已删除的旧条目（「目录树层级 + 已勾选计数」「`MAX_ROWS = 800` 未显示提示」「点『开始导入』」）
-> 属于本轮前的目录树界面，已被照片墙取代，不再适用。
 
 ## 待建清单（本轮不做，后续 issue 排期）
 

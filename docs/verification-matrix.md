@@ -36,9 +36,9 @@
 |---|---|---|---|
 | 枚举（`open` → `getStorageIds` → 全量 `getObjectHandles` → 逐个 `getObjectInfo`） | 通过 2026-11-04（[主报告 §12.2](research/a7c-usb-raw-2026-11.md) 记录 1526 个对象全覆盖） | 未验证（PC 探针只记录了抽样对象的 `getPartialObject` 语义，没有全量枚举的原始输出） | 未验证 |
 | 下载与完整性（字节数 + MD5 + TIFF 文件头） | 通过 2026-11-04（[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06（[探针 README「PC 探针」](../tools/android-mtp-probe/README.md)） | 未验证 |
-| 插线自动拉起（`ACTION_USB_DEVICE_ATTACHED` → 自动授权 → 扫描） | 通过 2026-11-05 18:48（[导片工具 README「真机待验清单」第 1 项](../tools/android-mtp-import/README.md)；这一批实测的机型 / Android / 连接方式见 [UI-SPEC §0.11 第 7 行](../tools/android-mtp-import/UI-SPEC.md)：ILCE-7C fw2.00 / 魅族 20 Infinity / Android 15 API 35 / USB MTP） | 未验证 | 未验证 |
-| 冷启动检测（`autoScanOnLaunch`）+ 同一次插拔去重 | 通过 2026-11-05 18:48（同上第 2 项：广播路径「→ 开始扫描」，attach 路径「→ 扫描已在进行中」，单次会话 1526 对象；同一批次的机型出处同上格） | 未验证 | 未验证 |
-| 首次系统授权（勾一次「一律打开」，之后静默） | 通过 2026-11-05 18:48（[导片工具 README「真机待验清单」第 1 项](../tools/android-mtp-import/README.md)：`permissions_manager` 只有既有 `uids`，日志无「尚无 USB 权限，发起申请」；「首次必须勾一次」这一系统约束见 [UI-SPEC §0.11 第 7 行](../tools/android-mtp-import/UI-SPEC.md)） | 未验证 | 未验证 |
+| 插线自动拉起（`ACTION_USB_DEVICE_ATTACHED` → 自动授权 → 扫描；#17） | 通过 2026-11-05 18:48（[UI-SPEC §0.11 第 7 行](../tools/android-mtp-import/UI-SPEC.md)：插回后系统不再弹授权、只起 1 次扫描，attach intent 走「→ 扫描已在进行中，忽略本次重复事件」；五项环境即该行记录的 ILCE-7C fw2.00 / 魅族 20 Infinity / Android 15 API 35 / USB MTP） | 未验证 | 未验证 |
+| 冷启动检测（`autoScanOnLaunch`）+ 同一次插拔去重（#17） | 通过 2026-11-05 18:48（同上行：广播路径「→ 开始扫描」、attach 路径「→ 扫描已在进行中，忽略本次重复事件」；单次会话 `待扫描对象共 1526 个`、`扫描完成：文件夹 503 个、文件 1023 个（合计 12.75 GB，其中 ARW 11.89 GB）`） | 未验证 | 未验证 |
+| 首次系统授权（勾一次「一律打开」，之后静默；#17） | 通过 2026-11-05 18:48（同上行：`permissions_manager` 只有既有 `uids=10269`，日志无「尚无 USB 权限，发起申请」；「首次必须勾一次」是系统侧约束，同见该行） | 未验证 | 未验证 |
 | 吞吐 | 通过 2026-11-04：21.43 MB/s（73.29 MB / 3.42 s，[主报告 §12.3](research/a7c-usb-raw-2026-11.md)） | 通过 2026-11-06：22.86 MB/s（`getPartialObject` 分块；App 侧该路径已在 #177 停用，现走 `importFile` 整文件） | 未验证 |
 
 ## 二、Wi‑Fi PTP/IP 路线
