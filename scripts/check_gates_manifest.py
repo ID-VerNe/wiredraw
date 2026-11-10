@@ -26,7 +26,6 @@ from __future__ import annotations
 import contextlib
 import copy
 import io
-import json
 import re
 import subprocess
 import sys
@@ -34,7 +33,15 @@ import tempfile
 import types
 from pathlib import Path
 
-from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, resolve_python, run
+from _common import (
+    CONTENT_FAIL,
+    ENV_FAIL,
+    OK,
+    EnvProblem,
+    load_json_file,
+    resolve_python,
+    run,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "gates.json"
@@ -58,15 +65,10 @@ FLAG_TOKEN = re.compile(r"--[a-z][a-z0-9-]*|-[A-Za-z]")
 
 
 def load() -> dict:
-    # 清单读不到 / 不是 JSON 都是「这次检查没做成」，抛 EnvProblem 由 main 映射成退出码 2（#204）。
-    try:
-        text = MANIFEST.read_text(encoding="utf-8")
-    except OSError as e:
-        raise EnvProblem(f"读不到 {MANIFEST.relative_to(ROOT)}：{e.strerror or e}") from e
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        raise EnvProblem(f"gates.json 不是合法 JSON：{e}") from e
+    # 读不到 / 不是 JSON 都是「这次检查没做成」，由共享层抛 EnvProblem、main 映射成退出码 2（#204）。
+    # 形状问题**不在**这里判：清单本身不合规交给 check_cmd_contract 报内容不合规（退 1），
+    # 避免形状问题变成异常栈（#139）。读取机械段收口到 `_common.load_json_file`（#312）。
+    return load_json_file(MANIFEST)
 
 
 def render(data: dict) -> str:
@@ -487,6 +489,12 @@ def self_test() -> int:
     check(
         "#204：子进程走共享层 run()",
         "from _common import" in manifest_src and "subprocess.run" + "(" not in manifest_src,
+    )
+    # #312：清单的读+解析收口到共享层，本文件只保留「形状问题报 1」这条策略差异。
+    check(
+        "#312：清单读取机械前缀走共享层 load_json_file",
+        "load_json_file(MANIFEST)" in manifest_src
+        and "MANIFEST.read_text" + "(encoding=" not in manifest_src,
     )
 
     real_manifest = MANIFEST
