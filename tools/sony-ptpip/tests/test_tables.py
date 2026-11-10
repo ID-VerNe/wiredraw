@@ -47,4 +47,18 @@ frame_names = getattr(parse_ptpip, "FRAME_NAMES", {})
 missing = [t for t in range(1, 15) if t not in frame_names]
 check("帧类型 1..14 均具名", not missing, f"缺失={missing}")
 
+# 6) 帧长上界：两条排障链路必须用同一个值，且不许再退回裸字面量（#315）。
+#    旧形态是 1<<24 / 1<<27 十六进制字面量，这里写成算式，避免本文件自己命中
+#    「工具目录里不许出现上界字面量」这条断言。
+_OLD_BOUND_LITERALS = tuple(f"0x{n:x}" for n in (1 << 24, 1 << 27))
+probe_max = getattr(probe, "MAX_FRAME_LEN", None)
+parse_max = getattr(parse_ptpip, "MAX_FRAME_LEN", None)
+check("两处 MAX_FRAME_LEN 一致", probe_max is not None and probe_max == parse_max,
+      f"probe={probe_max!r} parse={parse_max!r}")
+
+literal_hits = [(name, tok) for name in ("probe.py", "parse_ptpip.py")
+                for tok in _OLD_BOUND_LITERALS
+                if tok in (ROOT / name).read_text(encoding="utf-8")]
+check("帧长上界无裸字面量", not literal_hits, f"命中={literal_hits}")
+
 sys.exit(summary())
