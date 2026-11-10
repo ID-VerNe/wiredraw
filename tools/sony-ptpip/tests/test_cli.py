@@ -9,27 +9,13 @@
 """
 import subprocess
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-PY = sys.executable
-sys.path.insert(0, str(ROOT))
+from _harness import PY, check, setup_imports, summary
+
+ROOT = setup_imports()
 
 import parse_ptpip  # noqa: E402
 import probe  # noqa: E402
-
-checks = 0
-failed = 0
-
-
-def check(name, cond, detail=""):
-    global checks, failed
-    checks += 1
-    if cond:
-        print(f"[PASS] {name}")
-    else:
-        failed += 1
-        print(f"[FAIL] {name} {detail}")
 
 
 def objinfo(name_len, tail_bytes):
@@ -90,5 +76,4 @@ check("probe 12 位 GUID → 退出 2", code == 2 and "16 字节" in out, f"code
 code, out = run(str(ROOT / "probe.py"))
 check("probe 缺 IP → 退出 2", code == 2 and "相机 IP" in out, f"code={code} out={out[-80:]!r}")
 
-print(f"\n== 全过：{checks} 条 ==" if failed == 0 else f"\n== 失败：{failed}/{checks} 条 ==")
-sys.exit(0 if failed == 0 else 1)
+sys.exit(summary())
