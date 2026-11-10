@@ -84,6 +84,13 @@ public final class ImportService {
     private final File outDir;
     private final Clock clock;
 
+    /**
+     * 成品存在性探针（issue #28 分节 PB）：成品进 MediaStore 后不再是 `outDir` 下的 File，
+     * 由 Android 侧注入按 `relPath` 查相册条目尺寸的实现。null 时沿用私有 File 判定——
+     * 默认行为完全不变，纯 JDK 自检里既有的构造都不注入。
+     */
+    private volatile SkipRule.ProductProbe productProbe;
+
     private volatile boolean paused;
     private volatile boolean cancelled;
     private volatile Thread worker;
@@ -133,6 +140,14 @@ public final class ImportService {
         this.transfer = transfer;
         this.outDir = outDir;
         this.clock = clock;
+    }
+
+    /**
+     * 注入成品探针（issue #28 分节 PB）。只在整轮开始前调用：落点必须在开工前定死，
+     * 传输中 `isRunning()` 为真时不许改选（由 Main 的改选回调把关）。
+     */
+    public void setProductProbe(SkipRule.ProductProbe probe) {
+        this.productProbe = probe;
     }
 
     public boolean isRunning() {
@@ -367,7 +382,10 @@ public final class ImportService {
                 // #177：Journal 只说明上一轮记过完成，不能单独证明成品还在。续传停用后
                 // 尺寸对账必须落到实际文件：成品缺失 / 尺寸不符都重新导入，不许静默跳过。
                 // #209 / G1：这两个条件的「与」只在 SkipRule 里拼一次。
-                SkipRule.Verdict verdict = SkipRule.check(journal, outDir, item.relPath, item.size);
+                SkipRule.ProductProbe probe = productProbe;
+                SkipRule.Verdict verdict = probe == null
+                        ? SkipRule.check(journal, outDir, item.relPath, item.size)
+                        : SkipRule.check(journal, probe, item.relPath, item.size);
                 if (verdict == SkipRule.Verdict.SKIP) {
                     skipped++;
                     progress.onBytes(item.size);

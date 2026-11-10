@@ -915,8 +915,9 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
     }
 
     /**
-     * 落点决策（issue #28）：进程内只取一次。默认应用私有目录；请求相册本期回退，
-     * 回退原因由 {@link #onCreate} 写日志，不能静默。
+     * 落点决策（issue #28）：进程内只取一次，整轮开始前定死。默认应用私有目录；
+     * PB 分节已把 `kind` 接到写入链路（相册走 MediaStore 流式复制），UI 选择器由 PC 分节接入，
+     * 当前仍恒默认私有。回退原因由 {@link #onCreate} 写日志，不能静默。
      */
     private DestPolicy.Destination destination() {
         if (destination == null) {
@@ -1092,7 +1093,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             return;
         }
 
-        File out = destination().root;
+        DestPolicy.Destination dest = destination();
+        // 状态目录恒私有：Journal / `.part` 只认这里；成品去向由 dest.kind 单独表达
+        // （issue #28 分节 PB 拆「状态目录 / 成品根」，换成品去向不会丢导入记录）。
+        File out = dest.root;
 
         // 目标目录按 relPath 建子目录这一步在 MtpTransfer 里做（要处理重名/覆盖与路径越界）。
         try {
@@ -1110,8 +1114,16 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
 
         // PA（issue #50）：真正搬字节用当前会话的 MtpDevice。会话由扫描建立，
         // 传输期间保持常开；不要在这里 close 再 open（相机会挂起 USB）。
+        // issue #28 分节 PB：相册落点注入 GalleryStore；成品进 MediaStore 后不在 out 下，
+        // 跳过判定改由注入的成品探针按相册条目尺寸核对（不整文件重下、也不静默跳过）。
+        GalleryStore gallery = dest.kind == DestPolicy.Kind.GALLERY
+                ? new GalleryStore(getContentResolver(), log) : null;
         final ImportService round = new ImportService(
-                log, new MtpTransfer(s.device(), log, s.ioLock()), out);
+                log, new MtpTransfer(s.device(), log, s.ioLock(), dest.kind, gallery), out);
+        if (gallery != null) {
+            // 相册优先、私有兜底：回退私有的成品也要能被账本认出来，否则每轮整文件重下。
+            round.setProductProbe(SkipRule.productProbe(gallery::existingSize, out));
+        }
         service = round;
         // 回调转发与「迟到回调丢弃」收进纯 JDK 的 ImportRoundListener（G9a）；
         // 新一轮自然从 lastProgress == null 开始，不需要在这里手工清。
