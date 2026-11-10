@@ -15,9 +15,11 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
@@ -52,6 +54,30 @@ fun TopBarRow(
     )
 }
 
+/**
+ * 「长按进 Details」的手势口径（`L-05` / issue #310）。
+ *
+ * 库页设备名与 `ERROR` 顶栏左簇共用这一个写入口径；只吃长按、不吃点击（点击热区各有归属）。
+ * 它**不能**挂到 `TopBarRow` 或无条件路径上：`W-23` 钉死了长按入口的范围——`IMPORTING` /
+ * `PAUSED` 顶栏有设备名但不得有长按入口，`photo` 顶栏既无设备名也无长按入口。
+ */
+private fun Modifier.detailsLongPress(model: AppModel): Modifier =
+    pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
+
+/**
+ * 「长按进 Details」的读屏动作（`L-05` / issue #310）：`label` 与写入口径只在这里定义一次。
+ *
+ * 两个 `clearAndSetSemantics` 块的内容**不同**（`TopBarLabel` 的描述是设备名入参、
+ * `role` 有条件；`ErrorIdentity` 的描述是字面量 `Disconnected`、`role` 无条件），
+ * 所以只共用这一段动作，不合并整块语义。
+ */
+private fun SemanticsPropertyReceiver.detailsLongClick(model: AppModel) {
+    onLongClick(label = "Details") {
+        model.detailsOpen = true
+        true
+    }
+}
+
 /** 短英文名号；`detailsEntry` 为真时长按仍进 Details（库页原有交互）。 */
 @Composable
 private fun TopBarLabel(
@@ -63,7 +89,7 @@ private fun TopBarLabel(
     val base = if (detailsEntry) {
         Modifier
             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-            .pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
+            .detailsLongPress(model)
     } else {
         Modifier.heightIn(min = 48.dp)
     }
@@ -72,10 +98,7 @@ private fun TopBarLabel(
             contentDescription = text
             if (detailsEntry) {
                 role = Role.Button
-                onLongClick(label = "Details") {
-                    model.detailsOpen = true
-                    true
-                }
+                detailsLongClick(model)
             }
         },
         contentAlignment = Alignment.CenterStart
@@ -183,17 +206,14 @@ private fun ErrorIdentity(model: AppModel) {
     Row(
         modifier = Modifier
             .heightIn(min = 48.dp)
-            .pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
+            .detailsLongPress(model)
             // N-4：整簇是一个可长按的单节点。`mergeDescendants = true` 会让 dump 在同一
             // bounds 上留下「描述节点 + 长按动作节点 + 文本节点」三个条目，
             // 与 `TopBarLabel` 的旧写法不一致；这里改用 `clearAndSetSemantics` 收敛成一个。
             .clearAndSetSemantics {
                 contentDescription = "Disconnected"
                 role = Role.Button
-                onLongClick(label = "Details") {
-                    model.detailsOpen = true
-                    true
-                }
+                detailsLongClick(model)
             },
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -221,5 +241,19 @@ private fun ReconnectAction(model: AppModel) {
             style = TextSmall.copy(color = UiColors.onSurface, textAlign = TextAlign.End),
             maxLines = 1
         )
+    }
+}
+
+/**
+ * `Details` 的图标入口（`U-47` / `L-05` / issue #310）。
+ *
+ * 看图页顶栏与 `DONE` 状态屏的 `Location` 按钮本是同一份代码，只有着色跟随所在背景
+ * （顶栏在照片上，用 `surfaceWhite`；状态屏在画布上，用 `onSurface`）。
+ * `contentDescription = "Location"` 由 `U-47` 钉住，收敛后不得改名。
+ */
+@Composable
+internal fun DetailsAction(model: AppModel, tint: Color) {
+    IconAction(desc = "Location", onClick = { model.detailsOpen = true }) {
+        LocationGlyph(20.dp, tint)
     }
 }
