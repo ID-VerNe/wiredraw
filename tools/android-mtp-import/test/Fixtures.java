@@ -73,8 +73,9 @@ final class Fixtures {
         try {
             File part = new File(partPath);
             File parent = part.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                return new ResumableTransfer.Result(Kind.FAILED, "mkdir failed");
+            if (parent != null) {
+                // 建目录只有一个入口（#320）：这里原来内联了一份 mkdirs 守卫，与 indexMkdirs 同义。
+                indexMkdirs(parent);
             }
             try (FileOutputStream out = new FileOutputStream(part)) {
                 out.write(new byte[(int) Math.min(item.size, 16)]);

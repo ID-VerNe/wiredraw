@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 import com.rea.mtpimport.ResumableTransfer.Kind;
 
 import static com.rea.mtpimport.TestSupport.*;
+import static com.rea.mtpimport.TempDirs.*;
 import static com.rea.mtpimport.Fixtures.*;
 import static com.rea.mtpimport.TestFakes.*;
 import static com.rea.mtpimport.SourceGuard.*;
@@ -341,44 +342,46 @@ final class SourceGuardCases {
         s.setChecked(6, true);
         ImportPlan plan = ImportPlan.of(c, s, PhotoWall.of(c).units(), PhotoWall.Export.JPG_FIRST);
 
-        File abandonedOut = Files.createTempDirectory("wiredraw-orphan-abandon").toFile();
-        FakeTransfer hanging = new FakeTransfer(FakeTransfer.Mode.HANGING);
-        ImportService stuck = new ImportService(Log.NOOP, hanging, abandonedOut);
-        stuck.start(plan, new FinishRecorder());
-        check("OrphanRounds：卡住的 worker 已进入传输", hanging.entered.await(5, TimeUnit.SECONDS), "等待超时");
+        withTempDir("wiredraw-orphan-abandon", abandonedOut -> {
+            FakeTransfer hanging = new FakeTransfer(FakeTransfer.Mode.HANGING);
+            ImportService stuck = new ImportService(Log.NOOP, hanging, abandonedOut);
+            stuck.start(plan, new FinishRecorder());
+            check("OrphanRounds：卡住的 worker 已进入传输", hanging.entered.await(5, TimeUnit.SECONDS), "等待超时");
 
-        rounds.abandon(stuck);
-        check("OrphanRounds：abandon 之后登记为被放弃轮次",
-                rounds.current() == stuck, "current=" + rounds.current());
-        check("OrphanRounds：worker 未退出时拦下重建会话（三审 B-3）",
-                rounds.stillRunning(sink) && errors.equals(Collections.singletonList(StuckError.SESSION_LOST)),
-                "errors=" + errors);
-        check("OrphanRounds：拦下时留下一条可复现的日志",
-                logs.size() == 1 && logs.get(0).contains("上一轮传输线程仍未退出"),
-                "实际 " + logs);
+            rounds.abandon(stuck);
+            check("OrphanRounds：abandon 之后登记为被放弃轮次",
+                    rounds.current() == stuck, "current=" + rounds.current());
+            check("OrphanRounds：worker 未退出时拦下重建会话（三审 B-3）",
+                    rounds.stillRunning(sink) && errors.equals(Collections.singletonList(StuckError.SESSION_LOST)),
+                    "errors=" + errors);
+            check("OrphanRounds：拦下时留下一条可复现的日志",
+                    logs.size() == 1 && logs.get(0).contains("上一轮传输线程仍未退出"),
+                    "实际 " + logs);
 
-        hanging.release.countDown();
-        check("OrphanRounds：worker 退出后自动放行并清掉登记",
-                stuck.awaitWorker(5000) && !rounds.stillRunning(sink) && rounds.current() == null,
-                "仍活着或未清空");
-        check("OrphanRounds：被放弃的轮次不写导入日志（不冲掉新一轮记录）",
-                !new File(abandonedOut, "import-journal.txt").isFile(),
-                "日志被写了");
+            hanging.release.countDown();
+            check("OrphanRounds：worker 退出后自动放行并清掉登记",
+                    stuck.awaitWorker(5000) && !rounds.stillRunning(sink) && rounds.current() == null,
+                    "仍活着或未清空");
+            check("OrphanRounds：被放弃的轮次不写导入日志（不冲掉新一轮记录）",
+                    !new File(abandonedOut, "import-journal.txt").isFile(),
+                    "日志被写了");
+        });
 
-        File adoptedOut = Files.createTempDirectory("wiredraw-orphan-adopt").toFile();
-        FakeTransfer hanging2 = new FakeTransfer(FakeTransfer.Mode.HANGING);
-        ImportService adopted = new ImportService(Log.NOOP, hanging2, adoptedOut);
-        adopted.start(plan, new FinishRecorder());
-        check("OrphanRounds：adopt 用例 worker 已进入传输",
-                hanging2.entered.await(5, TimeUnit.SECONDS), "等待超时");
-        rounds.adopt(adopted);
-        check("OrphanRounds：adopt 只登记，不调 abandon()",
-                !new File(adoptedOut, "import-journal.txt").isFile(),
-                "还没收尾就出现日志");
-        hanging2.release.countDown();
-        check("OrphanRounds：adopt 的轮次正常收尾仍保存日志",
-                adopted.awaitWorker(5000) && new File(adoptedOut, "import-journal.txt").isFile(),
-                "日志未保存");
+        withTempDir("wiredraw-orphan-adopt", adoptedOut -> {
+            FakeTransfer hanging2 = new FakeTransfer(FakeTransfer.Mode.HANGING);
+            ImportService adopted = new ImportService(Log.NOOP, hanging2, adoptedOut);
+            adopted.start(plan, new FinishRecorder());
+            check("OrphanRounds：adopt 用例 worker 已进入传输",
+                    hanging2.entered.await(5, TimeUnit.SECONDS), "等待超时");
+            rounds.adopt(adopted);
+            check("OrphanRounds：adopt 只登记，不调 abandon()",
+                    !new File(adoptedOut, "import-journal.txt").isFile(),
+                    "还没收尾就出现日志");
+            hanging2.release.countDown();
+            check("OrphanRounds：adopt 的轮次正常收尾仍保存日志",
+                    adopted.awaitWorker(5000) && new File(adoptedOut, "import-journal.txt").isFile(),
+                    "日志未保存");
+        });
     }
 
     /**
