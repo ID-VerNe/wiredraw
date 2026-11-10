@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 OK = 0
@@ -122,6 +123,40 @@ def git_ls_files(*patterns: str, runner=None) -> list[str]:
             f"{detail[-1] if detail else '确认当前目录是 git 仓库'}"
         )
     return [p for p in (proc.stdout or "").split("\0") if p.strip()]
+
+
+def _shown(target: Path) -> str:
+    """错误文案里的路径：仓库内的显示相对路径，仓库外的原样显示（避免把机器目录写进输出）。"""
+    try:
+        return target.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(target)
+
+
+def load_json_file(path) -> object:
+    """读一个 UTF-8 的 JSON 文件并解析；读不到 / 不是合法 JSON 都抛 `EnvProblem`。
+
+    `scripts/gates.json` 的元门禁与执行器原本各写一份逐字相同的
+    「`read_text` + `json.loads` + `JSONDecodeError` → `EnvProblem`」前缀（#312）：
+    清单要加 BOM 容忍、编码回退或大小上限时，只改元门禁不改执行器，就会出现
+    「元门禁判绿、执行器读歪」的分叉。
+
+    **形状校验不在这里**：两个调用方的判据不同，策略留在各自脚本里——
+    元门禁把形状问题交给 `check_cmd_contract` 报内容不合规（退 1），
+    执行器直接把形状问题当清单读不成（退 2）。
+
+    路径按参数传入而不是读模块级常量：两个 `self_test` 都靠替换模块级 `MANIFEST`
+    注入一份不存在的清单来验证「读不到退 2」，默认参数会在 `def` 时把旧值钉死。
+    """
+    target = Path(path)
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise EnvProblem(f"读不到 {_shown(target)}：{exc.strerror or exc}") from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise EnvProblem(f"{_shown(target)} 不是合法 JSON：{exc}") from exc
 
 
 def resolve_python() -> str:
@@ -298,6 +333,43 @@ def self_test() -> int:
     check("命中行格式含位置与类别", ("[红] docs/x.md" + ":12 [guid]") in plain, plain)
     _Hit.encoding = "hex"
     check("编码形态补 /hex 后缀", "[guid/hex]" in format_hit(_Hit(), where="PR #7"), format_hit(_Hit()))
+
+    # 7. 清单读取的机械前缀只许活在本模块（#312）：元门禁与执行器各有形状校验，
+    #    但「读文件 + 解 JSON + 把两种失败映射成 EnvProblem」逐字重复过一份。
+    #    断言瞄准的字面量用拼接写法，避免本文件自己被扫描命中。
+    dup_read = "MANIFEST.read_text" + "(encoding="
+    dup_json_err = "gates.json 不是" + "合法 JSON"
+    siblings = {
+        p.name: p.read_text(encoding="utf-8")
+        for p in sorted((ROOT / "scripts").glob("*.py"))
+        if p.name != Path(__file__).name
+    }
+    read_offenders = [n for n, src in siblings.items() if dup_read in src]
+    err_offenders = [n for n, src in siblings.items() if dup_json_err in src]
+    check("gates.json 机械读取段只在共享层一处", read_offenders == [], f"实际 {read_offenders}")
+    check("gates.json 解析失败映射只在共享层一处", err_offenders == [], f"实际 {err_offenders}")
+
+    load = globals().get("load_json_file")
+    check("共享层提供 load_json_file", callable(load))
+    if callable(load):
+        def missing_file():
+            load(ROOT / "scripts" / "__missing_gates.json")
+
+        def bad_json_file():
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
+                fh.write("{not json")
+                bad = Path(fh.name)
+            try:
+                load(bad)
+            finally:
+                bad.unlink()
+
+        check("load_json_file 读不到文件时抛 EnvProblem", outcome(missing_file) == "", outcome(missing_file))
+        check("load_json_file 坏 JSON 时抛 EnvProblem", outcome(bad_json_file) == "", outcome(bad_json_file))
+        check(
+            "load_json_file 正常 JSON 原样返回",
+            load(ROOT / "scripts" / "gates.json").get("version") is not None,
+        )
 
     for name, ok, detail in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f"  — {detail}" if detail and not ok else ""))

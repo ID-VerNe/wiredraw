@@ -29,7 +29,16 @@ import sys
 import time
 from pathlib import Path
 
-from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, git_ls_files, resolve_python, run
+from _common import (
+    CONTENT_FAIL,
+    ENV_FAIL,
+    OK,
+    EnvProblem,
+    git_ls_files,
+    load_json_file,
+    resolve_python,
+    run,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "gates.json"
@@ -101,15 +110,10 @@ def select_entries(data: dict, tier: str, *, shard: str | None, prepush: bool) -
 
 
 def load_manifest() -> dict:
-    # 清单读不到 / 形状不合规都是「这次执行没做成」，抛 EnvProblem 由 main 映射成退出码 2（#204）。
-    try:
-        text = MANIFEST.read_text(encoding="utf-8")
-    except OSError as e:
-        raise EnvProblem(f"找不到 {MANIFEST}（{e.strerror or e}）") from e
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise EnvProblem(f"gates.json 不是合法 JSON：{e}") from e
+    # 清单读不到 / 不是合法 JSON 都是「这次执行没做成」，由共享层抛 EnvProblem、
+    # main 映射成退出码 2（#204）；读取机械段收口到 `_common.load_json_file`（#312）。
+    # 下面的形状校验是本执行器独有的策略：形状不对就当清单读不成，不能带着坏清单去跑门禁。
+    data = load_json_file(MANIFEST)
 
     shards = [s["name"] for s in data.get("shards", [])]
     for tier in ("ci", "manual", "support"):
@@ -199,6 +203,12 @@ def self_test() -> int:
     runner_src = Path(__file__).read_text(encoding="utf-8")
     check("#204：执行器不再有本地 subprocess.run 样板", "subprocess.run" + "(" not in runner_src)
     check("#204：退出码常量与文档一致", (OK, CONTENT_FAIL, ENV_FAIL) == (0, 1, 2))
+    # #312：清单的读+解析收口到共享层，本文件只保留形状校验（三段必填 / shard 归属）。
+    check(
+        "#312：清单读取机械前缀走共享层 load_json_file",
+        "load_json_file(MANIFEST)" in runner_src
+        and "MANIFEST.read_text" + "(encoding=" not in runner_src,
+    )
 
     # ---- #205：解释器与分片名收口的守卫 ----
     # 断言瞄准的字面量用拼接写法：本文件自己不许含那个字面量，否则验收 grep
