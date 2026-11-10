@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""离线解析口径与 CLI 校验用例（#225）。
+"""离线解析口径与 CLI 校验用例（#225、#316）。
 
 覆盖：
 - ObjectInfo 最小长度门槛（两处必须同常量）与名字字节越界
 - parse_ptpip.py / probe.py 的错误参数必须非零退出且不连相机
+- probe.parse_args 的纯函数口径（不依赖子进程）与 main() 只做编排的跨度上限
 运行：python tools/sony-ptpip/tests/test_cli.py
 说明：本仓库不引单测框架，也未把本用例挂进门禁；手动执行，PR 正文贴原始输出。
 """
+import ast
 import subprocess
 import sys
 
@@ -75,5 +77,38 @@ code, out = run(str(ROOT / "probe.py"), "1.2.3.4", "--guid", "0123456789ab")
 check("probe 12 位 GUID → 退出 2", code == 2 and "16 字节" in out, f"code={code} out={out[-80:]!r}")
 code, out = run(str(ROOT / "probe.py"))
 check("probe 缺 IP → 退出 2", code == 2 and "相机 IP" in out, f"code={code} out={out[-80:]!r}")
+
+# 7) parse_args 是纯函数：同样的校验必须在进程内可回归，不再只能起子进程（#316）
+cfg, err = probe.parse_args(["1.2.3.4", "--guid", guid_842])
+check("parse_args 合法最小集",
+      err is None and cfg.host == "1.2.3.4" and cfg.limit == 80
+      and cfg.guid == guid_842 and cfg.replay is None and not cfg.notes,
+      f"cfg={cfg!r} err={err!r}")
+
+cfg, err = probe.parse_args(["1.2.3.4", "--guid", guid_842, "--limit", "5"])
+check("parse_args --limit 取值", err is None and cfg.limit == 5, f"cfg={cfg!r} err={err!r}")
+
+cfg, err = probe.parse_args([])
+check("parse_args 缺 IP", cfg is None and err is not None and "相机 IP" in err, f"err={err!r}")
+
+cfg, err = probe.parse_args(["1.2.3.4", "--guid", guid_842, "--limit", "abc"])
+check("parse_args --limit 非整数", cfg is None and err is not None and "整数" in err, f"err={err!r}")
+
+cfg, err = probe.parse_args(["1.2.3.4"])
+check("parse_args 缺握手凭据", cfg is None and err is not None and "缺握手凭据" in err, f"err={err!r}")
+
+cfg, err = probe.parse_args(["1.2.3.4", "--guid", "0123456789ab"])
+check("parse_args --guid 形态错", cfg is None and err is not None and "16 字节" in err, f"err={err!r}")
+
+cfg, err = probe.parse_args(["1.2.3.4", "--guid", guid_842, "--replay", "no-such-replay.txt"])
+check("parse_args replay 缺失", cfg is None and err is not None and "找不到 replay 文件" in err,
+      f"err={err!r}")
+
+# 8) main() 只做编排：只读 AST 量跨度，防止又长回 157 行（#316）
+_src = (ROOT / "probe.py").read_text(encoding="utf-8")
+_main_fn = [n for n in ast.parse(_src).body
+            if isinstance(n, ast.FunctionDef) and n.name == "main"][0]
+_span = _main_fn.end_lineno - _main_fn.lineno + 1
+check(f"main() 跨度 {_span} 行 < 40", _span < 40, f"实际 {_span} 行")
 
 sys.exit(summary())
