@@ -1,7 +1,6 @@
 package com.rea.mtpimport;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -12,6 +11,7 @@ import java.util.regex.Pattern;
 import static com.rea.mtpimport.TestSupport.*;
 import static com.rea.mtpimport.Fixtures.*;
 import static com.rea.mtpimport.TestFakes.*;
+import static com.rea.mtpimport.SourceGuard.*;
 import static com.rea.mtpimport.TempDirs.*;
 
 /** 探活判定、探活复核与无进展挂起的断言组（#318 从 SelfTest.java 拆出）。 */
@@ -43,13 +43,8 @@ final class ProbeCases {
         // 源码守卫（#281 结构化，不再钉死 receiver 字符串）：正向匹配任意 receiver 的
         // ioLock() 后紧跟无参 tryLock()；负向拦带参超时形式 tryLock(n, ...) 与任意
         // receiver 的阻塞 lock()——等锁时间重新进超时窗口或退回阻塞取锁都判红。
-        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
-        String src;
-        try {
-            src = Files.readString(main.toPath());
-        } catch (IOException e) {
-            src = null;
-        }
+        File main = source("com/rea/mtpimport/Main.java");
+        String src = readSourceOrNull(main);
         boolean tryLockNoArg = false;
         boolean badLockForm = false;
         if (src != null) {
@@ -75,13 +70,8 @@ final class ProbeCases {
         check("探活：无会话但 ioLock 被活跃 IO 占用 → 判死（#281）",
                 !ProbeVerdict.alive(false, true, true, false, false), "误判为活");
 
-        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
-        String src;
-        try {
-            src = Files.readString(main.toPath());
-        } catch (IOException e) {
-            src = null;
-        }
+        File main = source("com/rea/mtpimport/Main.java");
+        String src = readSourceOrNull(main);
         if (src == null) {
             check("探活：能读到 Main.java 源码做 #281 守卫", false, "读不到 " + main);
             return;

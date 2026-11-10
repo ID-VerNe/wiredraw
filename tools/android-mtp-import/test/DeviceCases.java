@@ -46,7 +46,7 @@ final class DeviceCases {
         // 1) DETACH 分支必须先过 `shouldMarkDetached(...)` 再调 `model.onUsbDetached()`；
         // 2) `MtpSession.findSony` 必须走 `isSonyCamera(...)`，且不得退回只比 VID 的旧写法。
         // 这两条是弱契约：只防上面两种具体回退，换行重排或改写表达式都会假红。
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> detachCalls = new ArrayList<>();
         List<String> detachGuards = new ArrayList<>();
         scanSourceText(srcRoot, "model.onUsbDetached(", null, detachCalls);

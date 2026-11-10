@@ -38,7 +38,7 @@ final class SourceGuardCases {
                 "src/com/rea/mtpimport/ui/AppModel.kt");
         StringBuilder hits = new StringBuilder();
         for (String rel : files) {
-            File f = new File(System.getProperty("user.dir"), rel);
+            File f = new File(REPO_ROOT, rel);
             if (!f.isFile()) {
                 hits.append(rel).append("（文件不存在）\n");
                 continue;
@@ -68,13 +68,8 @@ final class SourceGuardCases {
      * {@link #resumeDisabledCases()} 与 `SelfTest` 的「账本完成 + 磁盘截断」用例守着（issue #212）。
      */
     static void noResumeSourceCases() {
-        File mtp = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/MtpTransfer.java");
-        String src;
-        try {
-            src = Files.readString(mtp.toPath());
-        } catch (IOException e) {
-            src = null;
-        }
+        File mtp = source("com/rea/mtpimport/MtpTransfer.java");
+        String src = readSourceOrNull(mtp);
         check("续传停用：MtpTransfer 不再按 offset 读相机对象（#177）",
                 src != null && !src.contains("getPartialObject("),
                 src == null ? "读不到 " + mtp : "仍调用 getPartialObject");
@@ -99,7 +94,7 @@ final class SourceGuardCases {
      * `skippedLine` 的取值行为（0 / 负数 / 正数）由 {@link #uiTextCases()} 断言（issue #212）。
      */
     static void skippedSourceCases() {
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         List<String> hits = new ArrayList<>();
         int scanned = scanSourceText(srcRoot, "\"Skipped \" +", "src/com/rea/mtpimport/UiText.java", hits);
         check("Skipped 文案只有 UiText.skippedLine 一处拼接（issue #127）",
@@ -125,7 +120,7 @@ final class SourceGuardCases {
      * 拆类或改名不会让守卫误红。
      */
     static void duplicateTextCases() {
-        File srcRoot = new File(System.getProperty("user.dir"), "src");
+        File srcRoot = SRC_ROOT;
         String allow = "src/com/rea/mtpimport/UiText.java";
         checkOnlyFromUiText(srcRoot, allow, "已取消，整个半成品已删除");
         checkOnlyFromUiText(srcRoot, allow, "字节数不符：期望 ");

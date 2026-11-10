@@ -10,6 +10,7 @@ import com.rea.mtpimport.ResumableTransfer.Kind;
 
 import static com.rea.mtpimport.TestSupport.*;
 import static com.rea.mtpimport.Fixtures.*;
+import static com.rea.mtpimport.SourceGuard.*;
 import static com.rea.mtpimport.TempDirs.*;
 
 /** 清单变化取舍、错误文案、跳过判据与目录收口等仓库约束的断言组（#318 从 SelfTest.java 拆出）。 */
@@ -219,13 +220,8 @@ final class RepoCases {
      * （handoff #298 §三第 1 步批准的口径：源码守卫）。
      */
     static void sessionVisibilityCases() {
-        File main = new File(System.getProperty("user.dir"), "src/com/rea/mtpimport/Main.java");
-        String src;
-        try {
-            src = Files.readString(main.toPath());
-        } catch (IOException e) {
-            src = null;
-        }
+        File main = source("com/rea/mtpimport/Main.java");
+        String src = readSourceOrNull(main);
         check("会话字段可见性：Main.session 声明为 volatile（#280）",
                 src != null && Pattern.compile("private\\s+volatile\\s+MtpSession\\s+session;")
                         .matcher(src).find(),
