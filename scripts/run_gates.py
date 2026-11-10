@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -127,6 +128,17 @@ def load_manifest() -> dict:
     return data
 
 
+def _self_test_manifest() -> dict:
+    """自检里读清单做分片夹具比对；与 `load_manifest()` 共用同一读取实现（#312）。
+
+    单独成函数有两个理由：一是自检不许再内联一份「读文件 + 解析」，否则清单坏了会绕开
+    `load_json_file` 的异常映射、以 traceback 退 1；二是这样「读不到 / 读坏了清单」这条
+    失败路径能被断言直接打到——把本函数换成读一个不存在的路径，再跑 `main(["--self-test"])`，
+    退出码必须是 2。
+    """
+    return load_json_file(ROOT / "scripts" / "gates.json")
+
+
 def print_list(data: dict) -> None:
     print(f"门禁清单：{MANIFEST.relative_to(ROOT)}  (version {data.get('version')})")
     for tier in ("ci", "manual", "support"):
@@ -210,15 +222,59 @@ def self_test() -> int:
     )
     # 自检里直接读清单做比对也必须走共享层：内联读法没有 EnvProblem 映射，清单缺失/损坏时
     # 以 traceback 退 1，而 load_manifest() 同一失败退 2——这正是 #312 要消灭的分叉。
-    # 判据：本文件里不许有一行同时出现 `json.loads` 与清单文件名（清单名拆开写，避免自命中）。
+    # 源码判据只防「又抄一份读取」；它抓不到「main 没有兜底」，所以下面还配行为断言。
+    # 判据里的 `json` 与清单名都拆开写：本文件不许出现那两个连写形态（验收 grep 才能真为 0）。
+    loads_attr = "json" + ".loads"
     gate_name = "gates" + ".json"
     inline_manifest = [
-        line.strip() for line in runner_src.splitlines() if "json.loads" in line and gate_name in line
+        line.strip() for line in runner_src.splitlines() if loads_attr in line and gate_name in line
     ]
     check(
-        "#312：自检不内联解析清单（失败须与 load_manifest 同退 2）",
+        "#312：自检不再内联读取并解析清单",
         inline_manifest == [],
         f"实际 {inline_manifest}",
+    )
+
+    # 行为断言（#312 二轮评审）：清单读不到 / 读坏了，`--self-test` 这条入口必须退 2，
+    # 不许把 EnvProblem 穿成 traceback 退 1。把自检入口换成「只读清单就返回」的桩，
+    # 避免在 self_test() 里递归调用自己；打桩打到模块全局，main() 才会用上。
+    def self_test_entry_exit(bad_path: Path) -> int | None:
+        real_self_test = globals()["self_test"]
+        real_manifest = globals()["_self_test_manifest"]
+
+        def stub_self_test() -> int:
+            _self_test_manifest()
+            return OK
+
+        def bad_manifest() -> dict:
+            return load_json_file(bad_path)
+
+        globals()["self_test"] = stub_self_test
+        globals()["_self_test_manifest"] = bad_manifest
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    return main(["--self-test"])
+                except BaseException:  # noqa: BLE001 - 穿出去就是 traceback 退 1
+                    return None
+        finally:
+            globals()["self_test"] = real_self_test
+            globals()["_self_test_manifest"] = real_manifest
+
+    missing_manifest_exit = self_test_entry_exit(ROOT / "scripts" / "__missing_gates.json")
+    check(
+        "#312：清单读不到时 --self-test 退 2（不穿成 traceback）",
+        missing_manifest_exit == ENV_FAIL,
+        f"实际 {missing_manifest_exit!r}",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        broken = Path(tmp) / "gates.json"
+        broken.write_text("{ this is not json ", encoding="utf-8")
+        broken_manifest_exit = self_test_entry_exit(broken)
+    check(
+        "#312：清单是坏 JSON 时 --self-test 退 2（不穿成 traceback）",
+        broken_manifest_exit == ENV_FAIL,
+        f"实际 {broken_manifest_exit!r}",
     )
 
     # ---- #205：解释器与分片名收口的守卫 ----
@@ -283,7 +339,7 @@ def self_test() -> int:
     check("#205：pre-push 不再写死 --shard（分片名归 gates.json 管）", "--shard" not in pre_push_src)
     check("#205：pre-push 走 --prepush 口径", "ci --prepush" in pre_push_src)
 
-    gates = load_json_file(ROOT / "scripts" / "gates.json")
+    gates = _self_test_manifest()
     marked = [s["name"] for s in gates.get("shards", []) if s.get("prePush")]
     check("#205：gates.json 分片声明带 prePush 标记", len(marked) >= 1, f"实际 {marked}")
     try:
@@ -335,6 +391,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--self-test", action="store_true", help="跑执行器内置回归用例")
     args = ap.parse_args(argv)
 
+    try:
+        return _run(args)
+    except EnvProblem as exc:
+        # 统一兜底（#312 评审阻断项）：`load_json_file` 只负责把「读不到 / 读坏了」抛成
+        # `EnvProblem`，映射成退出码 2 的地方只能有一处。包住 `--self-test` / `--list` /
+        # 分片执行三条入口，谁都不许让 `EnvProblem` 以 traceback 的形式以 1 结束——
+        # 那正是 `load_manifest()` 与自检路径原先各退 2、各退 1 的分叉。
+        print(f"[环境问题] {exc}", file=sys.stderr)
+        return ENV_FAIL
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         return self_test()
 
@@ -342,11 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--prepush 与 --shard 互斥：prePush 标记本身就是分片选择", file=sys.stderr)
         return ENV_FAIL
 
-    try:
-        data = load_manifest()
-    except EnvProblem as exc:
-        print(f"[清单错误] {exc}", file=sys.stderr)
-        return ENV_FAIL
+    data = load_manifest()
     if args.list:
         print_list(data)
         return OK
@@ -363,23 +427,17 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"== 门禁 [{args.tier}]  共 {len(entries)} 条 ==")
     failures: list[str] = []
-    try:
-        for entry in entries:
-            ok, elapsed, out = run_entry(entry)
-            flag = "PASS" if ok else "FAIL"
-            print(f"\n[{flag}] {entry['name']}  ({elapsed:.2f}s)")
-            if out:
-                for line in out.splitlines():
-                    print(f"    {line}")
-            if not ok:
-                failures.append(entry["name"])
-                if args.fail_fast:
-                    break
-    except EnvProblem as exc:
-        # #205：执行中才发现 PATH 上一个解释器都没有（清单 cmd 是裸 python、由本执行器
-        # 统一解析），属「这次执行没做成」：退 2，不许以 traceback 退 1 冒充门禁红。
-        print(f"[环境问题] {exc}", file=sys.stderr)
-        return ENV_FAIL
+    for entry in entries:
+        ok, elapsed, out = run_entry(entry)
+        flag = "PASS" if ok else "FAIL"
+        print(f"\n[{flag}] {entry['name']}  ({elapsed:.2f}s)")
+        if out:
+            for line in out.splitlines():
+                print(f"    {line}")
+        if not ok:
+            failures.append(entry["name"])
+            if args.fail_fast:
+                break
 
     print()
     if failures:
