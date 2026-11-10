@@ -457,6 +457,21 @@ def self_test() -> int:
             if saved_event is not None:
                 os.environ["GITHUB_EVENT_PATH"] = saved_event
 
+    # 9. 退出码只许用常量表达（#314）：`OK` / `CONTENT_FAIL` / `ENV_FAIL` 已经是全仓契约，
+    #    但 6 个 check_*.py 里还散着 `return 0/1/2` 字面量——契约要扩展（新增 SKIP 码、
+    #    给 ENV_FAIL 加统一上报）时，只改常量的那几个脚本会跟着变，写字面量的不会。
+    literal_return = re.compile(r"^[ \t]*return [012][ \t]*$", re.M)
+    literal_offenders = {
+        n: len(literal_return.findall(src))
+        for n, src in siblings.items()
+        if n.startswith("check_") and literal_return.search(src)
+    }
+    check(
+        "check_*.py 不再用 return 0/1/2 字面量表达退出码",
+        literal_offenders == {},
+        f"实际 {literal_offenders}",
+    )
+
     for name, ok, detail in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f"  — {detail}" if detail and not ok else ""))
 

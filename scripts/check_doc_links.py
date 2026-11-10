@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-from _common import ENV_FAIL, EnvProblem, git_ls_files, strip_fences
+from _common import CONTENT_FAIL, ENV_FAIL, OK, EnvProblem, git_ls_files, strip_fences
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -217,9 +217,9 @@ def self_test() -> int:
 
     if bad:
         print(f"== 自检红 {bad} 项 ==", file=sys.stderr)
-        return 2
+        return ENV_FAIL
     print(f"== 自检全绿：{len(cases)} 项 ==")
-    return 0
+    return OK
 
 
 def main() -> int:
@@ -252,12 +252,12 @@ def main() -> int:
     if problems:
         for p in problems:
             print(f"[红] {p}", file=sys.stderr)
-        return 1
+        return CONTENT_FAIL
 
     # checked 是「每个 md 内去重后的目标数」合计，不是链接出现次数。旧版按出现次数
     # 计数（19），同一目标在多处出现会重复算；这里按不重复目标算，避免同一断链刷屏。
     print(f"[绿] {len(md_files)} 个 md、{checked} 条不重复的相对链接全部可达")
-    return 0
+    return OK
 
 
 def _cli() -> argparse.Namespace:

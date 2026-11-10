@@ -32,7 +32,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-from _common import ENV_FAIL, EnvProblem, gh_json, gate_hits, read_event_payload, run
+from _common import (
+    CONTENT_FAIL,
+    ENV_FAIL,
+    OK,
+    EnvProblem,
+    gate_hits,
+    gh_json,
+    read_event_payload,
+    run,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -609,9 +618,9 @@ def self_test() -> int:
 
     if bad:
         print(f"== 自检红 {bad} 项 ==", file=sys.stderr)
-        return 2
+        return ENV_FAIL
     print(f"== 自检全绿：{len(checks)} 项 ==")
-    return 0
+    return OK
 
 
 # ---------------------------------------------------------------- 入口
@@ -632,7 +641,7 @@ def main() -> int:
         p = Path(args.body_file)
         if not p.is_file():
             print(f"[红] 找不到 {p}", file=sys.stderr)
-            return 2
+            return ENV_FAIL
         if args.files is None:
             # 不给 --files 就等于「没有改动文件」，门禁链判定会静默跳过、
             # 整份正文直接绿。必须让调用方显式声明「无改动文件」（`--files` 后不跟参数）。
@@ -641,7 +650,7 @@ def main() -> int:
                 "否则「命中门禁链才要 `## 门禁改动`」会静默跳过",
                 file=sys.stderr,
             )
-            return 2
+            return ENV_FAIL
         body = p.read_text(encoding="utf-8", errors="replace")
         files = list(args.files)
         source = f"--body-file {args.body_file}"
@@ -654,10 +663,10 @@ def main() -> int:
         except EnvProblem as e:
             print(f"[红] {e}", file=sys.stderr)
             print("     取不到上下文时不能报绿——否则同一份正文会因环境抖动从红变绿。", file=sys.stderr)
-            return 2
+            return ENV_FAIL
         if ctx is None:
             print("[SKIP] 没有 PR 上下文（非 pull_request 事件且未给 --pr / --body-file）。")
-            return 0
+            return OK
         body, files = ctx
         source = "pull_request 事件载荷"
 
@@ -666,12 +675,12 @@ def main() -> int:
         for p in problems:
             print(f"[红] {p}", file=sys.stderr)
         print(f"     正文结构见 docs/contributing/PR_GUIDE.md「正文分段」；{source}", file=sys.stderr)
-        return 1
+        return CONTENT_FAIL
 
     hits = gate_hits(files)
     gate_note = f"，门禁链 {len(hits)} 个文件已声明" if hits else ""
     print(f"[绿] {source}：必填段齐全、关闭关键词存在{gate_note}")
-    return 0
+    return OK
 
 
 if __name__ == "__main__":
