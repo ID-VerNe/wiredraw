@@ -236,6 +236,102 @@ final class UiStateCases {
     }
 
     /**
+     * 墓碑（#310）：库页顶栏与 `ERROR` 顶栏的「长按进 Details」曾是手势行 + 语义动作行各写一遍。
+     * #336 把两段抽成 `Modifier.detailsLongPress` 与 `detailsLongClick`，本组钉住「两个顶栏都
+     * 真的走这个骨架」，以及「长按入口范围仍受 `W-23` 限制」。
+     *
+     * 本组是**源码断言**，不是渲染断言：自检是纯 JDK（不许 `import android`），起不了 Compose，
+     * 所以按仓库既有口径（对照 `topBarSpecCases` 的「守卫行 + 调用行」）读源码判定。
+     *
+     * 四条各挡一类回退，单独看任一条都能被绕开：
+     * 1. 骨架唯一且被两处用 —— 挡「某处退回内联 `pointerInput`」与「第三处也挂上手势」（违反 `W-23`）；
+     * 2. `label` 与写入口径只定义一次 —— 挡「`onLongClick(label = "Details")` 被复制回第二处」；
+     * 3. 按函数切片钉住**哪个函数**挂了入口、受不受 `detailsEntry` 门控 —— 只钉总数会被
+     *    「两处都落在 `ErrorIdentity` 里」骗过（总数照样 2）；
+     * 4. 库页入口真的开着（`detailsEntry = true` 全 src/ 恰 1 处且落在 `LibraryTopBar`），
+     *    出错分支由 `ErrorIdentity` 承担 —— 挡「把库页入口关掉后总数仍成立」。
+     *
+     * **不合并两个 `clearAndSetSemantics` 块**：`TopBarLabel` 的描述是设备名入参、`role` 有条件；
+     * `ErrorIdentity` 的描述是字面量 `Disconnected`、`role` 无条件（复核结论，见 #310 正文）。
+     */
+    static void detailsEntryCases() {
+        File topBars = source("com/rea/mtpimport/ui/TopBars.kt");
+        String src = readSourceOrNull(topBars);
+        if (src == null) {
+            check("长按进 Details：能读到 TopBars.kt 源码（#310）", false, "读不到 " + topBars);
+            return;
+        }
+
+        // 1. 骨架唯一、两处共用。`detectTapGestures` 恰 1 处即落在 `detailsLongPress` 定义体内
+        //    （两处都内联会变 2）；调用点恰 2 处即 `TopBarLabel` 与 `ErrorIdentity`，
+        //    第三处就会顶破 `W-23`。
+        int dragDefs = hits(src, "fun Modifier.detailsLongPress(");
+        int dragCalls = hits(src, ".detailsLongPress(model)");
+        int gestures = hits(src, "detectTapGestures(onLongPress");
+        check("长按手势骨架唯一：定义 1 / 调用 2 / 手势恰 1（只在骨架内）（#310）",
+                dragDefs == 1 && dragCalls == 2 && gestures == 1,
+                "定义 " + dragDefs + " / 调用 " + dragCalls + " / `detectTapGestures` " + gestures);
+
+        // 2. 读屏动作同口径。调用点 2 处（定义行写的是 `(model: AppModel)`，不含闭合括号，
+        //    不会被 `detailsLongClick(model)` 命中）；
+        //    `onLongClick(label = "Details")` 全文件 1 处，即只由 `detailsLongClick` 产出。
+        int clickDefs = hits(src, "fun SemanticsPropertyReceiver.detailsLongClick(");
+        int clickCalls = hits(src, "detailsLongClick(model)");
+        int labels = hits(src, "onLongClick(label = \"Details\")");
+        check("长按语义动作只有一份 label 与写入口径：定义 1 / 调用 2 / label 1（#310）",
+                clickDefs == 1 && clickCalls == 2 && labels == 1,
+                "定义 " + clickDefs + " / 调用 " + clickCalls + " / label " + labels);
+
+        // 3. 按函数切片，钉住「谁挂了入口」与门控条件。
+        String labelBody = between(src, "private fun TopBarLabel(", "fun LibraryTopBar(model: AppModel)");
+        String errorBody = between(src, "private fun ErrorIdentity(", "private fun ReconnectAction(");
+        boolean gated = labelBody != null
+                && labelBody.contains("if (detailsEntry)")
+                && labelBody.contains(".detailsLongPress(model)")
+                && labelBody.contains("detailsLongClick(model)")
+                // 手势行在 `if (detailsEntry)` 之后 —— 即长按入口受门控，不是无条件挂上。
+                && labelBody.indexOf("if (detailsEntry)") < labelBody.indexOf(".detailsLongPress(model)");
+        boolean unconditional = errorBody != null
+                && errorBody.contains(".detailsLongPress(model)")
+                && errorBody.contains("detailsLongClick(model)")
+                && !errorBody.contains("detailsEntry");
+        check("库页顶栏长按受 detailsEntry 门控、ERROR 顶栏整簇无条件长按（#310）",
+                gated && unconditional,
+                "TopBarLabel 门控=" + gated + "；ErrorIdentity 无条件=" + unconditional
+                        + "\nTopBarLabel 切片：\n" + labelBody + "\nErrorIdentity 切片：\n" + errorBody);
+
+        // 4. 库页入口真的开着；出错分支由 `ErrorIdentity` 承担。
+        String libraryBody = between(src, "fun LibraryTopBar(model: AppModel)",
+                "internal fun TransferConnectionIndicator(");
+        String statusBody = between(src, "fun StatusTopBar(model: AppModel)", "private fun ErrorIdentity(");
+        int entryOn = hits(src, "detailsEntry = true");
+        check("库页顶栏以 detailsEntry = true 开长按入口，ERROR 顶栏走 ErrorIdentity（#310）",
+                entryOn == 1 && libraryBody != null && libraryBody.contains("detailsEntry = true")
+                        && statusBody != null && statusBody.contains("ErrorIdentity(model)"),
+                "`detailsEntry = true` 命中 " + entryOn + " 处；库页含它="
+                        + (libraryBody != null && libraryBody.contains("detailsEntry = true"))
+                        + "；状态页含 ErrorIdentity="
+                        + (statusBody != null && statusBody.contains("ErrorIdentity(model)")));
+    }
+
+    /** 某段源码里含 `needle` 的行数（同一行多次只算一次，与 `scanSourceText` 口径一致）。 */
+    private static int hits(String src, String needle) {
+        int n = 0;
+        for (String line : src.split("\n", -1)) {
+            if (line.contains(needle)) n++;
+        }
+        return n;
+    }
+
+    /** 取 `from`（含）到其后首个 `to`（不含）之间的切片；任一锚点缺失返回 null，判红由调用方负责。 */
+    private static String between(String src, String from, String to) {
+        int a = src.indexOf(from);
+        if (a < 0) return null;
+        int b = src.indexOf(to, a + from.length());
+        return b < 0 ? null : src.substring(a, b);
+    }
+
+    /**
      * P1-3（#44 复审）：进度环轨道从 `outlineSoft`（白底 1.7:1）改用 `outline`（4.47:1 ≥ 3:1）。
      *
      * 注意：下面两条源码扫描是**弱契约**——只防「把轨道改回 `outlineSoft`」和「删掉
