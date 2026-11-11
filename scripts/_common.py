@@ -422,27 +422,39 @@ def self_test() -> int:
     #
     #    判据按**语义形态**扫、不认固定片段（#339）：旧实现找的是字面量
     #    `json.loads(Path(path)` 拼 `.read_text`，把变量名从 `path` 换成 `_p` 即可绕过
-    #    （评审实测）。现在改成「同一函数体内同时出现 `GITHUB_EVENT_PATH` 环境变量名、
+    #    （评审实测）。现在改成「同一作用域内同时出现 `GITHUB_EVENT_PATH` 环境变量名、
     #    `read_text` 属性访问、`loads` 属性访问」即命中——与变量名、与调用嵌套写法无关。
     def event_payload_inliners(src: str) -> list[str]:
-        """源码里把事件载荷读成 JSON 的函数名；形态判据见上方注释（#339）。"""
+        """源码里把事件载荷读成 JSON 的作用域名；形态判据见上方注释（#339）。
+
+        扫描范围 = 模块顶层 + 每个函数 / 类体，逐个作用域独立判定。**模块顶层必须在内**：
+        旧判据是整份文件的子串扫描，把模块顶层与 `if __name__` 块漏掉会让判据从「覆盖」
+        退成「不覆盖」（PR #351 首轮评审的阻断项，实测同一注入 base 判红、收窄后判绿）。
+        类体同样纳入，方法体由各自的函数作用域单独判定。
+        """
         try:
             tree = ast.parse(src)
         except SyntaxError:
             return []
         shape = {"GITHUB_EVENT_PATH", "read_text", "loads"}
-        found: list[str] = []
+        scopes: list[tuple[str, list[ast.stmt]]] = [("<module>", tree.body)]
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                scopes.append((node.name, node.body))
+        found: list[str] = []
+        for name, body in scopes:
             seen: set[str] = set()
-            for child in ast.walk(node):
-                if isinstance(child, ast.Constant) and child.value == "GITHUB_EVENT_PATH":
-                    seen.add("GITHUB_EVENT_PATH")
-                elif isinstance(child, ast.Attribute) and child.attr in ("read_text", "loads"):
-                    seen.add(child.attr)
+            for stmt in body:
+                # 嵌套作用域由它自己的条目判定，不并入外层，否则跨函数拼接会被误判成命中。
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                for child in ast.walk(stmt):
+                    if isinstance(child, ast.Constant) and child.value == "GITHUB_EVENT_PATH":
+                        seen.add("GITHUB_EVENT_PATH")
+                    elif isinstance(child, ast.Attribute) and child.attr in ("read_text", "loads"):
+                        seen.add(child.attr)
             if seen == shape:
-                found.append(node.name)
+                found.append(name)
         return found
 
     event_offenders = {
@@ -452,13 +464,20 @@ def self_test() -> int:
     }
     check("GITHUB_EVENT_PATH 解析只在共享层一处", event_offenders == {}, f"实际 {event_offenders}")
 
-    # 变异用例（#339）：换变量名的事件读取必须判红，只调共享层的正常写法不许误伤。
+    # 变异用例（#339）：换变量名 / 模块顶层 / `if __name__` 块内的事件读取都必须判红，
+    # 只调共享层的正常写法不许误伤。模块顶层这条是首轮评审的阻断项回归用例。
     renamed_event = "\n".join((
         "def fetch_event_body():",
         "    _p = os.environ.get(\"GITHUB_EVENT_PATH\")",
         "    if not _p:",
         "        return None",
         "    return json.loads(Path(_p).read_text(encoding=\"utf-8\"))",
+    ))
+    module_level_event = "\n".join((
+        "if __name__ == \"__main__\":",
+        "    path = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    payload = json.loads(Path(path).read_text(encoding=\"utf-8\"))",
+        "    print(payload)",
     ))
     delegating_event = "\n".join((
         "from _common import read_event_payload",
@@ -469,6 +488,11 @@ def self_test() -> int:
         "事件载荷判据抓住变量重命名（#339）",
         event_payload_inliners(renamed_event) == ["fetch_event_body"],
         f"实际 {event_payload_inliners(renamed_event)}",
+    )
+    check(
+        "事件载荷判据抓住模块顶层内联读取（#339）",
+        event_payload_inliners(module_level_event) == ["<module>"],
+        f"实际 {event_payload_inliners(module_level_event)}",
     )
     check(
         "事件载荷判据不误伤只调共享层的写法（#339）",
