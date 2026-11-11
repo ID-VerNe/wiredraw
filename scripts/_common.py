@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -460,16 +461,96 @@ def self_test() -> int:
     # 9. 退出码只许用常量表达（#314）：`OK` / `CONTENT_FAIL` / `ENV_FAIL` 已经是全仓契约，
     #    但 6 个 check_*.py 里还散着 `return 0/1/2` 字面量——契约要扩展（新增 SKIP 码、
     #    给 ENV_FAIL 加统一上报）时，只改常量的那几个脚本会跟着变，写字面量的不会。
-    literal_return = re.compile(r"^[ \t]*return [012][ \t]*$", re.M)
+    #
+    #    判据走 AST，不扫文本（#339）：整行式 `^[ \t]*return [012][ \t]*$` 要求 `return`
+    #    到行尾只剩一个数字，行内注释（`return 1  # 注释`）、双空格（`return  1`）、
+    #    单行三元右侧（`return 1 if x else 0`）都能绕过——`return 0/1/2` 是 #314 刚收口
+    #    的契约，守卫却只认得一种写法，等于给下一批重构留了后门。
+    #    换成宽松正则 `\breturn\s+[012]\b` 是另一个方向的错：它扫原始文本，会把注释 /
+    #    docstring 里的字样、`return 1.5`、`return 2**10` 一起误判，且仍抓不到 `return (1)`。
+    #    AST 只问「有没有 `return` 的值是整型常量 0 / 1 / 2」，两类问题都天然成立：
+    #    注释与 docstring 根本不进语法树；`return (1)` / 跨行括号在 AST 里就是同一个
+    #    `Constant(1)`；`1.5` 是 `float`、`2**10` 是 `BinOp`，都不是整型常量。
+    #    `return 1 if x else 0` 由 `IfExp` 两支分别判定。
+    def literal_exit_returns(src: str) -> int:
+        """源码里「`return` 的值是整型常量 0 / 1 / 2」的处数；注释 / 字符串不算（#339）。
+
+        `return 1.5` / `return 12` / `return OK` / `return ENV_FAIL` 不命中。
+        `True` / `False` 不是退出码，不算（`bool` 是 `int` 子类，要排掉）。
+        `return 0x1` 在 AST 里就是 `Constant(1)`，与 `return 1` 同形，一并判红——它本来
+        就是字面量 1，判红才是契约要的语义。
+        语法错误时不猜：返回 0（另一个门禁 `py_compile` 负责判这种文件）。
+        """
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return 0
+
+        def is_exit_literal(value: ast.expr | None) -> bool:
+            if isinstance(value, ast.IfExp):
+                return is_exit_literal(value.body) or is_exit_literal(value.orelse)
+            return (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, int)
+                and not isinstance(value.value, bool)
+                and value.value in (0, 1, 2)
+            )
+
+        return sum(
+            1
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return) and is_exit_literal(node.value)
+        )
+
     literal_offenders = {
-        n: len(literal_return.findall(src))
+        n: literal_exit_returns(src)
         for n, src in siblings.items()
-        if n.startswith("check_") and literal_return.search(src)
+        if n.startswith("check_") and literal_exit_returns(src)
     }
     check(
         "check_*.py 不再用 return 0/1/2 字面量表达退出码",
         literal_offenders == {},
         f"实际 {literal_offenders}",
+    )
+
+    # 绕过形态必须判红（#339 的原始症状）：行内注释 / 双空格 / 单行三元右侧。
+    literal_mutations = {
+        "行内注释": "def f():\n    return 1  # 注释\n",
+        "双空格": "def f():\n    return  1\n",
+        "单行三元": "def f():\n    return 1 if x else 0\n",
+    }
+    literal_evaders = {
+        n: s for n, s in literal_mutations.items() if literal_exit_returns(s) != 1
+    }
+    check(
+        "return 字面量判据抓住注释/双空格/三元绕过（#339）",
+        literal_evaders == {},
+        f"实际未命中 {literal_evaders}",
+    )
+
+    # 反向用例：合法写法不许误伤。正则两样都做不到——它会把注释 / docstring / 浮点判红，
+    # 又抓不到括号与跨行写法。这两组也正是「为什么用 AST 而不是正则」的证据。
+    literal_legit = {
+        "具名常量": "def f():\n    return OK\n",
+        "多位数字": "def f():\n    return 12\n",
+        "布尔值": "def f():\n    return True\n",
+        "浮点 1.5": "def f():\n    return 1.5\n",
+        "浮点 0.5": "def f():\n    return 0.5\n",
+        "幂 2**10": "def f():\n    return 2**10\n",
+        "注释提到": "# 旧写法 return 1 已废弃\n",
+        "docstring 提到": 'DOC = """退出码不得写成 return 0/1/2"""\n',
+    }
+    literal_bracketed = {
+        "括号 return (1)": "def f():\n    return (1)\n",
+        "跨行括号": "def f():\n    return (\n        2\n    )\n",
+    }
+    literal_false_positives = sorted(
+        n for n, s in literal_legit.items() if literal_exit_returns(s)
+    ) + sorted(n for n, s in literal_bracketed.items() if literal_exit_returns(s) != 1)
+    check(
+        "return 字面量判据只认语法树里的整型常量（#339）",
+        literal_false_positives == [],
+        f"实际误判 {literal_false_positives}",
     )
 
     for name, ok, detail in checks:
