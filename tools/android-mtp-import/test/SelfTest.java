@@ -71,6 +71,7 @@ public final class SelfTest {
         stalledServiceCases();
         importGateCases();
         topBarSpecCases();
+        detailsEntryCases();
         ringTrackCases();
         scanLineCases();
         detachCases();
