@@ -431,6 +431,12 @@ def self_test() -> int:
         旧判据是整份文件的子串扫描，把模块顶层与 `if __name__` 块漏掉会让判据从「覆盖」
         退成「不覆盖」（PR #351 首轮评审的阻断项，实测同一注入 base 判红、收窄后判绿）。
         类体同样纳入，方法体由各自的函数作用域单独判定。
+
+        **嵌套作用域一律不并入外层**：遍历在遇到 `FunctionDef` / `AsyncFunctionDef` /
+        `ClassDef` 时停住。只跳过外层语句的**直接**子节点是不够的——定义在模块级 `if` /
+        `try` 块里的函数会顺着 `ast.walk` 被外层作用域一并收走（第二轮评审实测到这条
+        构造性误报：模块级 `_ENV = "GITHUB_EVENT_PATH"` 加上 `if __name__` 块内定义的
+        `def _p(x): return json.loads(Path(x).read_text())` 会被误报成 `<module>`）。
         """
         try:
             tree = ast.parse(src)
@@ -444,15 +450,17 @@ def self_test() -> int:
         found: list[str] = []
         for name, body in scopes:
             seen: set[str] = set()
-            for stmt in body:
-                # 嵌套作用域由它自己的条目判定，不并入外层，否则跨函数拼接会被误判成命中。
-                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # 显式栈而不是 ast.walk：遇到嵌套作用域即停，不把它的内容算进本作用域。
+            stack: list[ast.AST] = list(body)
+            while stack:
+                node = stack.pop()
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     continue
-                for child in ast.walk(stmt):
-                    if isinstance(child, ast.Constant) and child.value == "GITHUB_EVENT_PATH":
-                        seen.add("GITHUB_EVENT_PATH")
-                    elif isinstance(child, ast.Attribute) and child.attr in ("read_text", "loads"):
-                        seen.add(child.attr)
+                if isinstance(node, ast.Constant) and node.value == "GITHUB_EVENT_PATH":
+                    seen.add("GITHUB_EVENT_PATH")
+                elif isinstance(node, ast.Attribute) and node.attr in ("read_text", "loads"):
+                    seen.add(node.attr)
+                stack.extend(ast.iter_child_nodes(node))
             if seen == shape:
                 found.append(name)
         return found
@@ -484,6 +492,18 @@ def self_test() -> int:
         "def fetch_event_body():",
         "    return read_event_payload()",
     ))
+    nested_in_block = "\n".join((
+        "_ENV = \"GITHUB_EVENT_PATH\"",
+        "if __name__ == \"__main__\":",
+        "    def _p(x):",
+        "        return json.loads(Path(x).read_text(encoding=\"utf-8\"))",
+    ))
+    class_method_event = "\n".join((
+        "class Probe:",
+        "    def load(self):",
+        "        p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "        return json.loads(Path(p).read_text(encoding=\"utf-8\"))",
+    ))
     check(
         "事件载荷判据抓住变量重命名（#339）",
         event_payload_inliners(renamed_event) == ["fetch_event_body"],
@@ -498,6 +518,19 @@ def self_test() -> int:
         "事件载荷判据不误伤只调共享层的写法（#339）",
         event_payload_inliners(delegating_event) == [],
         f"实际 {event_payload_inliners(delegating_event)}",
+    )
+    # 嵌套作用域守卫（#339，第二轮评审的构造性误报回归用例）：模块级 `if` / `try` 块内定义的
+    # 函数必须由它自己的作用域判定，不能顺着遍历被并在 `<module>` 里——否则「模块级只有环境
+    # 变量名、真正的内联读取在块内函数里」会被误报。期望顶层只出现两个形态（缺 `loads`），不命中。
+    check(
+        "事件载荷判据不把块内嵌套作用域并进外层（#339）",
+        event_payload_inliners(nested_in_block) == [],
+        f"实际 {event_payload_inliners(nested_in_block)}",
+    )
+    check(
+        "事件载荷判据覆盖类方法作用域（#339）",
+        event_payload_inliners(class_method_event) == ["load"],
+        f"实际 {event_payload_inliners(class_method_event)}",
     )
 
     read_event = globals().get("read_event_payload")
