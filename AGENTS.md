@@ -179,6 +179,7 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档；本
 | 迭代流程细则 | `docs/contributing/ISSUE_GUIDE.md` / `docs/contributing/PR_GUIDE.md` |
 | 合并评审（派发 + 评审清单） | `docs/contributing/REVIEW_DISPATCH.md`（派发文案用 `scripts/review_prompt.py` 生成，**不要手写**） |
 | MTP 枚举与下载 | `tools/android-mtp-probe/src/com/rea/mtpprobe/Main.java` |
+| SDK / 签名构建常量 | 仓库根 `build-constants.properties`（探针 `build.sh` 与导片工具 Gradle 构建读同一份，**不要在构建脚本里再写一份**） |
 | APK 构建流程（探针） | `tools/android-mtp-probe/build.sh`（**keystore 必须在工程根目录**，见 §4） |
 | APK 构建流程（导片工具） | `tools/android-mtp-import/build.gradle.kts`（Android/Kotlin/依赖）+ `tools/android-mtp-import/gradle/*.gradle.kts`（纯 JDK 自检、验签、假数据、`local.properties` 解析）+ `gradle/wrapper/`（工具链版本锁在 wrapper 里，别用全局 Gradle） |
 | PTP/IP 连相机 | `tools/sony-ptpip/probe.py` |

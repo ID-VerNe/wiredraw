@@ -23,11 +23,6 @@ if [ -n "$REDLINE_WRITE" ]; then
   exit 1
 fi
 
-# 构建版本写死：同一 commit 在任何机器上都应产出相同的 APK。
-# 找不到对应组件时见下方报错里的「安装 / 改哪两行」提示。
-BT_VER="35.0.1"
-PLATFORM="android-35"
-
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) IS_WIN=1; EXE=".exe"; BAT=".bat" ;;
   *)                     IS_WIN=0; EXE="";     BAT=""     ;;
@@ -39,6 +34,32 @@ die() {
   for line in "$@"; do printf '       %s\n' "$line" >&2; done
   exit 1
 }
+
+# ---- 构建常量：单一来源在仓库根的 build-constants.properties（issue #205）----
+# SDK 版本与签名参数不再在本文件里写第二份；`build.gradle.kts` 读同一份文件，
+# 所以「探针构建」与「Gradle 构建」不可能各改一半。改版本请改那份文件，不在这里加行。
+# 顶部已 cd 到本工程目录，仓库根就是 ../../（从任何目录调用 build.sh 都能找到）。
+CONSTANTS="../../build-constants.properties"
+[ -f "$CONSTANTS" ] || die "缺少构建常量文件：$CONSTANTS" \
+    "SDK / 签名常量的唯一来源，说明写在该文件顶部。"
+# `source` 前先去掉 CR：该文件在 .gitattributes 里钉了 eol=lf，但这道防线不依赖本机配置
+# ——工作区被 any-crlf 检出时值会带上尾部 \r，签名口令多一个字符只会报「口令错误」，
+# 极难归因，所以这里直接吃掉 CR（`source <(...)` 进程替换在 bash 与 Git Bash 下都可用）。
+set -a
+# shellcheck disable=SC1090,SC1091
+. <(tr -d '\r' < "$CONSTANTS")
+set +a
+
+# 把文件里的「概念值」拼成各工具要的形态（文件存 API 号 35，这里拼 android-35）。
+BT_VER="$buildToolsVersion"
+PLATFORM="android-$platformApi"
+# keystore 文件名与路径：AGENTS.md §4 要求密钥不在任何 build/ 下，所以就是工程根这个文件。
+KS="$keystoreFile"
+
+for var in BT_VER PLATFORM minSdk targetSdk KS keystoreAlias keystorePassword; do
+  [ -n "${!var:-}" ] || die "构建常量文件缺项：$CONSTANTS 未定义 $var。" \
+      "该文件顶部写了每个键的含义。"
+done
 
 # Windows 的 C:\x / C:/x 统一成 MSYS 风格 /c/x；其它平台原样返回。
 # 不做这步，继承来的 JAVA_HOME（C:\Program Files\...）在 Git Bash 里不可用。
@@ -79,7 +100,7 @@ if [ -z "$SDK" ]; then
     die "在 $SDK_SEEN 找到了 Android SDK，但缺少探针所需的组件。" \
         "需要：build-tools/$BT_VER 与 platforms/$PLATFORM。" \
         "安装：sdkmanager \"build-tools;$BT_VER\" \"platforms;$PLATFORM\"" \
-        "或修改本脚本顶部的 BT_VER / PLATFORM 两行，匹配你已安装的版本。"
+        "或改仓库根 build-constants.properties 的 buildToolsVersion / platformApi，匹配你已安装的版本。"
   fi
   die "找不到 Android SDK（已尝试 ANDROID_HOME、ANDROID_SDK_ROOT 与常见默认路径）。" \
       "请设置后重试：export ANDROID_HOME=/path/to/Android/Sdk"
@@ -149,8 +170,8 @@ echo "== 2. aapt2 link =="
   --manifest AndroidManifest.xml \
   -R "$OUT/flat/res.zip" \
   --java "$OUT/gen" \
-  --min-sdk-version 31 \
-  --target-sdk-version 35 \
+  --min-sdk-version "$minSdk" \
+  --target-sdk-version "$targetSdk" \
   --auto-add-overlay
 
 echo "== 3. javac =="
@@ -186,7 +207,7 @@ cat "$OUT/jvm-test.log"
 
 echo "== 4. d8 =="
 find "$OUT/classes" -name '*.class' > "$OUT/classes.txt"
-"$D8" --release --lib "$ANDROID_JAR" --min-api 31 \
+"$D8" --release --lib "$ANDROID_JAR" --min-api "$minSdk" \
   --output "$OUT/dex" @"$OUT/classes.txt"
 
 echo "== 5. 打包 dex =="
@@ -207,14 +228,17 @@ echo "== 6. zipalign =="
 "$ZIPALIGN" -f -p 4 "$OUT/base.apk" "$OUT/aligned.apk"
 
 echo "== 7. 签名 =="
-KS="rea-debug.keystore"
+# KS / 别名 / 口令都来自仓库根的 build-constants.properties（见顶部读取块），
+# 与 build.gradle.kts 读同一份，两处不会再各配一个口令。
 if [ ! -f "$KS" ]; then
   [ -n "$KEYTOOL" ] || die "keystore 缺失，且找不到 keytool 重新生成；请把 JAVA_HOME 指向 JDK。"
-  "$KEYTOOL" -genkeypair -v -keystore "$KS" -storepass android -keypass android \
-    -alias rea -keyalg RSA -keysize 2048 -validity 10000 \
+  "$KEYTOOL" -genkeypair -v -keystore "$KS" \
+    -storepass "$keystorePassword" -keypass "$keystorePassword" \
+    -alias "$keystoreAlias" -keyalg RSA -keysize 2048 -validity 10000 \
     -dname "CN=REA Probe, OU=Dev, O=REA, L=NA, S=NA, C=CN" >/dev/null 2>&1
 fi
-"$APKSIGNER" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
+"$APKSIGNER" sign --ks "$KS" \
+  --ks-pass "pass:$keystorePassword" --key-pass "pass:$keystorePassword" \
   --out "$OUT/mtp-probe.apk" "$OUT/aligned.apk"
 "$APKSIGNER" verify "$OUT/mtp-probe.apk"
 

@@ -22,7 +22,9 @@
 要求：Android SDK（`build-tools;35.0.1` + `platforms;android-35`）、JDK 21、Python 3。
 脚本会自动探测工具链：SDK 按 `ANDROID_HOME` → `ANDROID_SDK_ROOT` → 常见默认路径，
 JDK 按 `JAVA_HOME` → `PATH` 里的 `javac`。找不到时打印可直接复制的设置示例并以非 0 退出。
-版本号写死是为了构建可复现；你装的版本不同，改脚本顶部的 `BT_VER` / `PLATFORM` 两行即可。
+版本号写死是为了构建可复现；SDK 与签名常量都在仓库根的 `build-constants.properties`，
+装的版本不同就改那份（`buildToolsVersion` / `platformApi`），本脚本与导片工具的 Gradle
+构建读的是同一份，不会出现两边各配一个的情形。
 
 ```bash
 # Linux / macOS / Git Bash

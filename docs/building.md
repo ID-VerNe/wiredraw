@@ -9,7 +9,7 @@
 |---|---|---|
 | Python | 3（仅标准库） | 工具脚本与门禁零依赖 |
 | JDK | 21（探针）；17+（导片工具，本机用 Temurin 21） | `JAVA_HOME` 必须指向 JDK，不能是 JRE |
-| Android SDK | `platforms;android-35` + `build-tools;35.0.1` | 版本号写死在探针 `build.sh` 顶部，装的版本不同就改那两行 |
+| Android SDK | `platforms;android-35` + `build-tools;35.0.1` | 常量在仓库根 `build-constants.properties`，探针 `build.sh` 与导片工具 Gradle 构建读同一份；装的版本不同就改那份 |
 | Gradle | **只用仓库内的 wrapper** | 不要用本机全局 Gradle；版本锁在 `gradle/wrapper/` |
 
 ## 二、环境变量（`manual` 档前置）
@@ -103,6 +103,6 @@ python scripts/run_gates.py manual
 |---|---|---|
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | 覆盖安装的签名与已装 APK 不一致 | 找回原来的 `rea-debug.keystore`；不要重新生成 |
 | 找不到 Android SDK | 未设 `ANDROID_HOME` / `ANDROID_SDK_ROOT`，也无默认路径 | 按第二节设置后重跑 |
-| SDK 版本不匹配 | `build-tools` / `platform` 不是脚本写死的版本 | 装对应版本，或改 `build.sh` 顶部 `BT_VER` / `PLATFORM` |
+| SDK 版本不匹配 | `build-tools` / `platform` 不是构建常量里的版本 | 装对应版本，或改仓库根 `build-constants.properties` 的 `buildToolsVersion` / `platformApi` |
 | Windows 下 `javac` 失败但脚本继续 | 退出码被管道吞掉 | 构建脚本一律先落日志再判退出码，不要用 `cmd` 管道 |
 | PowerShell 里 `bash ...` 报「找不到 Android SDK」或 `JAVA_HOME is not set` | PowerShell 的 `bash` 是 WSL，看不到 Windows 的 SDK / JDK | 改用 `python scripts/run_gates.py manual`，或 Git for Windows 的 `bash.exe`（第三节）与 `gradlew.bat`（第四节） |
