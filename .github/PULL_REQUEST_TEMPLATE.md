@@ -3,9 +3,10 @@
 
 ## 问题
 
-关闭方式：默认写 Refs #NN（行为类，合并后需在真机上复验通过才关单）；
-纯文档 / 纯重构把 Refs 换成 Closes。把 NN 换成真实编号——写在注释里不算，
-`scripts/check_pr_sections.py` 只认正文里可见的关键词。
+关闭方式：默认写 Refs #NN（合并后由发现者回签通过才关单）。
+把 NN 换成真实编号——写在注释里不算，`scripts/check_pr_sections.py` 只认正文里
+可见的关键词。门禁也接受 Closes，但 Closes 会被 GitHub 在 merge 时直接关掉 issue；
+别在正文里贴带具体编号的 closing 短语（举例一律写 #NN）。
 
 ## 改动
 

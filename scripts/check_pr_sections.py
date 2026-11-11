@@ -249,7 +249,7 @@ def closing_side_effects(body: str, visible: str) -> list[str]:
     if intended and refs:
         problems.append(
             "关闭方式冲突：可见正文里同时出现 closing 关键词与 `Refs`，"
-            "按 docs/contributing/PR_GUIDE.md「关闭方式」二选一（行为类只该用 `Refs`）"
+            "只保留一个（默认写 `Refs`，见 docs/contributing/PR_GUIDE.md「关闭方式」）"
         )
     if len(intended) > 1:
         problems.append(
@@ -282,8 +282,8 @@ def check_body(body: str, files: list[str]) -> list[str]:
 
     if not CLOSING.search(visible):
         problems.append(
-            "缺关闭关键词：需要 `Closes #NN`（纯文档 / 纯重构）或 `Refs #NN`（行为类），"
-            "见 docs/contributing/PR_GUIDE.md「关闭方式：Closes 还是 Refs」"
+            "缺关闭关键词：需要 `Refs #NN`（默认写法；`Closes #NN` 也接受，"
+            "但会让 GitHub 在 merge 时直接关单），见 docs/contributing/PR_GUIDE.md「关闭方式」"
         )
 
     problems.extend(closing_side_effects(body, visible))

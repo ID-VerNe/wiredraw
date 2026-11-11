@@ -33,7 +33,7 @@
 3. **开 worktree 改代码**：`git worktree add ../wiredraw-<issue> -b type/<issue>-<slug> main`，
    不在主工作区切分支；分支 / PR 标题 / commit **三处都带 issue 号**。
 4. **开 PR**：正文分段齐全（问题 / 改动 / 测试 / 基线验证 / 门禁改动 / 影响面 / 验收对照）；
-   `Closes` 只给纯文档与纯重构，**行为类用 `Refs`**。
+   **默认用 `Refs`，不用 `Closes`**——issue 只在回签通过后关闭。
    **正文里举例一律写 `#NN` 占位**，不写具体编号——GitHub 对 PR 原始全文跑自动关闭解析，
    行内代码 / 围栏里的 closing 关键词加真实编号也会真的关掉 issue（见
    [`docs/contributing/PR_GUIDE.md`](docs/contributing/PR_GUIDE.md)「硬规则」）。
