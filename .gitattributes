@@ -19,6 +19,9 @@
 # 检出成 CRLF，于是 `bash tools/android-mtp-import/gradlew` 直接报 `$'\r': command not found`，
 # manual 门禁（android-import 档）在 Windows 上跑不起来。按路径钉死，别靠本机配置。
 tools/android-mtp-import/gradlew text eol=lf
+# SDK / 签名常量的唯一来源（#205）：探针 build.sh 直接 `source` 它，CRLF 会让口令尾部多一个 \r，
+# 报错只会是「口令错误」，极难归因。按路径钉死（不动别的 .properties）。
+build-constants.properties text eol=lf
 *.cmd        text eol=crlf
 
 # 二进制：别做换行转换
