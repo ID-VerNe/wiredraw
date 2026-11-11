@@ -422,46 +422,112 @@ def self_test() -> int:
     #
     #    判据按**语义形态**扫、不认固定片段（#339）：旧实现找的是字面量
     #    `json.loads(Path(path)` 拼 `.read_text`，把变量名从 `path` 换成 `_p` 即可绕过
-    #    （评审实测）。现在改成「同一作用域内同时出现 `GITHUB_EVENT_PATH` 环境变量名、
-    #    `read_text` 属性访问、`loads` 属性访问」即命中——与变量名、与调用嵌套写法无关。
+    #    （评审实测）。现在改成「本作用域读 `GITHUB_EVENT_PATH` -> 读出来的路径被
+    #    `read_text` 读 -> 结果被 `loads` / `load` 解析」三件齐全才命中——与变量名、
+    #    与调用嵌套写法无关。
+    EVENT_ENV = "GITHUB_EVENT_PATH"
+
+    def env_read(node: ast.AST) -> bool:
+        """是不是在读取事件载荷的那个环境变量：`os.environ.get("GITHUB_EVENT_PATH")` /
+        `os.getenv("GITHUB_EVENT_PATH")` / `os.environ["GITHUB_EVENT_PATH"]`（取值，不是赋值）。
+
+        只认**读取**：`os.environ.pop("GITHUB_EVENT_PATH")` 是自检里清场的写法、`os.environ[...]
+        = ...` 是写回，都不是在读事件载荷；裸字面量更不算——若把 `EVENT_ENV =
+        "GITHUB_EVENT_PATH"` 这类模块常量也算数，配合本作用域另一次无关的 `read_text` +
+        `loads` 会被误报（第三轮评审实测多例）。
+        """
+        if isinstance(node, ast.Call):
+            fn = node.func
+            if not isinstance(fn, ast.Attribute):
+                return False
+            holder = fn.value
+            is_env_get = fn.attr == "get" and isinstance(holder, ast.Attribute) and holder.attr == "environ"
+            is_getenv = fn.attr == "getenv" and isinstance(holder, ast.Name) and holder.id == "os"
+            if not (is_env_get or is_getenv):
+                return False
+            return any(isinstance(a, ast.Constant) and a.value == EVENT_ENV for a in node.args)
+        if isinstance(node, ast.Subscript):
+            holder = node.value
+            return (
+                isinstance(node.ctx, ast.Load)
+                and isinstance(holder, ast.Attribute)
+                and holder.attr == "environ"
+                and isinstance(node.slice, ast.Constant)
+                and node.slice.value == EVENT_ENV
+            )
+        return False
+
+    def reaches_env(node: ast.AST) -> bool:
+        return any(env_read(child) for child in ast.walk(node))
+
     def event_payload_inliners(src: str) -> list[str]:
-        """源码里把事件载荷读成 JSON 的作用域名；形态判据见上方注释（#339）。
+        """源码里「把事件载荷读成 JSON」的作用域名；判据见上方注释（#339）。
 
         扫描范围 = 模块顶层 + 每个函数 / 类体，逐个作用域独立判定。**模块顶层必须在内**：
-        旧判据是整份文件的子串扫描，把模块顶层与 `if __name__` 块漏掉会让判据从「覆盖」
-        退成「不覆盖」（PR #351 首轮评审的阻断项，实测同一注入 base 判红、收窄后判绿）。
-        类体同样纳入，方法体由各自的函数作用域单独判定。
+        判据收窄到函数级会让模块顶层 / `if __name__` 块里的内联读取漏判（首轮评审的阻断项，
+        实测同一注入 base 判红、收窄后判绿）。类体同样纳入，方法体由各自的函数作用域单独判定。
 
         **嵌套作用域一律不并入外层**：遍历在遇到 `FunctionDef` / `AsyncFunctionDef` /
-        `ClassDef` 时停住。只跳过外层语句的**直接**子节点是不够的——定义在模块级 `if` /
-        `try` 块里的函数会顺着 `ast.walk` 被外层作用域一并收走（第二轮评审实测到这条
-        构造性误报：模块级 `_ENV = "GITHUB_EVENT_PATH"` 加上 `if __name__` 块内定义的
-        `def _p(x): return json.loads(Path(x).read_text())` 会被误报成 `<module>`）。
+        `ClassDef` 时停住。只跳过外层语句的**直接**子节点是不够的——定义在模块级
+        `if` / `try` 块里的函数会顺着 `ast.walk` 被外层作用域一并收走，于是「外层只提到环境
+        变量名、真正的解析在块内函数里」被误报成 `<module>`（第二轮评审的构造性误报）。
+        `lambda` 不在停表里：它没有自己的名字可报，其函数体本就属于外层作用域，据实归给外层。
+
+        命中还要求**路径能追到那次环境读取**：只要求「同一作用域里出现过环境变量名 + 有
+        `read_text` + 有 `loads`」三件套的话，本作用域另读一份无关 JSON（例如自检里先
+        `pop("GITHUB_EVENT_PATH")` 再读 `fixtures/` 下的样例）会被当成事件解析而误报
+        （第三轮评审实测两例）。判据因此收成：`read_text` 的**接收者**要么内联含环境读取，
+        要么引用了 `名字 = 环境读取` 那次赋值的名字。
         """
         try:
             tree = ast.parse(src)
         except SyntaxError:
             return []
-        shape = {"GITHUB_EVENT_PATH", "read_text", "loads"}
         scopes: list[tuple[str, list[ast.stmt]]] = [("<module>", tree.body)]
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 scopes.append((node.name, node.body))
+        stops = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
         found: list[str] = []
         for name, body in scopes:
-            seen: set[str] = set()
+            scope_nodes: list[ast.AST] = []
             # 显式栈而不是 ast.walk：遇到嵌套作用域即停，不把它的内容算进本作用域。
             stack: list[ast.AST] = list(body)
             while stack:
                 node = stack.pop()
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if isinstance(node, stops):
                     continue
-                if isinstance(node, ast.Constant) and node.value == "GITHUB_EVENT_PATH":
-                    seen.add("GITHUB_EVENT_PATH")
-                elif isinstance(node, ast.Attribute) and node.attr in ("read_text", "loads"):
-                    seen.add(node.attr)
+                scope_nodes.append(node)
                 stack.extend(ast.iter_child_nodes(node))
-            if seen == shape:
+            if not any(env_read(node) for node in scope_nodes):
+                continue
+            derived = {
+                target.id
+                for node in scope_nodes
+                if isinstance(node, ast.Assign)
+                for target in node.targets
+                if isinstance(target, ast.Name) and reaches_env(node.value)
+            }
+            reads_derived = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "read_text"
+                and (
+                    reaches_env(node.func.value)
+                    or any(
+                        isinstance(child, ast.Name) and child.id in derived
+                        for child in ast.walk(node.func.value)
+                    )
+                )
+                for node in scope_nodes
+            )
+            parses = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("loads", "load")
+                for node in scope_nodes
+            )
+            if reads_derived and parses:
                 found.append(name)
         return found
 
@@ -532,6 +598,47 @@ def self_test() -> int:
         event_payload_inliners(class_method_event) == ["load"],
         f"实际 {event_payload_inliners(class_method_event)}",
     )
+    # 误报回归（#339，第三轮评审的构造性误报）：判据只认「本作用域读过事件环境变量」。
+    # 只把环境变量名当普通字符串常量、或读一份**无关** JSON，都不算事件解析。
+    const_noise = "\n".join((
+        "EVENT_ENV = \"GITHUB_EVENT_PATH\"",
+        "_DATA = json.loads(Path(\"fixtures/data.json\").read_text(encoding=\"utf-8\"))",
+    ))
+    block_def_unrelated = "\n".join((
+        "EVENT_ENV = \"GITHUB_EVENT_PATH\"",
+        "try:",
+        "    def _p():",
+        "        return json.loads(Path(\"data.json\").read_text(encoding=\"utf-8\"))",
+        "except Exception:",
+        "    pass",
+    ))
+    env_then_other_json = "\n".join((
+        "def _p_o():",
+        "    _name = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    _txt = Path(\"scripts/gates_local.json\").read_text(encoding=\"utf-8\")",
+        "    return json.loads(_txt), _name",
+    ))
+    selftest_pop_env = "\n".join((
+        "def _selftest_case():",
+        "    saved = os.environ.pop(\"GITHUB_EVENT_PATH\", None)",
+        "    try:",
+        "        data = json.loads(Path(\"fixtures/sample.json\").read_text(encoding=\"utf-8\"))",
+        "    finally:",
+        "        if saved is not None:",
+        "            os.environ[\"GITHUB_EVENT_PATH\"] = saved",
+        "    return data",
+    ))
+    event_false_positives = {
+        "常量名非读取": event_payload_inliners(const_noise),
+        "块内 def 读无关 JSON": event_payload_inliners(block_def_unrelated),
+        "读 env 名后解析别的文件": event_payload_inliners(env_then_other_json),
+        "自检式 pop env 后读样例": event_payload_inliners(selftest_pop_env),
+    }
+    check(
+        "事件载荷判据不把无关 JSON 读取算成事件解析（#339）",
+        all(not v for v in event_false_positives.values()),
+        f"实际误报 {event_false_positives}",
+    )
 
     read_event = globals().get("read_event_payload")
     check("共享层提供 read_event_payload", callable(read_event))
@@ -572,15 +679,46 @@ def self_test() -> int:
     #    但 6 个 check_*.py 里还散着 `return 0/1/2` 字面量——契约要扩展（新增 SKIP 码、
     #    给 ENV_FAIL 加统一上报）时，只改常量的那几个脚本会跟着变，写字面量的不会。
     #
-    #    判据用 token / 正则级（#339）：旧的整行式 `^[ \t]*return [012][ \t]*$` 要求
-    #    `return` 到行尾只剩一个数字，行内注释（`return 1  # 注释`）、双空格（`return  1`）、
-    #    单行三元右侧（`return 1 if x else 0`）都能绕过（评审实测）。`\breturn\s+[012]\b`
-    #    里 `\s` 含换行、`\b` 挡住 `return 12` / `return 0x1` / `return OK` 这类误伤。
-    literal_return = re.compile(r"\breturn\s+[012]\b")
+    #    判据走 AST，不扫文本（#339）：整行式 `^[ \t]*return [012][ \t]*$` 要求 `return`
+    #    到行尾只剩一个数字，行内注释、双空格、单行三元右侧都能绕过；换成宽松正则
+    #    `\breturn\s+[012]\b` 又会把注释 / docstring 里的字样、`return 1.5` 一起误判——
+    #    正则看不见语法，认不出「这串字在注释里」也不认「点后面还有小数位」。AST 只问
+    #    「有没有 `return` 的值是整型常量 0 / 1 / 2」，上述两类都天然成立：
+    #    `return (1)` / 跨行括号在 AST 里是同一个 `Constant(1)`（正则抓不到），
+    #    注释与 docstring 根本不进语法树。`return 1 if x else 0` 看 `IfExp` 两支。
+    def literal_exit_returns(src: str) -> int:
+        """源码里「`return` 的值是整型常量 0 / 1 / 2」的处数；注释 / 字符串不算（#339）。
+
+        `return 1.5` / `return 12` / `return OK` / `return ENV_FAIL` 不命中。
+        `True` / `False` 不是退出码，不算（`bool` 是 `int` 子类，要排掉）。
+        `return 0x1` 在 AST 里就是 `Constant(1)`，与 `return 1` 同形，一并判红——它本来就
+        是字面量 1，判红才是契约要的语义。
+        """
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return 0
+
+        def is_exit_literal(value: ast.expr | None) -> bool:
+            if isinstance(value, ast.IfExp):
+                return is_exit_literal(value.body) or is_exit_literal(value.orelse)
+            return (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, int)
+                and not isinstance(value.value, bool)
+                and value.value in (0, 1, 2)
+            )
+
+        return sum(
+            1
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return) and is_exit_literal(node.value)
+        )
+
     literal_offenders = {
-        n: len(literal_return.findall(src))
+        n: literal_exit_returns(src)
         for n, src in siblings.items()
-        if n.startswith("check_") and literal_return.search(src)
+        if n.startswith("check_") and literal_exit_returns(src)
     }
     check(
         "check_*.py 不再用 return 0/1/2 字面量表达退出码",
@@ -590,24 +728,40 @@ def self_test() -> int:
 
     # 变异用例（#339）：三种绕过形态必须判红，合法写法不许误伤。
     literal_mutations = {
-        "行内注释": "    return 1  # 注释",
-        "双空格": "    return  1",
-        "单行三元": "    return 1 if x else 0",
+        "行内注释": "def f():\n    return 1  # 注释\n",
+        "双空格": "def f():\n    return  1\n",
+        "单行三元": "def f():\n    return 1 if x else 0\n",
     }
     literal_evaders = {
-        n: s for n, s in literal_mutations.items() if not literal_return.search(s)
+        n: s for n, s in literal_mutations.items() if literal_exit_returns(s) != 1
     }
     check(
         "return 字面量判据抓住注释/双空格/三元绕过（#339）",
         literal_evaders == {},
         f"实际未命中 {literal_evaders}",
     )
-    literal_legit = ["    return OK", "    return 12", "    return 0x1", "    return ENV_FAIL"]
-    literal_false_positives = [s for s in literal_legit if literal_return.search(s)]
+    # 反向用例（第三轮评审的构造性误报回归）：注释 / docstring / 浮点里的字样不算字面量；
+    # 括号与跨行写法的 `1` 仍是字面量，必须命中（正则两样都做不到）。
+    literal_legit = {
+        "具名常量": "def f():\n    return OK\n",
+        "多位数字": "def f():\n    return 12\n",
+        "布尔值": "def f():\n    return True\n",
+        "浮点 1.5": "def f():\n    return 1.5\n",
+        "浮点 0.5": "def f():\n    return 0.5\n",
+        "注释提到": "# 旧写法 return 1 已废弃\n",
+        "docstring 提到": 'DOC = """退出码不得写成 return 0/1/2"""\n',
+    }
+    literal_bracketed = {
+        "括号 return (1)": "def f():\n    return (1)\n",
+        "跨行括号": "def f():\n    return (\n        2\n    )\n",
+    }
+    literal_false_positives = sorted(
+        n for n, s in literal_legit.items() if literal_exit_returns(s)
+    ) + sorted(n for n, s in literal_bracketed.items() if literal_exit_returns(s) != 1)
     check(
-        "return 字面量判据不误伤具名常量与多位数字（#339）",
+        "return 字面量判据只认语法树里的整型常量（#339）",
         literal_false_positives == [],
-        f"实际误命中 {literal_false_positives}",
+        f"实际误判 {literal_false_positives}",
     )
 
     for name, ok, detail in checks:
