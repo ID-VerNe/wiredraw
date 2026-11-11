@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -418,9 +419,62 @@ def self_test() -> int:
 
     # 8. 事件载荷读取只许活在本模块（#311）：support 档三条门禁对同一份
     #    `GITHUB_EVENT_PATH` 各解析一份，载荷要加 BOM 容忍或大小上限时会三处不同步。
-    dup_event = "json.loads(Path(path)" + ".read_text"
-    event_offenders = [n for n, src in siblings.items() if dup_event in src]
-    check("GITHUB_EVENT_PATH 解析只在共享层一处", event_offenders == [], f"实际 {event_offenders}")
+    #
+    #    判据按**语义形态**扫、不认固定片段（#339）：旧实现找的是字面量
+    #    `json.loads(Path(path)` 拼 `.read_text`，把变量名从 `path` 换成 `_p` 即可绕过
+    #    （评审实测）。现在改成「同一函数体内同时出现 `GITHUB_EVENT_PATH` 环境变量名、
+    #    `read_text` 属性访问、`loads` 属性访问」即命中——与变量名、与调用嵌套写法无关。
+    def event_payload_inliners(src: str) -> list[str]:
+        """源码里把事件载荷读成 JSON 的函数名；形态判据见上方注释（#339）。"""
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return []
+        shape = {"GITHUB_EVENT_PATH", "read_text", "loads"}
+        found: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            seen: set[str] = set()
+            for child in ast.walk(node):
+                if isinstance(child, ast.Constant) and child.value == "GITHUB_EVENT_PATH":
+                    seen.add("GITHUB_EVENT_PATH")
+                elif isinstance(child, ast.Attribute) and child.attr in ("read_text", "loads"):
+                    seen.add(child.attr)
+            if seen == shape:
+                found.append(node.name)
+        return found
+
+    event_offenders = {
+        n: event_payload_inliners(src)
+        for n, src in siblings.items()
+        if event_payload_inliners(src)
+    }
+    check("GITHUB_EVENT_PATH 解析只在共享层一处", event_offenders == {}, f"实际 {event_offenders}")
+
+    # 变异用例（#339）：换变量名的事件读取必须判红，只调共享层的正常写法不许误伤。
+    renamed_event = "\n".join((
+        "def fetch_event_body():",
+        "    _p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    if not _p:",
+        "        return None",
+        "    return json.loads(Path(_p).read_text(encoding=\"utf-8\"))",
+    ))
+    delegating_event = "\n".join((
+        "from _common import read_event_payload",
+        "def fetch_event_body():",
+        "    return read_event_payload()",
+    ))
+    check(
+        "事件载荷判据抓住变量重命名（#339）",
+        event_payload_inliners(renamed_event) == ["fetch_event_body"],
+        f"实际 {event_payload_inliners(renamed_event)}",
+    )
+    check(
+        "事件载荷判据不误伤只调共享层的写法（#339）",
+        event_payload_inliners(delegating_event) == [],
+        f"实际 {event_payload_inliners(delegating_event)}",
+    )
 
     read_event = globals().get("read_event_payload")
     check("共享层提供 read_event_payload", callable(read_event))
@@ -460,7 +514,12 @@ def self_test() -> int:
     # 9. 退出码只许用常量表达（#314）：`OK` / `CONTENT_FAIL` / `ENV_FAIL` 已经是全仓契约，
     #    但 6 个 check_*.py 里还散着 `return 0/1/2` 字面量——契约要扩展（新增 SKIP 码、
     #    给 ENV_FAIL 加统一上报）时，只改常量的那几个脚本会跟着变，写字面量的不会。
-    literal_return = re.compile(r"^[ \t]*return [012][ \t]*$", re.M)
+    #
+    #    判据用 token / 正则级（#339）：旧的整行式 `^[ \t]*return [012][ \t]*$` 要求
+    #    `return` 到行尾只剩一个数字，行内注释（`return 1  # 注释`）、双空格（`return  1`）、
+    #    单行三元右侧（`return 1 if x else 0`）都能绕过（评审实测）。`\breturn\s+[012]\b`
+    #    里 `\s` 含换行、`\b` 挡住 `return 12` / `return 0x1` / `return OK` 这类误伤。
+    literal_return = re.compile(r"\breturn\s+[012]\b")
     literal_offenders = {
         n: len(literal_return.findall(src))
         for n, src in siblings.items()
@@ -470,6 +529,28 @@ def self_test() -> int:
         "check_*.py 不再用 return 0/1/2 字面量表达退出码",
         literal_offenders == {},
         f"实际 {literal_offenders}",
+    )
+
+    # 变异用例（#339）：三种绕过形态必须判红，合法写法不许误伤。
+    literal_mutations = {
+        "行内注释": "    return 1  # 注释",
+        "双空格": "    return  1",
+        "单行三元": "    return 1 if x else 0",
+    }
+    literal_evaders = {
+        n: s for n, s in literal_mutations.items() if not literal_return.search(s)
+    }
+    check(
+        "return 字面量判据抓住注释/双空格/三元绕过（#339）",
+        literal_evaders == {},
+        f"实际未命中 {literal_evaders}",
+    )
+    literal_legit = ["    return OK", "    return 12", "    return 0x1", "    return ENV_FAIL"]
+    literal_false_positives = [s for s in literal_legit if literal_return.search(s)]
+    check(
+        "return 字面量判据不误伤具名常量与多位数字（#339）",
+        literal_false_positives == [],
+        f"实际误命中 {literal_false_positives}",
     )
 
     for name, ok, detail in checks:
