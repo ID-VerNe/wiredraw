@@ -618,6 +618,14 @@ def self_test() -> int:
         "    _txt = Path(\"scripts/gates_local.json\").read_text(encoding=\"utf-8\")",
         "    return json.loads(_txt), _name",
     ))
+    # 第四轮评审追加：同作用域读事件环境变量，紧挨着内联解析一份**无关** JSON（`config.json`）。
+    # 与上一条的差别是这次 `read_text` 内联在 `loads` 实参里、与无关路径字面量同现。
+    env_path_other_json = "\n".join((
+        "def _p_jj():",
+        "    _path = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    _cfg = json.loads(Path(\"config.json\").read_text(encoding=\"utf-8\"))",
+        "    return _cfg, _path",
+    ))
     selftest_pop_env = "\n".join((
         "def _selftest_case():",
         "    saved = os.environ.pop(\"GITHUB_EVENT_PATH\", None)",
@@ -632,6 +640,7 @@ def self_test() -> int:
         "常量名非读取": event_payload_inliners(const_noise),
         "块内 def 读无关 JSON": event_payload_inliners(block_def_unrelated),
         "读 env 名后解析别的文件": event_payload_inliners(env_then_other_json),
+        "读 env 名后内联解析别的文件": event_payload_inliners(env_path_other_json),
         "自检式 pop env 后读样例": event_payload_inliners(selftest_pop_env),
     }
     check(
@@ -748,6 +757,7 @@ def self_test() -> int:
         "布尔值": "def f():\n    return True\n",
         "浮点 1.5": "def f():\n    return 1.5\n",
         "浮点 0.5": "def f():\n    return 0.5\n",
+        "幂 2**10": "def f():\n    return 2**10\n",
         "注释提到": "# 旧写法 return 1 已废弃\n",
         "docstring 提到": 'DOC = """退出码不得写成 return 0/1/2"""\n',
     }
