@@ -35,10 +35,13 @@ python scripts/run_gates.py support         # 需要 PR 上下文的一档
 本仓库没有通用单元测试框架。回归靠两类东西：
 
 1. **`scripts/` 下的门禁脚本**：`check_gates_manifest.py` / `check_doc_links.py` /
-   `check_line_refs.py` / `check_sensitive.py` / `check_pr_body.py` / `check_pr_sections.py` /
-   `check_commit_messages.py` / `review_prompt.py` / `run_gates.py` 带 `--self-test`，改门禁先改用例；
+   `check_line_refs.py` / `check_format_codes.py` / `check_sensitive.py` / `check_pr_body.py` /
+   `check_pr_sections.py` / `check_commit_messages.py` / `review_prompt.py` / `run_gates.py`
+   带 `--self-test`，改门禁先改用例；
    `_common.py` 没有参数入口，**直接运行即跑自检，带任何参数一律退 2**；
    `check_no_vendored.py` 与 `py_compile` 没有自检入口。
+   这份名单只能手工枚举：`scripts/gates.json` 是**执行清单**，不记录「哪些脚本带 `--self-test`」，
+   无法从它渲染，所以新增带自检的门禁脚本时要同步这里。
    导片工具有独立的 JVM 自检（`manual` 档的 `selfTest`；项数随用例增加，
    以输出末行 `== 自检全绿：N 项 ==` 为准），
    纯逻辑类不允许 `import android.*`，由编译期强制。
