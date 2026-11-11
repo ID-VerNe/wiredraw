@@ -54,6 +54,7 @@ val pureJdkClasses = listOf(
     "UiText.java",
     "UiTransition.java",
     "UsbIdentity.java",
+    "WorkerWait.java",
 )
 
 /**

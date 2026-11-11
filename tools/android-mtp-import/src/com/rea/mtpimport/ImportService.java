@@ -156,43 +156,16 @@ public final class ImportService {
     }
 
     /**
-     * 等待本轮 worker 退出，最多 `millis` 毫秒（PD / issue #50）。
+     * 有界 join 的收尾模板（issue #308）见 {@link WorkerWait#finishJoin}：中断复位 + 存活判定。
      *
-     * 返回 true 表示 worker 已退出（或本来就没在跑），调用方可以安全地关闭 MTP 会话；
-     * 返回 false 表示仍有 worker 阻塞在原生调用里，**不得**在调用线程 `session.close()`。
-     * 只做一次有界等待，不循环、不无限等。
+     * 两个调用方的时间契约不同，模板只收已经算好的毫秒数、不接管时间语义：本方法收
+     * **相对毫秒**，`Main.awaitIdle` 收**绝对截止时刻**后自己换算成剩余毫秒（三个 worker
+     * 共用一个 deadline，加起来不超过 1 s）。
      */
     public boolean awaitWorker(long millis) {
         Thread t = worker;
         if (t == null) return true;
         return WorkerWait.finishJoin(t, Math.max(1L, millis));
-    }
-
-    /**
-     * 有界 join 的收尾模板（issue #308）：中断复位 + 存活判定。
-     *
-     * 两个调用方的时间契约不同——{@link #awaitWorker(long)} 收**相对毫秒**，
-     * `Main.awaitIdle` 收**绝对截止时刻**后自己换算成剩余毫秒（三个 worker 共用一个
-     * deadline，加起来不超过 1 s）。所以这里只收已经算好的毫秒数，不接管时间语义：
-     * 谁算剩余时间谁负责，模板只负责两条必须一致的口径——被中断时复位中断标志并判
-     * 「未退出」，睡醒后按 {@link Thread#isAlive()} 判是否真的退出。
-     *
-     * 放在本文件而不是独立文件：本类是纯 JDK 类，已在 `pureJdkClasses` 清单内；
-     * 新增一个未申报的纯 JDK 文件会被 `checkPureJdkList` 判红（清单维护权不在本单）。
-     */
-    static final class WorkerWait {
-        private WorkerWait() {
-        }
-
-        static boolean finishJoin(Thread t, long millis) {
-            try {
-                t.join(millis);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-            return !t.isAlive();
-        }
     }
 
     /** 本轮是否停在文件边界等 `Resume`（`Pause & exit` 后从照片墙再点 Import 会用）。 */
