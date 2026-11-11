@@ -490,12 +490,19 @@ def self_test() -> int:
         不构成误报——判据只认「本作用域真的读过事件环境变量」，`lambda` 的形参与环境变量
         无关时该作用域仍不命中。
 
-        命中要求**同一条数据流**：本作用域先对事件环境变量取值（`os.environ.get` /
-        `os.getenv` / `os.environ[...]`，`pop` 与写回不算），该值（或其绑定的名字）交到
-        `read_text` 读成文本，再作为实参交给 `loads` / `load` 解析。只要其中一环断掉就不命中
-        ——「三者同现」的粗口径会让本作用域另读一份无关 JSON 时误报（第三、四轮评审实测多例）。
+        命中要求**同一条、按源码顺序成立的数据流**：本作用域先对事件环境变量取值
+        （`os.environ.get` / `os.getenv` / `os.environ[...]`，`pop` 与写回不算），该值
+        （或其绑定的名字）交到 `read_text` 读成文本，再作为实参交给 `loads` / `load` 解析。
+        只要其中一环断掉就不命中——「三者同现」的粗口径会让本作用域另读一份无关 JSON 时误报
+        （第三、四轮评审实测多例）。
+
         绑定形式不限 `p = ...`：带注解的 `p: str = ...`、海象 `(p := ...)`、元组解包
         `k, p = ...` 都算（第四轮评审实测的漏项）。
+
+        判据按源码顺序随访名字此刻装的是什么，而不是把「本作用域出现过环境读取」当成全局事实：
+        名字被重新绑定（`p = "cfg.json"`、`for p in ...`、`with ... as p`）后就不再是事件路径，
+        之后的 `read_text(p)` 不算事件解析（第五轮评审实测 P1 / P2——流不敏感会把重绑定后的
+        无关读取误报成内联）。
         """
         try:
             tree = ast.parse(src)
@@ -520,57 +527,84 @@ def self_test() -> int:
                 stack.extend(ast.iter_child_nodes(node))
             if not any(env_read(node) for node in scope_nodes):
                 continue
-            # 1) 哪些名字拿到了环境变量的值（普通赋值 / 带注解赋值 / 海象）。
-            env_names: set[str] = set()
-            for node in scope_nodes:
-                if isinstance(node, ast.Assign) and reaches_env(node.value):
-                    for target in node.targets:
-                        env_names |= bound_names(target)
-                elif isinstance(node, ast.AnnAssign) and node.value is not None and reaches_env(node.value):
-                    env_names |= bound_names(node.target)
-                elif isinstance(node, ast.NamedExpr) and reaches_env(node.value):
-                    env_names |= bound_names(node.target)
+            # 1) 按源码顺序单趟随访每个名字此刻装的是什么。不按顺序只按「本作用域出现过」
+            #    收集名字，名字被重新绑定成别的值之后，无关的 `read_text(p)` 仍会被算成事件
+            #    解析——流不敏感的那一半正是第五轮评审实测的 P1 / P2 误报。
+            path_names: set[str] = set()
+            text_names: set[str] = set()
+
+            def bindings(node: ast.AST) -> list[tuple[ast.expr, ast.AST]]:
+                """这条语句 / 表达式把哪些名字绑到了哪个值上。
+
+                `p = v` / `p: T = v` / `(p := v)` / `for p in v` / `with ... as p` 都算绑定：
+                后两处把名字换成了别的值，同样必须清掉它「装着事件路径」的身份。
+                """
+                if isinstance(node, ast.Assign):
+                    return [(target, node.value) for target in node.targets]
+                if isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+                    return [(node.target, node.value)]
+                if isinstance(node, (ast.For, ast.AsyncFor)):
+                    return [(node.target, node.iter)]
+                if isinstance(node, (ast.With, ast.AsyncWith)):
+                    return [
+                        (item.optional_vars, item.context_expr)
+                        for item in node.items
+                        if item.optional_vars is not None
+                    ]
+                return []
 
             def reads_event_path(node: ast.AST) -> bool:
-                """`read_text` 的接收者是事件路径：内联含环境读取，或引用了拿到该值的名字。"""
+                """这次 `read_text` 的接收者，此刻装着的是事件路径：内联含环境读取，或就是
+                该作用域里带到此刻为止仍装着环境值的那个名字。"""
                 if not (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "read_text"
                 ):
                     return False
-                return reaches_env(node.func.value) or any(
-                    isinstance(c, ast.Name) and c.id in env_names
-                    for c in ast.walk(node.func.value)
+                receiver = node.func.value
+                return reaches_env(receiver) or any(
+                    isinstance(c, ast.Name) and c.id in path_names for c in ast.walk(receiver)
                 )
 
-            # 2) 哪些名字拿到了「由事件路径读出的文本」。
-            payload_names: set[str] = set()
-            for node in scope_nodes:
-                value = node.value if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) else None
-                if value is None or not any(reads_event_path(c) for c in ast.walk(value)):
-                    continue
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    payload_names |= bound_names(target)
-            # 3) 这份文本（或其派生名字）必须真的进了 `loads` / `load` 的实参。
-            #    内联写法 `loads(Path(p).read_text(...))` 一步到底，`reads_event_path` 直接为真；
-            #    分步写法 `txt = Path(p).read_text(...)` 则看 `payload_names`。
-            for node in scope_nodes:
-                if not (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr in ("loads", "load")
-                ):
-                    continue
-                if any(
-                    reads_event_path(child)
-                    or (isinstance(child, ast.Name) and child.id in payload_names)
-                    for arg in node.args
-                    for child in ast.walk(arg)
-                ):
-                    found.append(name)
-                    break
+            def reads_payload_text(node: ast.AST) -> bool:
+                """表达式里用到了此刻装着「由事件路径读出的文本」的名字。"""
+                return any(isinstance(c, ast.Name) and c.id in text_names for c in ast.walk(node))
+
+            hit = False
+            ordered = sorted(
+                scope_nodes,
+                key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)),
+            )
+            for node in ordered:
+                # 2) 这份文本（或其派生名字）必须真的进了 `loads` / `load` 的实参。内联写法
+                #    `loads(Path(p).read_text(...))` 一步到底，`reads_event_path` 直接为真；
+                #    分步写法 `txt = Path(p).read_text(...)` 则落到 `text_names` 上。
+                if not hit and isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                    if node.func.attr in ("loads", "load") and any(
+                        reads_event_path(child) or reads_payload_text(child)
+                        for arg in node.args
+                        for child in ast.walk(arg)
+                    ):
+                        hit = True
+                        continue
+                # 3) 这条语句之后，各名字装的是什么：来自环境读取的记路径，来自事件路径
+                #    `read_text` 的记文本，其余一律清掉身份（重新绑定）。
+                for target, value in bindings(node):
+                    names = bound_names(target)
+                    if not names:
+                        continue
+                    if reaches_env(value):
+                        path_names |= names
+                        text_names -= names
+                    elif any(reads_event_path(c) for c in ast.walk(value)):
+                        text_names |= names
+                        path_names -= names
+                    else:
+                        path_names -= names
+                        text_names -= names
+            if hit:
+                found.append(name)
         return found
 
     event_offenders = {
@@ -668,6 +702,30 @@ def self_test() -> int:
         derived_events == {"海象": ["_w1"], "带注解赋值": ["_w2"], "元组解包": ["_w3"]},
         f"实际 {derived_events}",
     )
+    # 顺序敏感（#339，第五轮评审的 P1 / P2 修法）：先给默认值、再被环境读取覆盖，仍是同一
+    # 条数据流（必须命中）；`read_text` 与 `loads` 分两步写，也必须命中。判据按源码顺序随访
+    # 名字此刻装的是什么，不能只看「本作用域里出现过环境读取」。
+    default_then_env = "\n".join((
+        "def _z():",
+        "    p = \"fallback.json\"",
+        "    p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    return json.loads(Path(p).read_text(encoding=\"utf-8\"))",
+    ))
+    split_read = "\n".join((
+        "def _s1():",
+        "    p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    txt = Path(p).read_text(encoding=\"utf-8\")",
+        "    return json.loads(txt)",
+    ))
+    ordered_events = {
+        "先默认后覆盖": event_payload_inliners(default_then_env),
+        "分步读取": event_payload_inliners(split_read),
+    }
+    check(
+        "事件载荷判据按源码顺序追踪数据流（#339）",
+        ordered_events == {"先默认后覆盖": ["_z"], "分步读取": ["_s1"]},
+        f"实际 {ordered_events}",
+    )
     # 误报回归（#339，第三轮评审的构造性误报）：判据只认「本作用域读过事件环境变量」。
     # 只把环境变量名当普通字符串常量、或读一份**无关** JSON，都不算事件解析。
     const_noise = "\n".join((
@@ -706,6 +764,28 @@ def self_test() -> int:
         "            os.environ[\"GITHUB_EVENT_PATH\"] = saved",
         "    return data",
     ))
+    # 第五轮评审追加的误报（P1 / P2）：名字装过事件路径之后被重新绑定成别的值，之后的
+    # `read_text` 读的就不是事件载荷。只按「本作用域出现过环境读取」收集名字会误报。
+    rebound_then_read = "\n".join((
+        "def _f():",
+        "    p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    p = \"cfg.json\"",
+        "    return json.loads(Path(p).read_text(encoding=\"utf-8\"))",
+    ))
+    rebound_by_loop = "\n".join((
+        "def _g():",
+        "    p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    out = []",
+        "    for p in (\"a.json\", \"b.json\"):",
+        "        out.append(json.loads(Path(p).read_text(encoding=\"utf-8\")))",
+        "    return out",
+    ))
+    rebound_by_with = "\n".join((
+        "def _h():",
+        "    p = os.environ.get(\"GITHUB_EVENT_PATH\")",
+        "    with tmp_path() as p:",
+        "        return json.loads(Path(p).read_text(encoding=\"utf-8\"))",
+    ))
     # 第四轮评审追加的误报：lambda 形参与环境变量无关，只有模块常量提到变量名。
     lambda_unrelated = "\n".join((
         "EVENT_ENV = \"GITHUB_EVENT_PATH\"",
@@ -718,6 +798,9 @@ def self_test() -> int:
         "读 env 名后内联解析别的文件": event_payload_inliners(env_path_other_json),
         "自检式 pop env 后读样例": event_payload_inliners(selftest_pop_env),
         "常量名 + 无关 lambda": event_payload_inliners(lambda_unrelated),
+        "重绑定成路径字面量": event_payload_inliners(rebound_then_read),
+        "for 循环重绑定": event_payload_inliners(rebound_by_loop),
+        "with as 重绑定": event_payload_inliners(rebound_by_with),
     }
     check(
         "事件载荷判据不把无关 JSON 读取算成事件解析（#339）",
