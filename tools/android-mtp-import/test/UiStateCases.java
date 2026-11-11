@@ -40,6 +40,49 @@ final class UiStateCases {
         // 这里不再用 UiState.hasTopBar 的恒真包装重复断言（issue #212 / A13）。
     }
 
+    // ---------------- 无相机屏的唯一载荷（issue #309） ----------------
+
+    /**
+     * 墓碑（#309）：`StatusScreen` 的 `COLD` 分支与兜底 `else` 分支曾经各写一份 11 行载荷，
+     * 渲染的是同一块「无相机」屏；改 CTA 文案、图标尺寸或 padding 只改一处，兜底屏与 `COLD`
+     * 就会分叉。#337 把载荷收口成 `NoCameraStatus(model)`，这里钉住收口结果。
+     *
+     * 本组是**源码断言**，不是渲染断言：自检是纯 JDK（不许 import android），起不了 Compose，
+     * 所以按仓库既有口径（对照 `topBarSpecCases` 的「守卫行 + 调用行」）读源码判定。
+     *
+     * 判别锚点用 `title = "No camera"`，**不用** `"Connect camera",`：后者在
+     * `StatusScreen.kt` 恒为 2 处（另一处是 `EMPTY_CATALOG` 的
+     * `IconAction(desc = "Connect camera", …)`，`V-09` 要求该态必须用图标按钮呈现），
+     * 断言为 1 不可达。
+     */
+    static void noCameraStatusCases() {
+        // 载荷唯一：整块「无相机」屏的主文案只许出现一次，两份载荷合一只剩这一个判别点。
+        List<String> payload = new ArrayList<>();
+        int scanned = scanSourceText(SRC_ROOT, "title = \"No camera\"", null, payload);
+        check("无相机屏载荷唯一：title = \"No camera\" 全 src/ 恰 1 处（#309）",
+                scanned > 0 && payload.size() == 1,
+                "扫描 " + scanned + " 个文件，命中 " + payload.size() + " 处：\n"
+                        + String.join("\n", payload));
+
+        // 路由：`COLD` 与兜底 `else` 两个分支头都必须指向同一个 composable。
+        // 这条挡「锚点仍是 1、但 `else` 改去渲染别的屏」。
+        File statusScreen = source("com/rea/mtpimport/ui/StatusScreen.kt");
+        String src = readSourceOrNull(statusScreen);
+        check("COLD 与兜底 else 两个分支都路由到 NoCameraStatus（#309）",
+                src != null && src.contains("UiState.State.COLD -> NoCameraStatus(model)")
+                        && src.contains("else -> NoCameraStatus(model)"),
+                src == null ? "读不到 " + statusScreen
+                        : "两个分支头未同时指向 NoCameraStatus(model)");
+
+        // 路由点恰好两处：挡「又多一个状态并进这块屏」（如把 `EMPTY_CATALOG` 也接过来）。
+        // 与上一条合起来才是「同一块屏、只被这两个分支用」；单独看任一条都能被绕开。
+        List<String> routes = new ArrayList<>();
+        scanSourceText(new File(SRC_ROOT, "com/rea/mtpimport/ui"), "-> NoCameraStatus(model)", null, routes);
+        check("NoCameraStatus 的路由点恰 2 处，兜底语义未被扩大（#309）",
+                routes.size() == 2,
+                "实际 " + routes.size() + " 处：\n" + String.join("\n", routes));
+    }
+
     // ---------------- 界面状态迁移表（UiTransition，#213） ----------------
 
     /**
