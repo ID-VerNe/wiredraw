@@ -58,7 +58,8 @@ python scripts/review_prompt.py --pr <PR 号>
    `scripts/run_gates.py`、`.github/workflows/ci.yml`、`.githooks/` 时，逐条查
    ——断言有没有被删弱或放宽、基线是不是真红、有没有为了变绿而改断言、
    `check_gates_manifest.py --write` 是否同步跑过。
-5. **正文结构**：分段齐全、`Closes` / `Refs` 用对（行为类必须 `Refs`）、
+5. **正文结构**：分段齐全、有关闭关键词（默认 `Refs`；`Closes` 也接受，但带具体编号的
+   closing 短语是误关单，见 PR_GUIDE「硬规则」）、
    分支 / 标题 / commit 三处都带 issue 号。
 6. **行为类 PR**：核对验收是否真覆盖 issue 的复现路径，
    以及是否需要 `needs-live-verify` 而不是直接关单。
@@ -96,7 +97,7 @@ python scripts/review_prompt.py --pr <PR 号>
 ## 与门禁的关系
 
 - `scripts/check_pr_sections.py` 在 `support` 档（`scripts/gates.json`），
-  校验正文分段与 `Closes`/`Refs`，CI 在 `pull_request` 事件上跑。
+  校验正文分段与 `Refs` 关键词，CI 在 `pull_request` 事件上跑。
   **它只查结构，不查内容真假**——内容真假只有评审者能判。
 - `closing_side_effects()` 特意扫**原始全文而不只是净化后的文本**：围栏 / 行内代码 /
   HTML 注释里的关键词在门禁判定层被剔除，但 GitHub 的自动关闭解析器**不剔除**。

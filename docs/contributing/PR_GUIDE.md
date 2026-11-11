@@ -6,22 +6,35 @@
 ## 定位：PR 是最小可审查单元
 
 - 一 issue 一 PR：PR 是 issue 的实施载体。**合并只代表改动进了 `main`，不代表症状消失**——
-  行为类 PR 用 `Refs #NN`，issue 由发现者回签后关闭。
+  PR 默认用 `Refs #NN`，issue 由发现者回签后才关闭。
   合并前的审批由全新上下文的 subagent 做（见「合并评审」），不需要维护者逐 PR 人工过目。
 - 拆分原则：每个 PR 都能独立通过门禁、独立合并、独立回滚；拆不开说明边界没想清，回 issue 补 plan。
 - 大 issue 先拆再派：**分节用 `P+字母`，优先级用 `P+数字`**。
 
-## 关闭方式：Closes 还是 Refs
+## 关闭方式
+
+**默认一律用 `Refs #NN`。** issue 只在回签通过后关闭。
 
 | 关键词 | 适用 PR | 关闭时机 |
 |---|---|---|
-| `Closes #NN` | 纯文档（`docs/`、`*.md`）、纯重构（不改外部行为） | 合并即关闭 |
-| `Refs #NN` | 行为类：`fix` / `feat` / `perf`，以及任何触及运行时代码路径的 PR | 合并只进待验收队列（`needs-live-verify`），回签后才关闭 |
+| `Refs #NN` | **默认**：全部 PR | 合并只进待验收队列，回签后才关闭 |
 
-判据一句话：**合并后是否还需要在真机上再观察一次症状才能确认有效**——需要就是行为类。
+为什么默认用 `Refs`：`Closes #NN` 会让 GitHub 在 merge 的瞬间真的关掉 issue，
+而 issue 是执行与验收的唯一依据 —— 纯重构 / 纯文档的 issue 也有 issue 级验收点
+（回归断言、SelfTest dump、文档回填），合并即关会把没完成的验收点连单一起关掉。
+`Refs` 不进 GitHub 的自动关闭动词表，行为可预期。
 
-- 同一 PR 既改文档又改行为：按行为类走。
+- 合并后给 issue 贴 `needs-live-verify`，由发现者（或全新上下文的验证会话）按
+  「合并后：对账与回签」的模板回签；结论为「症状消失」才摘标签并关闭。
 - 多分节 issue 的每个 PR 都用 `Refs #NN`，全部分节合并后统一回签、一次关闭。
+- 行为类与纯文档 / 纯重构的差别**不在关闭关键词上**，而在回签要不要上真机：
+  行为类要按 issue 的复现命令在真机上再跑一次，纯文档 / 纯重构按文档或静态证据即可。
+
+**门禁的过渡口径（重要）**：`scripts/check_pr_sections.py` 目前**同时接受** `Refs #NN`
+与 `Closes #NN`。门禁不强制 `Refs`，是因为历史上与在途的 PR 用 `Closes`，把门禁改成
+「只认 `Refs`」会让它们在同一时刻一齐变红，把口径变更变成批量事故。**默认用 `Refs`
+是写作者的习惯，不是门禁的判红项**；带具体编号的 closing 副作用（如下「硬规则」）
+才是门禁真正拦的东西。
 
 ### 硬规则：正文里举例一律写 `#NN` 占位
 
@@ -30,15 +43,16 @@
 | | `scripts/check_pr_sections.py`（门禁） | GitHub 合并动作 |
 |---|---|---|
 | 判定对象 | 净化后的可见文本（围栏 / 行内代码 / HTML 注释 / 缩进代码块全剔除） | **PR 原始全文**，一个字符都不剔 |
-| 认哪些词 | `Closes` / `Refs`（本仓库要求的标准写法） | `close` / `closed` / `fix` / `fixes` / `fixed` / `resolve` / `resolves` / `resolved`，**大小写不敏感**；关键词与 `#<数字>` 之间还允许一个冒号（`Closes: #NN`） |
+| 认哪些词 | `Refs #NN`（**默认写法**）；`Closes #NN` 也接受，但不是默认 | `close` / `closed` / `fix` / `fixes` / `fixed` / `resolve` / `resolves` / `resolved`，**大小写不敏感**；关键词与 `#<数字>` 之间还允许一个冒号（`Closes: #NN`） |
 | 后果 | 判红，改正文即可 | merge 瞬间**真的关掉那个 issue** |
 
 - 正文里凡是要提到关闭关键词的**举例、模板、原始输出、规则说明**，编号一律写 `#NN` 占位
-  （`Closes #NN` / `Closes: #NN`），或把关键词与编号拆开写成 `` `Closes` #N ``。
+  （`Refs #NN` / `Closes #NN`），或把关键词与编号拆开写成 `` `Closes` #N ``。
   带**具体数字编号**的 closing 短语，哪怕写在行内代码或围栏里、或写成冒号形式，
   GitHub 照样关单。
 - `support` 档的 `closing_side_effects()` 逐行扫原始全文：凡带具体编号、又不在
-  「本 PR 明确声明要关」集合里的 closing 关键词一律判红，并报出行号。
+  「本 PR 明确声明要关」集合里的 closing 关键词一律判红，并报出行号 ——
+  这一条与「默认用 `Refs`」是两件事：前者拦误关单，后者是写作者的习惯。
 - **别为了贴「基线验证」的原始输出，把带具体编号的 closing 原句抄进正文**——那正是本门禁
   要拦的反例。贴命令与退出码，或把输出里的编号替换成 `#NN` 并注明替换过。
 - 真实发生：某次 PR 正文用 `Refs` 关联目标 issue，但正文在两处行内代码里各举了一次
@@ -99,7 +113,7 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
 
 | 段 | 必填 | 内容 |
 |---|---|---|
-| `Closes #NN` / `Refs #NN` | 是 | 按上节二选一，放正文开头或末尾 |
+| `Refs #NN` | 是 | 放正文开头或末尾；本仓库默认写法（`Closes` 也接受，见「关闭方式」的过渡口径） |
 | `## 问题` | 是 | 复述 issue 的现象 + 根因（带 `文件:行号`） |
 | `## 改动` | 是 | 按文件列改动，每个文件说清「为什么」 |
 | `## 测试` / `## 验证` | 是 | 贴门禁原始输出（`python scripts/run_gates.py ci` 的逐条 PASS 行）；只写「都过了」不算 |
@@ -176,7 +190,7 @@ type/<issue 号>-p<字母>-<slug>             # 多分节，如 feat/7-pb-progre
      -q '.[] | select(.event=="closed") | .created_at'
    ```
 
-   行为类 PR 若发现 `closed` 紧跟 `mergedAt`，说明正文里混进了带具体编号的 closing 关键词，
+   任何 PR 若发现 `closed` 紧跟 `mergedAt`，说明正文里混进了带具体编号的 closing 关键词，
    先补回签再重开 issue 并在回签里说明，不要当作正常关闭放行。
 
 合并方式跟随仓库现状：**merge commit**（`gh pr merge <n> --merge`），不 squash、不 rebase。
@@ -202,7 +216,7 @@ python scripts/review_prompt.py --self-test        # 自检
   正文与 diff 由评审者自己去读。
 - 结论 `APPROVE` → 提交者直接合并；`REQUEST_CHANGES` → 按最小修法改，
   改完**重新派一轮全新上下文**的评审，不能拿上一轮意见当本轮结论。
-- 正文分段与 `Closes`/`Refs` 这类结构问题由 `scripts/check_pr_sections.py`（`support` 档，
+- 正文分段与 `Refs` 关键词这类结构问题由 `scripts/check_pr_sections.py`（`support` 档，
   CI 在 `pull_request` 上跑）兜底；它**不判内容真假**，真假只有评审者能判。
 
 评审通过后由提交者合并，完成「合并后：对账与回签」的自查部分，
@@ -283,7 +297,7 @@ python scripts/review_prompt.py --self-test        # 自检
 - [x] <issue 验收项 1>
 - [ ] <未完成项，转 #NN>
 
-Closes #NN
+Refs #NN
 ```
 
-行为类 PR 把末行换成 `Refs #NN`，合并后按「合并后：对账与回签」等发现者回签。
+末行默认写 `Refs #NN`，合并后按「合并后：对账与回签」等发现者回签。
