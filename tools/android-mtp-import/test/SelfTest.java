@@ -62,6 +62,7 @@ public final class SelfTest {
         resumeProgressCases();
         partResidueCases();
         uiStateCases();
+        noCameraStatusCases();
         uiTransitionCases();
         finishOutcomeCases();
         probeVerdictCases();
