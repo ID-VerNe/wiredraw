@@ -31,13 +31,25 @@ final class SourceGuard {
     /**
      * 读源码，读不到返回 null。**这是纯 JDK 自检里读源码的唯一入口**（#319）：
      * 六处内联 `Files.readString` 一律走这里，免得 IO 兜底散成多份。
+     *
+     * 读进来先把换行折成 LF（#374 评审第 3 轮）：Windows 上 `core.autocrlf=true` 检出的工作区是
+     * CRLF，而按行比对的断言都是按 LF 写的 —— 整行相等（`WallCases.hasStatement`）会因为行尾多一个
+     * `\r` 永远不成立，切片定界（`"\n    }\n"`）也找不到落点，一次检出配置就让一片用例**假红**。
+     * 归一放在读取点而不是改 `.gitattributes`：后者只影响下次检出，跑测试的这台机器上的工作区
+     * 还是 CRLF，护栏该自己站稳。
      */
     static String readSourceOrNull(File f) {
         try {
-            return Files.readString(f.toPath());
+            return normalizeEol(Files.readString(f.toPath()));
         } catch (IOException e) {
             return null;
         }
+    }
+
+    /** `\r\n` 与孤立 `\r` 一律折成 `\n`；没有 `\r` 时原样返回（见 {@link #readSourceOrNull}）。 */
+    static String normalizeEol(String s) {
+        if (s == null || s.indexOf('\r') < 0) return s;
+        return s.replace("\r\n", "\n").replace('\r', '\n');
     }
 
     /** 断言 `needle` 只在 `allow` 一个文件里出现；其它文件命中即红。 */

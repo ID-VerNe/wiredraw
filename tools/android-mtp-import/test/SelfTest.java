@@ -115,6 +115,7 @@ public final class SelfTest {
         productDestinationCases();
         tempDirCases();
         testSupportCases();
+        sourceEolCases();
         thumbnailGuardCases();
 
         System.out.println();
