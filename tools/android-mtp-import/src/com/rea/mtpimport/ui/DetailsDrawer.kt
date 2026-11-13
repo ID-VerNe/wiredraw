@@ -20,7 +20,8 @@ import com.rea.mtpimport.UiState
  */
 @Composable
 fun DetailsDrawer(model: AppModel) {
-    DrawerSkeleton(title = "Location details", onClose = { model.detailsOpen = false }) {
+    DrawerSkeleton(title = "Location details", visible = model.detailsOpen,
+        onClose = { model.detailsOpen = false }) {
         BasicText(model.locationPath, style = TextMonoData)
 
         // issue #53 / P-07 / U-21：续传跳过数只在这里出现（主视觉不出现，U-47 也禁止 DONE 首屏出现）。

@@ -1,9 +1,9 @@
 package com.rea.mtpimport.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,10 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -224,7 +222,6 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
     // 勾选状态走 AppModel 的统一入口（#214 / F-20），页面不裸读版本号。
     val allSelected = model.isGroupChecked(group)
     val collapsed = model.isCollapsed(group.key)
-    val haptic = LocalHapticFeedback.current
     // 手势必须同时满足两件事（#374 / IA-13）：key 只跟 `group.key` 走（对象身份每次重组都变，
     // 拿它当 key 会让检测器反复重启、长按被吞），而闭包读到的必须是**最新**的 `group`
     // （key 不变时 `pointerInput` 不重启，直接捕获会冻结在首次组合的那一版快照上）。
@@ -237,15 +234,13 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             .heightIn(min = 48.dp)
             // 单击折叠/展开（L-08），长按 ≥500 ms = 组选（#62）；滚动越界会取消手势，
             // 与单格长按进看图页互不冲突（作用在不同行/格）。
-            .pointerInput(group.key) {
-                detectTapGestures(
-                    onTap = { model.toggleCollapsed(group.key) },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        model.toggleGroupSelection(currentGroup.value)
-                    }
-                )
-            }
+            // `V-35`：触觉由 tapOrHold 统一触发，页面不再各写一次 performHapticFeedback；
+            // 同一个入口也让组头拿到与按钮/照片格一致的按压态（`V-34`）。
+            .tapOrHold(
+                key = group.key,
+                onTap = { model.toggleCollapsed(group.key) },
+                onLongPress = { model.toggleGroupSelection(currentGroup.value) }
+            )
             .semantics {
                 // A-05：`Date group <date>, N photos, <size>`
                 contentDescription = summary.spoken()
@@ -295,6 +290,14 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
 private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
     // 勾选状态走 AppModel 的统一入口（#214 / F-20）：入口内部读版本号，勾选后本格才重绘。
     val checked = model.isUnitChecked(unit)
+    // `V-36` / IA-5：`V-11` 的终态不变（1 dp 墨色描边 + 去饱和解除），但底色、描边、
+    // 饱和度三者都从**同一个** 0..1 进度派生，不再三处各写一次三目表达式、一帧硬切。
+    // 只有这一格跟着进度重组（PC 已把点选收敛到 per-key 状态），不会把整墙拖下水。
+    val selection by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = MotionSpecs.state<Float>(),
+        label = "selection"
+    )
 
     // #59：缩略图在 IO 线程异步取，composition / 主线程不做同步解码；
     // 渐进扫描期间不碰相机（扫描线程正在同一个 MtpDevice 上发 getObjectInfo）。
@@ -315,14 +318,15 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
         Modifier
             .aspectRatio(1.5f)
             .clip(RoundedCornerShape(8.dp))
-            .background(UiColors.container.copy(alpha = if (checked) 1f else 0.6f))
-            .then(softOutline(checked))
-            .pointerInput(unit.key) {
-                detectTapGestures(
-                    onTap = { model.toggleUnitSelection(unit) },
-                    onLongPress = { model.openPhoto(unit) }
-                )
-            }
+            .background(UiColors.container.copy(alpha = 0.6f + 0.4f * selection))
+            .then(softOutline(selection))
+            // `V-34` / `V-35`：单格长按进看图页现在也有按压态与触觉（原来只有组头有）。
+            .tapOrHold(
+                key = unit.key,
+                shrinkOnPress = true,
+                onTap = { model.toggleUnitSelection(unit) },
+                onLongPress = { model.openPhoto(unit) }
+            )
             .clearAndSetSemantics {
                 selected = checked
                 contentDescription = if (checked) "Photo, selected" else "Photo, not selected"
@@ -343,24 +347,29 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
         val bitmap = thumb
         if (bitmap != null) {
             // 已选态沿用 V-11：外层 softOutline（1 dp 墨色）+ 未选去饱和、已选恢复饱和度。
-            // 包装对象进 `remember`（#374 / IA-6）：`asImageBitmap()` 与 `ColorMatrix` 每次重组都会新建，
-            // 而格子会因为勾选态变化而重组 —— 没必要为此多分配一个 ImageBitmap 包装与一个 ColorMatrix。
+            // 包装对象进 `remember`（#374 / IA-6）：`asImageBitmap()` 每次重组都会新建，
+            // 而格子会因为勾选态变化而重组 —— 没必要为此多分配一个 ImageBitmap 包装。
             val image = remember(bitmap) { bitmap.asImageBitmap() }
-            val desaturate = remember {
-                ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.55f) })
+            // 饱和度从 0.55 插值到 1.0：过渡里逐帧新建 ColorFilter（仅此一格、最多 7 帧），
+            // 到终态直接给 null，不挂多余的滤镜。
+            val saturation = 0.55f + 0.45f * selection
+            val colorFilter = if (saturation < 0.999f) {
+                ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(saturation) })
+            } else {
+                null
             }
             Image(
                 bitmap = image,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                colorFilter = if (!checked) desaturate else null,
+                colorFilter = colorFilter,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             // V-19 的降级形态：同尺寸灰块 + 文件名 12 sp（网格内唯一允许出现文件名的场景）。
             BasicText(
                 unit.preview().name,
-                style = TextSmall.copy(color = if (checked) UiColors.onSurface else UiColors.secondary),
+                style = TextSmall.copy(color = lerp(UiColors.secondary, UiColors.onSurface, selection)),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)

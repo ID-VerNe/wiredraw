@@ -35,10 +35,13 @@ import com.rea.mtpimport.UiText
  * - 不露内部状态名、不加解释句。
  */
 @Composable
-fun StatusScreen(model: AppModel) {
+fun StatusScreen(model: AppModel, state: UiState.State = model.state) {
     val cb = model.callbacks
 
-    when (model.state) {
+    // `V-36`：三屏交叉淡入的**退场层**拿的是切屏那一刻的冻结 state。
+    // 若这里直接读 model.state，退出动画那 120 ms 里旧状态屏会按新状态重画 ——
+    // 状态页 → 照片墙时会闪一帧 `NoCameraStatus` 的兜底屏。
+    when (state) {
         UiState.State.COLD -> NoCameraStatus(model)
 
         UiState.State.PERMISSION_PENDING -> StatusLayout(

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.PhotoWall
 import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiText
 import kotlinx.coroutines.Dispatchers
@@ -44,10 +45,12 @@ import kotlinx.coroutines.withContext
  *    绝不为看图页下载整张 ARW——那正是这条两段式要避开的 23.8 MB / 张。
  * 加载中或拿不到像素时保持单行胶囊形态（U-51：不显示占位块、不放假图）。
  * demo 模式（issue #46）由 `ThumbnailStore` 注入整图，仍走同一条 IO 线程链路。
+ *
+ * [unit] 由调用点显式传入（不再在此读 `model.openedPhoto`）：退出交叉淡入的那 120 ms 里
+ * model 里已经是 `null`，但退场层必须还画着刚才那一张，不能一退出就变空白（`V-36`）。
  */
 @Composable
-fun PhotoScreen(model: AppModel) {
-    val unit = model.openedPhoto ?: return
+fun PhotoScreen(model: AppModel, unit: PhotoWall.Unit) {
     val store = model.thumbnails
     // 首帧只读缓存；demo 也走同一条异步链路（ThumbnailStore 的 demo 分支在 IO 线程解码），
     // 不在 composition / 主线程同步解码（V-25）。
@@ -87,7 +90,9 @@ fun PhotoScreen(model: AppModel) {
         Modifier
             .fillMaxSize()
             .background(UiColors.canvas)
-            .tappable(onClick = {})
+            // 全屏触摸吸收层：只负责挡住点击穿透（#369），**不参与按压反馈**（`V-34`）——
+            // 否则按住照片任意位置整屏都会压深一档，那不是「可点目标」该有的响应。
+            .tappable(feedback = false, onClick = {})
     ) {
         val bitmap = preview
         if (bitmap != null) {
