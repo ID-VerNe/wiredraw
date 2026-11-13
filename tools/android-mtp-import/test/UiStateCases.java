@@ -687,7 +687,7 @@ final class UiStateCases {
         File photoScreen = source("com/rea/mtpimport/ui/PhotoScreen.kt");
         String photoSrc = readSourceOrNull(photoScreen);
         check("PhotoScreen 底层画布消费点击防止击穿到照片墙（#369）",
-                photoSrc != null && photoSrc.contains(".tappable(feedback = false, onClick = {})"),
+                photoSrc != null && photoSrc.contains(".tappable(wash = null, onClick = {})"),
                 photoSrc == null ? "读不到 " + photoScreen : "PhotoScreen 未在画布层消费点击");
     }
 

@@ -11,7 +11,7 @@ package com.rea.mtpimport;
  * 的首帧行为一致：倍率只改**时间轴**，不改终态、语义、热区与 dump（V-37）。
  *
  * #282 / U-45 的 99% 钳位也在这里：进度环插值目标必须过 [ringTarget]，
- * 否则弹簧或过冲会在动画中途把「未完成」画成满环。
+ * 否则过冲会在动画中途把「未完成」画成满环。
  */
 public final class Motion {
 
@@ -27,17 +27,18 @@ public final class Motion {
     /** 大面积位移类动效：抽屉滑入 / 滑出与遮罩淡入 / 淡出（V-36）。 */
     public static final int OVERLAY_MS = 180;
 
-    /** 按下态缩放 = 1 - PRESS_SHRINK = 0.97（V-34）。 */
-    public static final float PRESS_SHRINK = 0.03f;
-
-    /** 按压态的装饰底色最大 alpha（drawBehind 的 wash，不承载文字，不受 V-07 约束）。 */
-    public static final float PRESS_WASH_ALPHA = 0.06f;
+    /**
+     * 按压态底色的 alpha（`V-34`）。浅底压深（`onSurface`）、深底提亮（`surfaceWhite`），
+     * 两层都是装饰、不承载文字，不受 V-07 对比度约束。
+     *
+     * 不采用「缩放到 0.97」：`graphicsLayer` 挂在 `.background()` 之后只变换其后绘制的内容，
+     * 实底按钮的形状根本不会缩（真机扫描线实测按下 600 ms 内墨色区间恒为 40..1039），
+     * 留着就是一个只缩文字、不缩按钮的假反馈。底色响应对深浅底都可见、且按下当帧到位。
+     */
+    public static final float PRESS_WASH_ALPHA = 0.10f;
 
     /** 确认框从 0.96 缩入（V-36）。 */
     public static final float DIALOG_FROM_SCALE = 0.96f;
-
-    /** 临界阻尼：不回弹、不过冲（V-34）。Kotlin 侧的 spring 只准取这个值。 */
-    public static final float DAMPING_CRITICAL = 1f;
 
     /** done < total 时环弧的钳位（#282 / U-45）。 */
     public static final float RING_INCOMPLETE_CAP = 0.99f;

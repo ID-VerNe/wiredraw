@@ -323,7 +323,6 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
             // `V-34` / `V-35`：单格长按进看图页现在也有按压态与触觉（原来只有组头有）。
             .tapOrHold(
                 key = unit.key,
-                shrinkOnPress = true,
                 onTap = { model.toggleUnitSelection(unit) },
                 onLongPress = { model.openPhoto(unit) }
             )

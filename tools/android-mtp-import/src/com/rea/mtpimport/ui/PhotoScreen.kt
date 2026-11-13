@@ -92,7 +92,7 @@ fun PhotoScreen(model: AppModel, unit: PhotoWall.Unit) {
             .background(UiColors.canvas)
             // 全屏触摸吸收层：只负责挡住点击穿透（#369），**不参与按压反馈**（`V-34`）——
             // 否则按住照片任意位置整屏都会压深一档，那不是「可点目标」该有的响应。
-            .tappable(feedback = false, onClick = {})
+            .tappable(wash = null, onClick = {})
     ) {
         val bitmap = preview
         if (bitmap != null) {

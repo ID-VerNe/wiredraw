@@ -47,7 +47,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -78,19 +77,18 @@ import com.rea.mtpimport.Motion
  * 它同时喂给 [pressFeedback]（`collectIsPressedAsState`），按下当帧就有形态响应，
  * 而不是等 `onClick` 回调把界面改掉才算有反馈。
  *
- * [shrinkOnPress] 只给紧凑目标（按钮 / 图标 / 照片格）开；整行目标只压深一档底色，
- * 把一行 360 dp 宽的容器横向缩到 0.97 不是本设计的按压语言。
- * [feedback] 只给「全屏触摸吸收层」关掉（`PhotoScreen` 的黑底），否则整屏会跟着闪。
+ * [wash] 是按下时叠加的底色：浅底默认压深（`onSurface`），实心墨底的主 CTA 传
+ * `surfaceWhite` 提亮 —— 同一个 10% alpha 在两种底上都看得见。传 `null` 关掉反馈，
+ * 只给「全屏触摸吸收层」用（`PhotoScreen` 的黑底），否则整屏会跟着闪。
  */
 @Composable
 fun Modifier.tappable(
     enabled: Boolean = true,
-    shrinkOnPress: Boolean = false,
-    feedback: Boolean = true,
+    wash: Color? = UiColors.onSurface,
     onClick: () -> Unit
 ): Modifier {
     val source = remember { MutableInteractionSource() }
-    val press = if (feedback) pressFeedback(source, enabled, shrinkOnPress) else Modifier
+    val press = if (wash != null) pressFeedback(source, enabled, wash) else Modifier
     return this
         .then(press)
         .clickable(
@@ -115,7 +113,6 @@ fun Modifier.tappable(
 @Composable
 fun Modifier.tapOrHold(
     key: Any?,
-    shrinkOnPress: Boolean = false,
     onTap: () -> Unit,
     onLongPress: () -> Unit
 ): Modifier {
@@ -124,7 +121,7 @@ fun Modifier.tapOrHold(
     val currentTap = rememberUpdatedState(onTap)
     val currentLong = rememberUpdatedState(onLongPress)
     return this
-        .pressFeedback(source, enabled = true, shrinkOnPress = shrinkOnPress)
+        .pressFeedback(source, enabled = true, wash = UiColors.onSurface)
         .pointerInput(key) {
             detectTapGestures(
                 onPress = { offset -> pressGesture(source, offset) },
@@ -144,7 +141,7 @@ fun Modifier.longPressOnly(key: Any?, onLongPress: () -> Unit): Modifier {
     val haptic = LocalHapticFeedback.current
     val currentLong = rememberUpdatedState(onLongPress)
     return this
-        .pressFeedback(source, enabled = true, shrinkOnPress = false)
+        .pressFeedback(source, enabled = true, wash = UiColors.onSurface)
         .pointerInput(key) {
             detectTapGestures(
                 onPress = { offset -> pressGesture(source, offset) },
@@ -172,41 +169,32 @@ private suspend fun androidx.compose.foundation.gestures.PressGestureScope.press
 }
 
 /**
- * 按压态的视觉（`V-34`）：压深一档底色 + 可选缩放到 `0.97`。
+ * 按压态的视觉（`V-34`）：在**已有底色之上**叠一层 wash（浅底压深 / 深底提亮）。
  *
- * 动画值**只在 draw phase 读**（`graphicsLayer {}` / `drawBehind {}`）：
- * `animateFloatAsState` 每帧改值，但不会让所在 composable 重组，更不会把整面照片墙拖下水
- * （#374 IA-6 刚把点选重组成本压下来，按压反馈不能把它吃回去）。
- * 临界阻尼、无过冲，全部由 [MotionSpecs.press] 给；减少动效时退化为 `snap()`。
+ * 为什么不是「缩放到 0.97」：`graphicsLayer` 排在 `.background()` 之后时只变换其后绘制的
+ * 内容，实底按钮的形状压根不缩（真机扫描线：按下 600 ms 内墨色区间恒为 40..1039），
+ * 结果是「只缩文字、不缩按钮」的假反馈。底色响应对深浅底都可见，且按下当帧就能到位。
+ *
+ * **按下用 `SnapSpec`、松手才走 90 ms 回落**：弹簧方案实测 300 ms 时底色才刚起步，
+ * 违反「`pointerdown` 当帧给出响应」。动画值只在 `drawBehind {}` 的 draw phase 读，
+ * 不会让所在 composable 重组，更不会把整面照片墙拖下水（#374 IA-6 刚压下来的成本）。
  */
 @Composable
 private fun Modifier.pressFeedback(
     source: MutableInteractionSource,
     enabled: Boolean,
-    shrinkOnPress: Boolean
+    wash: Color
 ): Modifier {
     val pressed by source.collectIsPressedAsState()
-    val progress by animateFloatAsState(
-        targetValue = if (pressed && enabled) 1f else 0f,
-        animationSpec = MotionSpecs.press(),
-        label = "pressFeedback"
+    val active = pressed && enabled
+    val alpha by animateFloatAsState(
+        targetValue = if (active) Motion.PRESS_WASH_ALPHA else 0f,
+        animationSpec = if (active) MotionSpecs.immediate<Float>() else MotionSpecs.press<Float>(),
+        label = "pressWash"
     )
-    val scaleLayer = if (shrinkOnPress) {
-        Modifier.graphicsLayer {
-            val s = 1f - Motion.PRESS_SHRINK * progress
-            scaleX = s
-            scaleY = s
-        }
-    } else {
-        Modifier
+    return this.drawBehind {
+        if (alpha > 0f) drawRect(color = wash, alpha = alpha)
     }
-    return this
-        .then(scaleLayer)
-        .drawBehind {
-            if (progress > 0f) {
-                drawRect(color = UiColors.onSurface, alpha = Motion.PRESS_WASH_ALPHA * progress)
-            }
-        }
 }
 
 /**
@@ -229,7 +217,7 @@ fun PrimaryButton(
             .clip(RoundedCornerShape(24.dp))
             // P-09：空间不足时 CTA 禁用，视觉退到浅描边底 + 次级字色，仍保持 48 dp 热区形状。
             .background(if (enabled) UiColors.ink else UiColors.outlineSoft)
-            .tappable(enabled = enabled, shrinkOnPress = true, onClick = onClick)
+            .tappable(enabled = enabled, wash = UiColors.surfaceWhite, onClick = onClick)
             .semantics {
                 role = Role.Button
                 if (!enabled) disabled()
@@ -265,7 +253,7 @@ fun SecondaryButton(
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(24.dp))
             .border(1.dp, UiColors.outline, RoundedCornerShape(24.dp))
-            .tappable(shrinkOnPress = true, onClick = onClick)
+            .tappable(onClick = onClick)
             .semantics { role = Role.Button }
             .padding(horizontal = horizontalPadding, vertical = 12.dp),
         contentAlignment = Alignment.Center
@@ -292,7 +280,7 @@ fun IconAction(
     Box(
         modifier
             .size(48.dp)
-            .tappable(shrinkOnPress = true, onClick = onClick)
+            .tappable(onClick = onClick)
             .semantics { contentDescription = desc },
         contentAlignment = Alignment.Center
     ) {

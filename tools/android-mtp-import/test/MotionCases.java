@@ -43,11 +43,12 @@ final class MotionCases {
             check("V-36：0 与超过上限的标称时长都不合法",
                     !Motion.withinBudget(0) && !Motion.withinBudget(Motion.MOTION_MAX_MS + 1),
                     "预算守卫放行了非法时长");
-            check("V-34：按下态缩放到 0.97",
-                    Math.abs((1f - Motion.PRESS_SHRINK) - 0.97f) < 1e-6f,
-                    "实际 " + (1f - Motion.PRESS_SHRINK));
-            check("V-34：临界阻尼，不回弹不过冲", Motion.DAMPING_CRITICAL == 1f,
-                    "实际 " + Motion.DAMPING_CRITICAL);
+            check("V-34：按压底色 alpha 为 10%（深浅底都可见）",
+                    Math.abs(Motion.PRESS_WASH_ALPHA - 0.10f) < 1e-6f,
+                    "实际 " + Motion.PRESS_WASH_ALPHA);
+            check("V-34：松手回落走 PRESS_MS 且在预算内",
+                    Motion.PRESS_MS < Motion.STATE_MS && Motion.withinBudget(Motion.PRESS_MS),
+                    "实际 " + Motion.PRESS_MS);
             check("V-36：确认框从 0.96 缩入", Math.abs(Motion.DIALOG_FROM_SCALE - 0.96f) < 1e-6f,
                     "实际 " + Motion.DIALOG_FROM_SCALE);
 
@@ -105,16 +106,22 @@ final class MotionCases {
         String tappable = between(widgets, "fun Modifier.tappable(", "fun Modifier.tapOrHold(");
         check("V-34：tappable 把同一个 source 同时交给按压视觉与 clickable",
                 tappable != null
-                        && tappable.contains("pressFeedback(source, enabled, shrinkOnPress)")
+                        && tappable.contains("pressFeedback(source, enabled, wash)")
                         && tappable.contains("interactionSource = source")
                         && tappable.contains("indication = null"),
                 "tappable 切片：\n" + tappable);
-        check("V-34：按压进度只在 draw phase 读（不触发重组）",
+        check("V-34：按压底色只在 draw phase 读（不触发重组）",
                 widgets != null
-                        && widgets.contains(".graphicsLayer {")
-                        && widgets.contains(".drawBehind {")
-                        && widgets.contains("Motion.PRESS_SHRINK * progress"),
-                "Widgets.kt 未找到 graphicsLayer/drawBehind 的按压读值");
+                        && widgets.contains("return this.drawBehind {")
+                        && widgets.contains("drawRect(color = wash, alpha = alpha)")
+                        && !widgets.contains("graphicsLayer {"),
+                "Widgets.kt 未找到 drawBehind 的按压读值，或仍有无效的 graphicsLayer 缩放");
+        String feedback = between(widgets, "private fun Modifier.pressFeedback(", "/**");
+        check("V-34：按下当帧 snap 到位、松手才走 90 ms 回落",
+                feedback != null
+                        && feedback.contains("if (active) MotionSpecs.immediate<Float>() else MotionSpecs.press<Float>()")
+                        && feedback.contains("Motion.PRESS_WASH_ALPHA"),
+                "pressFeedback 切片：\n" + feedback);
 
         // 2. 手势与触觉：全 src 的 detectTapGestures / performHapticFeedback 只在 Widgets。
         hits.clear();
@@ -184,8 +191,9 @@ final class MotionCases {
                         && specs.contains("if (Motion.instant())")
                         && specs.contains("SnapSpec()")
                         && specs.contains("Motion.withinBudget(nominalMs)")
-                        && specs.contains("Motion.DAMPING_CRITICAL"),
-                "MotionSpecs.kt 未找到降级/预算/临界阻尼三件事");
+                        && specs.contains("fun <T> immediate()")
+                        && specs.contains("TweenSpec(durationMillis = Motion.duration(nominalMs))"),
+                "MotionSpecs.kt 未找到降级 / 预算 / 按下即到位三件事");
 
         // 4. 浮层骨架常驻：三个浮层都走 OverlayHost，裸 if 会让退出动画没机会播。
         hits.clear();
