@@ -228,8 +228,17 @@ final class WallCases {
                 field && readsCell && readsGroup,
                 "字段 " + field + " / 单格 " + readsCell + " / 组头 " + readsGroup);
 
-        boolean writesUnit = hasStatement(src, 8, "checkedState(unit.key).value = on");
-        boolean writesGroup = hasStatement(src, 8,
+        // 断言一律限定在**对应函数体内**（评审第 3 轮建议）：整篇文件里 `hasStatement` 会把
+        // 「语句搬到了别的函数」也算绿 —— 比如把 `checkedState(unit.key).value = on` 从
+        // `toggleUnitSelection` 挪进一个没人调用的分支，行为已坏而断言不动。先切片再比。
+        String toggleUnit = slice(src, "fun toggleUnitSelection(unit: PhotoWall.Unit) {", "\n    }\n");
+        String toggleGroup = slice(src, "fun toggleGroupSelection(group: PhotoWall.Group) {", "\n    }\n");
+        boolean scopesOk = toggleUnit != null && toggleGroup != null;
+        check("勾选写入：两个点选函数都能定位到函数体（#374 IA-6）",
+                scopesOk, "toggleUnit=" + (toggleUnit != null) + " / toggleGroup=" + (toggleGroup != null));
+
+        boolean writesUnit = scopesOk && hasStatement(toggleUnit, 8, "checkedState(unit.key).value = on");
+        boolean writesGroup = scopesOk && hasStatement(toggleGroup, 8,
                 "for (u in group.photos) checkedState(u.key).value = select");
         check("两条写路径同处同步镜像：单格写 key、组选整组写（#374 IA-6）",
                 writesUnit && writesGroup,
@@ -238,17 +247,18 @@ final class WallCases {
         // 真相源一侧也必须钉住（评审第 2 轮拦下）：只钉镜像会漏掉反方向的洞 ——
         // 把 `sel.setChecked(...)` 删掉（只写镜像、不写 `Selection`），六条断言全绿，
         // 而导出计划读的是 `Selection`，症状正是「点得动、导出不带」。
-        boolean writesTruth = hasStatement(src, 8, "val on = !unit.isChecked(sel)")
-                && hasStatement(src, 8, "for (handle in unit.handles()) sel.setChecked(handle, on)")
-                && hasStatement(src, 8, "val select = !sel.allCheckedHandles(handles)")
-                && hasStatement(src, 8, "sel.setCheckedAll(handles, select)");
+        boolean writesTruth = scopesOk
+                && hasStatement(toggleUnit, 8, "val on = !unit.isChecked(sel)")
+                && hasStatement(toggleUnit, 8, "for (handle in unit.handles()) sel.setChecked(handle, on)")
+                && hasStatement(toggleGroup, 8, "val select = !sel.allCheckedHandles(handles)")
+                && hasStatement(toggleGroup, 8, "sel.setCheckedAll(handles, select)");
         check("真相源写入仍在原处：Selection 的勾选/组选判据没被镜像替代（#374 IA-6）",
                 writesTruth, "单格判据/写入、组选判据/写入四处任一缺失即失败");
 
         // 回读函数：必须是「遍历 allUnits → 写值」，且函数体内不得有 `return`（挡早返回的假实现）。
         String syncBody = slice(src, "private fun syncCheckedFromSelection() {", "\n    }\n");
-        boolean loops = hasStatement(src, 8, "for (u in allUnits) {");
-        boolean writesFromSelection = hasStatement(src, 12,
+        boolean loops = syncBody != null && hasStatement(syncBody, 8, "for (u in allUnits) {");
+        boolean writesFromSelection = syncBody != null && hasStatement(syncBody, 12,
                 "checkedState(u.key).value = sel != null && u.isChecked(sel)");
         boolean noEarlyReturn = syncBody != null && countLines(syncBody, "return") == 0;
         check("回读实现是真遍历：遍历 allUnits、按 Selection 写值、无早返回（#374 IA-6）",

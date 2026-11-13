@@ -252,7 +252,8 @@ class AppModel {
      * 组头计数因此恒等于条目数；没剪掉任何单元时（`All` 档）直接返回原组，不复制。
      *
      * 三档 filter 下的 `restrict` 结果按 (档位, 日期, 墙) 缓存（#374 / IA-6）：原先每次 getter 调用
-     * 都重建一遍 `Group` 与 `ArrayList`，而照片墙每次点选都会重组、每个可见组头都会读它。
+     * 都重建一遍 `Group` 与 `ArrayList`。读点在 `LibraryScreen.PhotoGrid` 顶部（每次重组读一次），
+     * 不是每个组头各读一次——组头的计数走 `Group.summary`，与本缓存无关。
      * `PhotoWall` 没有 `equals`，缓存键按对象身份比对 —— 换墙必然重算，正是想要的口径。
      */
     val visibleGroups: List<PhotoWall.Group>
