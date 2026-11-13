@@ -17,7 +17,7 @@ from pathlib import Path
 
 import check_sensitive
 import sensitive_scan
-from _common import ENV_FAIL, OK, EnvProblem
+from _common import ENV_FAIL, OK, EnvProblem, run
 from sensitive_fix import _apply_fix_text, _write_text
 from sensitive_rules import AllowEntry, _validate_allowlist
 from sensitive_scan import _read_text, _read_text_ex, _repo_slug, scan_repo, scan_text
@@ -355,6 +355,25 @@ def self_test() -> int:
             check_sensitive._repo_slug = real_slug
 
     record("#204：git 用不了时退 2（不隐式退 1）", _env_failure_exit() == ENV_FAIL)
+
+    def _watchdog_exit() -> tuple[int, str]:
+        code = (
+            "import sys, time; "
+            "sys.path.insert(0, 'scripts'); "
+            "import sensitive_scan; "
+            "sensitive_scan.tracked_files = lambda: ['slow_mock.txt']; "
+            "sensitive_scan._read_text = lambda p: (time.sleep(0.4) or ''); "
+            "sensitive_scan.scan_repo(None, watchdog_timeout=0.1)"
+        )
+        proc = run([sys.executable, "-c", code])
+        return proc.returncode, proc.stderr
+
+    wd_code, wd_err = _watchdog_exit()
+    record(
+        "#347：敏感扫描单文件耗时超限时看门狗退 2",
+        wd_code == ENV_FAIL and "看门狗超时" in wd_err,
+        f"（实际 code={wd_code}，stderr={wd_err.strip()}）" if wd_code != ENV_FAIL or "看门狗超时" not in wd_err else "",
+    )
 
     if bad:
         print(f"== 自检红 {bad} 项 ==", file=sys.stderr)
