@@ -228,6 +228,17 @@ final class WallCases {
                 field && readsCell && readsGroup,
                 "字段 " + field + " / 单格 " + readsCell + " / 组头 " + readsGroup);
 
+        // CTA 的计数也是「点一次就全量重算」的那条路径（评审第 5 轮备注 2）：只钉两个读入口，
+        // 挡不住把它退回 `count { it.isChecked(selection) }` —— 那会重新引入 511 个 ArrayList。
+        // 否证只认**整行代码**：KDoc 里就引用了这句旧写法，`contains` 会在注释上误红。
+        boolean countFromMirror = hasStatement(src, 8,
+                "get() = visibleUnits.count { checkedState(it.key).value }");
+        boolean oldCountForm = hasStatement(src, 8,
+                "get() = visibleUnits.count { it.isChecked(selection) }");
+        check("CTA 计数读镜像，不再逐单元 isChecked（#374 IA-6）",
+                countFromMirror && !oldCountForm,
+                "读镜像 " + countFromMirror + "，旧写法仍在 " + oldCountForm);
+
         // 断言一律限定在**对应函数体内**（评审第 3 轮建议）：整篇文件里 `hasStatement` 会把
         // 「语句搬到了别的函数」也算绿 —— 比如把 `checkedState(unit.key).value = on` 从
         // `toggleUnitSelection` 挪进一个没人调用的分支，行为已坏而断言不动。先切片再比。
