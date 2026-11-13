@@ -73,6 +73,7 @@ public final class SelfTest {
         importGateCases();
         topBarSpecCases();
         detailsEntryCases();
+        groupHeaderGestureCases();
         ringTrackCases();
         scanLineCases();
         detachCases();

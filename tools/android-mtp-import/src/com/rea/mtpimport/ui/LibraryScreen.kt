@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,21 +142,24 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
     val allSelected = model.isGroupChecked(group)
     val collapsed = model.isCollapsed(group.key)
     val haptic = LocalHapticFeedback.current
+    // 手势必须同时满足两件事（#374 / IA-13）：key 只跟 `group.key` 走（对象身份每次重组都变，
+    // 拿它当 key 会让检测器反复重启、长按被吞），而闭包读到的必须是**最新**的 `group`
+    // （key 不变时 `pointerInput` 不重启，直接捕获会冻结在首次组合的那一版快照上）。
+    // 渐进扫描每 200 个对象发布一次（`CatalogScanner.PARTIAL_EVERY`）、filter 档每次重组都重建
+    // `Group`，冻结快照会让长按只选中旧规模的那几张，且与同节点的读屏动作（始终读新值）不一致。
+    val currentGroup = rememberUpdatedState(group)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             // 单击折叠/展开（L-08），长按 ≥500 ms = 组选（#62）；滚动越界会取消手势，
             // 与单格长按进看图页互不冲突（作用在不同行/格）。
-            // key 必须是 `group.key` 而不是 `group`（#374 / IA-13）：filter 档下 `visibleGroups`
-            // 每次重组都新建 `PhotoWall.Group`（`restrict` 的结果，且该类无 `equals`），
-            // 拿对象身份当 key 会让手势检测器随每次重组取消重建，长按 500 ms 中途被吞。
             .pointerInput(group.key) {
                 detectTapGestures(
                     onTap = { model.toggleCollapsed(group.key) },
                     onLongPress = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        model.toggleGroupSelection(group)
+                        model.toggleGroupSelection(currentGroup.value)
                     }
                 )
             }

@@ -375,6 +375,34 @@ final class UiStateCases {
                         + (statusBody != null && statusBody.contains("ErrorIdentity(model)")));
     }
 
+    /**
+     * 墓碑（#374 / IA-13）：组头的单击/长按手势挂在 `pointerInput(group.key)` 上。
+     *
+     * 两个反向回退都要挡，它们症状相反：
+     * 1. key 换回 `group`（对象身份）—— filter 档每次重组都新建 `Group`（`restrict` 的结果，
+     *    类里没有 `equals`），检测器随每次重组取消重建，长按 500 ms 中途被吞；
+     * 2. key 对了、闭包却直接捕 `group` —— key 不变时 `pointerInput` 不重启，闭包冻结在首次组合
+     *    那一版快照上；渐进扫描每 200 个对象发布一次（`CatalogScanner.PARTIAL_EVERY`），
+     *    冻结后长按只选中旧规模的那几张，而同节点的读屏动作每次重组都读新值 —— 同一入口两个集合。
+     *
+     * 源码断言，不是渲染断言：自检是纯 JDK，起不了 Compose（同 `detailsEntryCases` 的口径）。
+     */
+    static void groupHeaderGestureCases() {
+        String src = readSourceOrNull(source("com/rea/mtpimport/ui/LibraryScreen.kt"));
+        if (src == null) {
+            check("组头手势：能读到 LibraryScreen.kt 源码（#374）", false, "读不到 LibraryScreen.kt");
+            return;
+        }
+        String body = between(src, "private fun GroupHeader(", "private fun PhotoCell(");
+        boolean keyedByKey = body != null && body.contains(".pointerInput(group.key)");
+        boolean readsLatest = body != null
+                && body.contains("val currentGroup = rememberUpdatedState(group)")
+                && body.contains("model.toggleGroupSelection(currentGroup.value)");
+        check("组头手势 key 跟 group.key、闭包读 rememberUpdatedState 的最新 group（#374 IA-13）",
+                keyedByKey && readsLatest,
+                "按 key 复用=" + keyedByKey + "；读最新值=" + readsLatest + "\nGroupHeader 切片：\n" + body);
+    }
+
     /** 某段源码里含 `needle` 的行数（同一行多次只算一次，与 `scanSourceText` 口径一致）。 */
     private static int hits(String src, String needle) {
         int n = 0;

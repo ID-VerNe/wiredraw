@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -215,6 +216,10 @@ fun ProgressRing(
 /** 抽屉遮罩：点空白处关闭；不推挤内容（L-05 / L-09）。 */
 @Composable
 fun Scrim(onDismiss: () -> Unit) {
+    // `pointerInput(Unit)` 不重启，直接捕获 lambda 会冻结在首次组合那一版；
+    // 现在三个调用点闭包的都是稳定对象（`model`），但这是与组头同一类的坑（#374 评审），
+    // 统一用 `rememberUpdatedState` 兜住，别等换一个依赖可变状态的 lambda 才炸。
+    val dismiss = rememberUpdatedState(onDismiss)
     Box(
         Modifier
             .fillMaxSize()
@@ -224,8 +229,9 @@ fun Scrim(onDismiss: () -> Unit) {
             // dump 里就是 `NAF=true / clickable=true / 无 text 无 desc` 的全屏节点——读屏打开浮层后
             // 第一个焦点落在它上面，念不出任何东西。`clearAndSetSemantics {}` 修不掉：清理只作用于
             // 后代节点，同一布局节点上先合并进来的 `clickable` 动作仍在。
-            // 关闭仍有两条可达路径：抽屉标题行的 `Close`（A-03）与系统返回键（§1.3）。
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+            // 关闭的替代路径按调用点不同：两个抽屉有标题行的 `Close`（A-03）；
+            // `Pause & exit` 确认框只有两个按钮，另有系统返回键（`BackNav` / §1.3）兜底。
+            .pointerInput(Unit) { detectTapGestures { dismiss.value() } }
     )
 }
 
