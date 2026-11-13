@@ -1,6 +1,5 @@
 package com.rea.mtpimport.ui
 
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -16,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
@@ -62,8 +60,9 @@ fun TopBarRow(
  * 它**不能**挂到 `TopBarRow` 或无条件路径上：`W-23` 钉死了长按入口的范围——`IMPORTING` /
  * `PAUSED` 顶栏有设备名但不得有长按入口，`photo` 顶栏既无设备名也无长按入口。
  */
+@Composable
 private fun Modifier.detailsLongPress(model: AppModel): Modifier =
-    pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
+    longPressOnly(key = Unit) { model.detailsOpen = true }
 
 /**
  * 「长按进 Details」的读屏动作（`L-05` / issue #310 / #374 IA-11）：`label` 与写入口径只在这里定义一次。

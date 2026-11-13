@@ -30,6 +30,7 @@ val pureJdkClasses = listOf(
     "ImportUi.java",
     "Journal.java",
     "Log.java",
+    "Motion.java",
     "OrphanRounds.java",
     "PartResidue.java",
     "PauseSwitch.java",

@@ -309,15 +309,18 @@ final class UiStateCases {
             return;
         }
 
-        // 1. 骨架唯一、两处共用。`detectTapGestures` 恰 1 处即落在 `detailsLongPress` 定义体内
-        //    （两处都内联会变 2）；调用点恰 2 处即 `TopBarLabel` 与 `ErrorIdentity`，
-        //    第三处就会顶破 `W-23`。
-        int dragDefs = hits(src, "fun Modifier.detailsLongPress(");
+        // 1. 骨架唯一、两处共用。PA+PB 起 `detailsLongPress` 不再内联 detector，而是委托给
+        //    `Widgets.longPressOnly`（`V-35`：触觉与按压态全应用只有一个手势入口）。
+        //    所以「手势恰 1」改成「内联手势 0 / 委托 1」；调用点恰 2 处仍是 `TopBarLabel`
+        //    与 `ErrorIdentity`，第三处就会顶破 `W-23`。
+        int dragDefs = hits(src, "private fun Modifier.detailsLongPress(");
         int dragCalls = hits(src, ".detailsLongPress(model)");
-        int gestures = hits(src, "detectTapGestures(onLongPress");
-        check("长按手势骨架唯一：定义 1 / 调用 2 / 手势恰 1（只在骨架内）（#310）",
-                dragDefs == 1 && dragCalls == 2 && gestures == 1,
-                "定义 " + dragDefs + " / 调用 " + dragCalls + " / `detectTapGestures` " + gestures);
+        int inlineGestures = hits(src, "detectTapGestures(");
+        int delegates = hits(src, "longPressOnly(key = Unit)");
+        check("长按手势骨架唯一且委托统一入口：定义 1 / 调用 2 / 内联 0 / 委托 1（#310 / V-35）",
+                dragDefs == 1 && dragCalls == 2 && inlineGestures == 0 && delegates == 1,
+                "定义 " + dragDefs + " / 调用 " + dragCalls
+                        + " / 内联 `detectTapGestures` " + inlineGestures + " / 委托 " + delegates);
 
         // 2. 读屏动作同口径。调用点 2 处（定义行写的是 `(model: AppModel)`，不含闭合括号，
         //    不会被 `detailsActions(model)` 命中）；
@@ -394,7 +397,11 @@ final class UiStateCases {
             return;
         }
         String body = between(src, "private fun GroupHeader(", "private fun PhotoCell(");
-        boolean keyedByKey = body != null && body.contains(".pointerInput(group.key)");
+        // PA+PB 起组头把 detector 交给 `Widgets.tapOrHold`（`V-35` 统一触觉 + `V-34` 按压态），
+        // key 仍按稳定身份 `group.key` 传，闭包仍读 `rememberUpdatedState` 的最新 group。
+        // 这两条反向回退的判据不变，只是「检测器在谁手里」换了。
+        boolean keyedByKey = body != null && body.contains(".tapOrHold(")
+                && body.contains("key = group.key");
         boolean readsLatest = body != null
                 && body.contains("val currentGroup = rememberUpdatedState(group)")
                 && body.contains("model.toggleGroupSelection(currentGroup.value)");
@@ -666,18 +673,21 @@ final class UiStateCases {
 
         File importApp = source("com/rea/mtpimport/ui/ImportApp.kt");
         String appSrc = readSourceOrNull(importApp);
+        // PA+PB 起 `photo` 覆盖层走 `Crossfade(targetState = model.openedPhoto)`：
+        // 退场层拿到旧的**非空 unit**，不会因 model 已置 null 而空屏（`V-36`）。
+        // 排他卸载的旧形态（`else if (UiState.showsLibrary(state))`）仍是本墓碑要挡的东西。
         check("ImportApp 不再排他卸载 LibraryScreen（#369）",
-                appSrc != null && !appSrc.contains("if (model.openedPhoto != null) {\n            PhotoScreen(model)\n        } else if (UiState.showsLibrary(state))"),
+                appSrc != null && !appSrc.contains("else if (UiState.showsLibrary(state))"),
                 appSrc == null ? "读不到 " + importApp : "ImportApp 仍存在 openedPhoto 排他卸载 LibraryScreen 的分支");
-        check("ImportApp 包含 PhotoScreen 覆盖层（#369）",
-                appSrc != null && appSrc.contains("if (model.openedPhoto != null)")
-                        && appSrc.contains("PhotoScreen(model)"),
-                appSrc == null ? "读不到 " + importApp : "ImportApp 缺少 PhotoScreen 覆盖层");
+        check("ImportApp 包含 PhotoScreen 覆盖层（#369 / V-36）",
+                appSrc != null && appSrc.contains("targetState = model.openedPhoto")
+                        && appSrc.contains("PhotoScreen(model, unit)"),
+                appSrc == null ? "读不到 " + importApp : "ImportApp 缺少 PhotoScreen 覆盖层（Crossfade）");
 
         File photoScreen = source("com/rea/mtpimport/ui/PhotoScreen.kt");
         String photoSrc = readSourceOrNull(photoScreen);
         check("PhotoScreen 底层画布消费点击防止击穿到照片墙（#369）",
-                photoSrc != null && photoSrc.contains(".tappable(onClick = {})"),
+                photoSrc != null && photoSrc.contains(".tappable(wash = null, onClick = {})"),
                 photoSrc == null ? "读不到 " + photoScreen : "PhotoScreen 未在画布层消费点击");
     }
 

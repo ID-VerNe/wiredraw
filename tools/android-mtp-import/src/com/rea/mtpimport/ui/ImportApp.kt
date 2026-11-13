@@ -1,5 +1,10 @@
 package com.rea.mtpimport.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +33,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rea.mtpimport.Motion
 import com.rea.mtpimport.UiState
 import com.rea.mtpimport.UiText
+
+/** 三屏分流的稳定 key：`Crossfade` 只按这个枚举换层，状态值本身不作 key。 */
+private enum class Screen { TRANSFER, LIBRARY, STATUS }
+
+private fun screenOf(state: UiState.State): Screen = when {
+    UiState.isTransfer(state) -> Screen.TRANSFER
+    UiState.showsLibrary(state) -> Screen.LIBRARY
+    else -> Screen.STATUS
+}
 
 /**
  * 根 composable：按 `UiState` 三屏分流与覆盖层渲染。
@@ -38,6 +53,10 @@ import com.rea.mtpimport.UiText
  * - `photo` 页（PhotoScreen）作为全屏覆盖层叠加在照片墙之上（issue #369），
  *   使底层照片墙保持活跃挂载与滚动偏移量，返回时零重组延迟。
  * - 详情抽屉、过滤抽屉与退出确认框均为覆盖层，不改变底层的页面结构（L-05 / L-09）。
+ *
+ * `V-36`：三屏与 `photo` 覆盖层都走 120 ms 交叉淡入，不做位移 —— 位移会推迟 `P-01`
+ * 的「输入当帧立即出现反馈」。三个浮层的骨架常驻组合，由各自的 `visible` 驱动
+ * [OverlayHost] 的入场/退场；裸 `if` 一帧移除子树，退出动画根本没机会播。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -71,22 +90,37 @@ fun ImportApp(model: AppModel) {
                     if (overlayOpen) Modifier.clearAndSetSemantics { invisibleToUser() } else Modifier
                 )
         ) {
-            if (UiState.isTransfer(state)) {
-                TransferScreen(model)
-            } else if (UiState.showsLibrary(state)) {
-                LibraryScreen(model)
-            } else {
-                StatusScreen(model)
+            Crossfade(
+                targetState = screenOf(state),
+                animationSpec = MotionSpecs.state(),
+                label = "screen"
+            ) { screen ->
+                // 退场层冻结切屏那一刻的状态：否则 120 ms 里旧状态屏会按新 state 重画，
+                // 状态页 → 照片墙时闪一帧「无相机」兜底屏（`V-36`）。
+                val frozen = remember(screen) { state }
+                when (screen) {
+                    Screen.TRANSFER -> TransferScreen(model)
+                    Screen.LIBRARY -> LibraryScreen(model)
+                    Screen.STATUS -> StatusScreen(model, frozen)
+                }
             }
         }
 
-        if (model.openedPhoto != null) {
-            PhotoScreen(model)
+        // `photo` 覆盖层的 targetState 是**单元本身**：退出淡出期间 Crossfade 把旧的
+        // 非空 unit 继续交给旧 content，退场层不会因 model.openedPhoto 变 null 而空屏。
+        Crossfade(
+            targetState = model.openedPhoto,
+            animationSpec = MotionSpecs.state(),
+            label = "photo"
+        ) { unit ->
+            if (unit != null) PhotoScreen(model, unit)
         }
 
-        if (model.detailsOpen) DetailsDrawer(model)
-        if (model.filterOpen) FilterDrawer(model)
-        if (model.exitConfirmOpen) ExitConfirmDialog(model)
+        // 三个浮层常驻组合：可见性交给 DrawerSkeleton / ExitConfirmDialog 里的 OverlayHost。
+        // `visible=false` 时 AnimatedVisibility 不再组合子节点，常驻的只是两个空壳布局。
+        DetailsDrawer(model)
+        FilterDrawer(model)
+        ExitConfirmDialog(model, visible = model.exitConfirmOpen)
     }
 
     StateAnnouncer(model)
@@ -133,14 +167,23 @@ private fun StateAnnouncer(model: AppModel) {
  *
  * `Resume` 在这里是错的词：`W-06` 的 `Resume` 专指「把已暂停的轮次继续下去」，
  * 而这个框里还没有暂停，动作只是「关掉框」。两个意思用同一个词，用户会以为点下去会恢复什么。
+ *
+ * `V-36`：与抽屉共用 [OverlayHost] —— 遮罩只淡入、面板从 `0.96` 缩入，关闭时对称退出；
+ * 不引 Material 的 `AlertDialog`，与抽屉共用一套遮罩和按钮组件。
  */
 @Composable
-private fun ExitConfirmDialog(model: AppModel) {
-    Box(Modifier.fillMaxSize()) {
-        Scrim { model.setExitConfirm(false) }
+private fun ExitConfirmDialog(model: AppModel, visible: Boolean) {
+    OverlayHost(
+        visible = visible,
+        onDismiss = { model.setExitConfirm(false) },
+        alignment = Alignment.Center,
+        panelEnter = fadeIn(MotionSpecs.state()) +
+            scaleIn(MotionSpecs.state(), initialScale = Motion.DIALOG_FROM_SCALE),
+        panelExit = fadeOut(MotionSpecs.state()) +
+            scaleOut(MotionSpecs.state(), targetScale = Motion.DIALOG_FROM_SCALE)
+    ) {
         Column(
             Modifier
-                .align(Alignment.Center)
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)
                 .clip(RoundedCornerShape(16.dp))

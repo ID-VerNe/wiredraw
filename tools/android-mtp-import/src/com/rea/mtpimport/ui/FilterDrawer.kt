@@ -29,7 +29,8 @@ private val QUICK_FILTERS = listOf(
  */
 @Composable
 fun FilterDrawer(model: AppModel) {
-    DrawerSkeleton(title = "Filter", onClose = { model.filterOpen = false }) {
+    DrawerSkeleton(title = "Filter", visible = model.filterOpen,
+        onClose = { model.filterOpen = false }) {
         QUICK_FILTERS.forEach { (label, kind) ->
             FilterRow(label, model.filterKind == kind) {
                 model.setFilter(kind)

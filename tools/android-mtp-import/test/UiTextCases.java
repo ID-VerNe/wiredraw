@@ -285,7 +285,10 @@ final class UiTextCases {
             check("确认框：能读到 ImportApp.kt（#374 IA-8）", false, "读不到 " + app);
             return;
         }
-        String dialog = slice(src, "private fun ExitConfirmDialog(model: AppModel) {", "\n}\n");
+        // PA+PB 给确认框加了 `visible` 参数（浮层骨架常驻组合，由 OverlayHost 驱动入场/退场，
+        // `V-36`）。外面的 `Box` 换成 `OverlayHost` 后内层缩进不变，本组其余断言原样成立；
+        // 只把切片锚点跟着签名改，别把「提问 / 等宽 / 主次」这些契约放宽。
+        String dialog = slice(src, "private fun ExitConfirmDialog(model: AppModel, visible: Boolean) {", "\n}\n");
         boolean hasDialog = dialog != null;
         // 标题：既是可见文本，也是读屏进框的第一句话（paneTitle）。
         boolean hasTitle = hasDialog && countLines(dialog, "UiText.exitConfirmTitle()") == 2;
