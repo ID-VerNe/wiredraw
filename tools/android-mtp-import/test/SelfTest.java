@@ -110,6 +110,7 @@ public final class SelfTest {
         productDestinationCases();
         tempDirCases();
         testSupportCases();
+        thumbnailGuardCases();
 
         System.out.println();
         if (failed == 0) {

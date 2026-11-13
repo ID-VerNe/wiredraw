@@ -449,4 +449,44 @@ final class SourceGuardCases {
                         && logs.equals(Collections.singletonList("空间不足：计划 " + plan.totalBytes() + " 字节，可用 0 字节")),
                 "statuses=" + statuses + " logs=" + logs);
     }
+
+    // ---------------- 缩略图缓存与视口感知调度护栏（issue #370 / #373） ----------------
+
+    /**
+     * 墓碑（#370 / #373）：
+     * 1. LibraryScreen 不再在格子移出视口时通过 DisposableEffect / finally 强制 evict，
+     *    保持 ThumbnailStore 的 24 MiB LruCache 容量控制正常生效（#370）；
+     * 2. ThumbnailStore 维持 24 MiB LruCache 上限不变（#370）；
+     * 3. ThumbnailStore 提供 loadAsync 队列接口，采用 LIFO 调度与 isCancelled 离屏取消（#373）；
+     * 4. LibraryScreen PhotoCell 使用 loadAsync 发起生命周期感知调度（#373）。
+     */
+    static void thumbnailGuardCases() {
+        File lib = source("com/rea/mtpimport/ui/LibraryScreen.kt");
+        String libSrc = readSourceOrNull(lib);
+        check("缩略图缓存：LibraryScreen 不再对移出视口做强制驱逐（#370）",
+                libSrc != null && !libSrc.contains("store.evict(") && !libSrc.contains("store?.evict("),
+                libSrc == null ? "读不到 " + lib : "仍包含 store.evict 调用");
+
+        check("缩略图调度：LibraryScreen PhotoCell 使用 loadAsync 调度（#373）",
+                libSrc != null && libSrc.contains("loadAsync("),
+                libSrc == null ? "读不到 " + lib : "未找到 loadAsync 调用");
+
+        File store = source("com/rea/mtpimport/ThumbnailStore.java");
+        String storeSrc = readSourceOrNull(store);
+        check("缩略图缓存：保持 24 MiB LruCache 内存上限（#370）",
+                storeSrc != null && storeSrc.contains("CACHE_BYTES = 24 << 20"),
+                storeSrc == null ? "读不到 " + store : "未找到 CACHE_BYTES = 24 << 20");
+
+        check("缩略图调度：ThumbnailStore 提供 loadAsync 队列接口（#373）",
+                storeSrc != null && storeSrc.contains("loadAsync("),
+                storeSrc == null ? "读不到 " + store : "未找到 loadAsync 接口");
+
+        check("缩略图调度：采用 LIFO 优先队列调度（#373）",
+                storeSrc != null && (storeSrc.contains("addFirst(") || storeSrc.contains("push(")),
+                storeSrc == null ? "读不到 " + store : "未找到 LIFO 入队操作");
+
+        check("缩略图调度：执行前校验 isCancelled 放弃离屏任务（#373）",
+                storeSrc != null && storeSrc.contains("isCancelled("),
+                storeSrc == null ? "读不到 " + store : "未找到 isCancelled 校验");
+    }
 }

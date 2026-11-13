@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,10 +52,14 @@ import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.Catalog
 import com.rea.mtpimport.ImportGate
 import com.rea.mtpimport.PhotoWall
+import com.rea.mtpimport.ThumbnailStore
 import com.rea.mtpimport.TopBarSpec
 import com.rea.mtpimport.UiText
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /**
@@ -216,19 +219,9 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
     }
     LaunchedEffect(key, store, model.backgroundScanning) {
         if (thumb == null && store != null && !model.backgroundScanning) {
-            try {
-                thumb = withContext(Dispatchers.IO) { model.loadThumbnail(unit) }
-            } finally {
-                // 取图期间格子被滚出组合（协程取消）时，load 可能已经写完缓存：
-                // 补一次 evict，保证离屏位图不常驻（V-24）。
-                if (!isActive) store.evict(key)
-            }
+            val bmp = store.loadAsync(unit)
+            if (bmp != null) thumb = bmp
         }
-    }
-    // 格子滚出可视区（LazyVerticalGrid 移出组合）即把位图移出缓存：
-    // 不显示的位图不常驻内存；滚回时重新取图。
-    DisposableEffect(key, store) {
-        onDispose { store?.evict(key) }
     }
 
     Box(
@@ -311,3 +304,21 @@ private fun ImportBar(model: AppModel) {
         )
     }
 }
+
+/**
+ * 视口感知与协程协同取消的异步取图拓展（issue #373）。
+ * 当 PhotoCell 因滚动离开视口时，Compose 取消 LaunchedEffect，
+ * 触发 invokeOnCancellation 将任务标记为已取消；未开始 USB 读取的任务会被队列自动丢弃。
+ */
+private suspend fun ThumbnailStore.loadAsync(unit: PhotoWall.Unit): android.graphics.Bitmap? =
+    suspendCancellableCoroutine { cont ->
+        val cancelled = AtomicBoolean(false)
+        cont.invokeOnCancellation {
+            cancelled.set(true)
+        }
+        loadAsync(unit, { cancelled.get() || !cont.isActive }) { bmp ->
+            if (cont.isActive) {
+                cont.resume(bmp)
+            }
+        }
+    }
