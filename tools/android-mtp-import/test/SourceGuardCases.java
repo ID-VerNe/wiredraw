@@ -489,4 +489,39 @@ final class SourceGuardCases {
                 storeSrc != null && storeSrc.contains("isCancelled("),
                 storeSrc == null ? "读不到 " + store : "未找到 isCancelled 校验");
     }
+
+    // ---------------- 平滑扫描进度指示与优先发现日期文件夹（issue #371 / #372） ----------------
+
+    /**
+     * 墓碑（#371 / #372）：
+     * 1. CatalogScanner 移除硬编码 50 步长，引入时间节流 PROGRESS_INTERVAL_MS 实现平滑进度回调（#371）；
+     * 2. CatalogScanner ScanProgress 支持 onFoldersDiscovered 优先发现文件夹回调（#372）；
+     * 3. CatalogScanner 在扁平扫描前执行优先文件夹探查，免除后续重复 MTP 访问（#372）；
+     * 4. ScanTask.Host 具备 onFoldersDiscovered 回调（#372）。
+     */
+    static void scannerGuardCases() {
+        File scanner = source("com/rea/mtpimport/CatalogScanner.java");
+        String scannerSrc = readSourceOrNull(scanner);
+        check("扫描进度平滑：移除硬编码 50 步长（#371）",
+                scannerSrc != null && !scannerSrc.contains("scanned % 50 == 0"),
+                scannerSrc == null ? "读不到 " + scanner : "仍包含 scanned % 50 == 0 粗粒度判断");
+
+        check("扫描进度平滑：定义时间节流常量 PROGRESS_INTERVAL_MS（#371）",
+                scannerSrc != null && scannerSrc.contains("PROGRESS_INTERVAL_MS"),
+                scannerSrc == null ? "读不到 " + scanner : "未找到 PROGRESS_INTERVAL_MS");
+
+        check("文件夹优先发现：ScanProgress 声明 onFoldersDiscovered（#372）",
+                scannerSrc != null && scannerSrc.contains("onFoldersDiscovered"),
+                scannerSrc == null ? "读不到 " + scanner : "ScanProgress 未声明 onFoldersDiscovered");
+
+        check("文件夹优先发现：CatalogScanner 包含 discoverFolders 探查逻辑（#372）",
+                scannerSrc != null && scannerSrc.contains("discoverFolders("),
+                scannerSrc == null ? "读不到 " + scanner : "未找到 discoverFolders 探查调用");
+
+        File task = source("com/rea/mtpimport/ScanTask.java");
+        String taskSrc = readSourceOrNull(task);
+        check("文件夹优先发现：ScanTask.Host 声明 onFoldersDiscovered 回调（#372）",
+                taskSrc != null && taskSrc.contains("onFoldersDiscovered"),
+                taskSrc == null ? "读不到 " + task : "ScanTask.Host 未声明 onFoldersDiscovered");
+    }
 }

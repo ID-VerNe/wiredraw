@@ -33,6 +33,7 @@ public final class SelfTest {
 
     public static void main(String[] args) throws Exception {
         catalogCases();
+        folderDiscoveryCases();
         progressiveCases();
         progressiveGateCases();
         truncationCases();
@@ -114,6 +115,7 @@ public final class SelfTest {
         tempDirCases();
         testSupportCases();
         thumbnailGuardCases();
+        scannerGuardCases();
 
         System.out.println();
         if (failed == 0) {

@@ -38,6 +38,11 @@ final class ScanTask implements Runnable {
         /** 取消时由扫描线程自己收尾关会话。 */
         void closeCancelledSession();
 
+        /** 优先发现拍摄文件夹（issue #372）。默认记日志，宿主可按需覆盖。 */
+        default void onFoldersDiscovered(ScanRun run, Catalog snapshot, java.util.List<Catalog.Entry> folders) {
+            log().line("优先发现拍摄文件夹 " + folders.size() + " 个");
+        }
+
         /** 清掉本轮令牌 / 线程引用并释放 attachGate。 */
         void finishRun(ScanRun run);
     }
@@ -116,6 +121,11 @@ final class ScanTask implements Runnable {
                         @Override
                         public void onPartial(Catalog snapshot, int done, int total) {
                             host.publishPartial(run, snapshot, done, total);
+                        }
+
+                        @Override
+                        public void onFoldersDiscovered(Catalog snapshot, java.util.List<Catalog.Entry> folders) {
+                            host.onFoldersDiscovered(run, snapshot, folders);
                         }
                     });
             if (!run.accept()) {
