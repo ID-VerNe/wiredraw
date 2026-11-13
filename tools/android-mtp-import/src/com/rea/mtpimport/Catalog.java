@@ -1,6 +1,7 @@
 package com.rea.mtpimport;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -84,6 +85,7 @@ public final class Catalog {
     }
 
     private final List<Entry> entries = new ArrayList<>();
+    private final List<Entry> folderEntries = new ArrayList<>();
     private final Map<Integer, Entry> byHandle = new LinkedHashMap<>();
     private final Map<Integer, List<Entry>> byParent = new LinkedHashMap<>();
     private boolean built;
@@ -111,6 +113,7 @@ public final class Catalog {
         // 避免扫描热循环为每个对象重扫全表（isJpeg() 内部还有 toUpperCase）。
         if (e.isFolder()) {
             folderCount++;
+            folderEntries.add(e);
         } else {
             fileBytes += e.size;
             if (e.isRaw()) {
@@ -129,6 +132,7 @@ public final class Catalog {
         for (List<Entry> kids : byParent.values()) {
             kids.sort(ORDER);
         }
+        folderEntries.sort(ORDER);
         built = true;
         return this;
     }
@@ -266,6 +270,29 @@ public final class Catalog {
     /** 文件夹数（增量口径，见 {@link #add}）。 */
     public int folderCount() {
         return folderCount;
+    }
+
+    /**
+     * 发现的全部文件夹条目（已按名称稳定排序）。
+     * 用于在照片扫描完成前快速呈现拍摄日期文件夹列表（issue #372）。
+     */
+    public List<Entry> folders() {
+        return new ArrayList<>(folderEntries);
+    }
+
+    /**
+     * 相机内的拍摄文件夹/日期目录名列表（排除 DCIM 与根节点，按字母排序）。
+     */
+    public List<String> dateFolders() {
+        List<String> result = new ArrayList<>();
+        for (Entry e : folderEntries) {
+            String name = e.name;
+            if (!name.equalsIgnoreCase("DCIM") && !name.equalsIgnoreCase("ROOT") && !name.isEmpty()) {
+                result.add(name);
+            }
+        }
+        result.sort(String::compareTo);
+        return result;
     }
 
     public int fileCount() {

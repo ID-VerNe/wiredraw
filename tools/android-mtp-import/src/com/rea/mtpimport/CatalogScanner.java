@@ -3,7 +3,12 @@ package com.rea.mtpimport;
 import android.mtp.MtpDevice;
 import android.mtp.MtpObjectInfo;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * 扫描：MTP 对象 → {@link Catalog}。**只读**，不发任何写操作。
@@ -19,6 +24,9 @@ public final class CatalogScanner {
     /** 每发现这么多对象发布一次快照（issue #60 的口径：约 200 个）。 */
     private static final int PARTIAL_EVERY = 200;
 
+    /** 进度节流通知最小间隔（issue #371）：约 100ms 一次，保证 UI 连贯平滑且不洪泛。 */
+    public static final long PROGRESS_INTERVAL_MS = 100L;
+
     public interface ScanProgress {
         void onScan(int scanned, int total);
 
@@ -28,9 +36,73 @@ public final class CatalogScanner {
          * 个对象发布一次。快照是深拷贝，调用点可以安全地投递给 UI 线程继续扫描。
          */
         void onPartial(Catalog snapshot, int scanned, int total);
+
+        /**
+         * 优先发现文件夹/目录结构回调（issue #372）：在全量枚举具体照片前快速探查相机内文件夹，
+         * 让上层或界面能立刻获得可用的日期文件夹/目录骨架。默认空实现以兼容旧调用。
+         */
+        default void onFoldersDiscovered(Catalog snapshot, List<Catalog.Entry> folders) {}
     }
 
     private CatalogScanner() {
+    }
+
+    /**
+     * 优先快速探查文件夹与目录结构（issue #372）。
+     * 尝试以 FMT_FOLDER (0x3001) 及 DCIM 目录结构枚举目录节点，免除深层扁平遍历的漫长等待。
+     */
+    private static List<Catalog.Entry> discoverFolders(MtpDevice mtp, int[] storageIds, Log log, ScanRun run) {
+        List<Catalog.Entry> folders = new ArrayList<>();
+        Set<Integer> seen = new HashSet<>();
+        for (int sid : storageIds) {
+            if (run != null && run.isCancelled()) break;
+            // 1. 优先以 FMT_FOLDER 快速查询目录句柄
+            int[] folderHandles = mtp.getObjectHandles(sid, Catalog.FMT_FOLDER, 0);
+            if (folderHandles != null && folderHandles.length > 0) {
+                for (int fh : folderHandles) {
+                    if (run != null && run.isCancelled()) break;
+                    if (!seen.add(fh)) continue;
+                    MtpObjectInfo oi = mtp.getObjectInfo(fh);
+                    if (oi != null && oi.getFormat() == Catalog.FMT_FOLDER) {
+                        folders.add(new Catalog.Entry(
+                                fh,
+                                oi.getParent(),
+                                oi.getFormat(),
+                                oi.getCompressedSizeLong(),
+                                oi.getName(),
+                                sid));
+                    }
+                }
+            }
+            // 2. 若格式过滤未返回文件夹，尝试探查顶层 DCIM 目录结构（通用 MTP 兼容）
+            if (folders.isEmpty()) {
+                int[] rootHs = mtp.getObjectHandles(sid, 0, 0xFFFFFFFF);
+                if (rootHs != null) {
+                    for (int rh : rootHs) {
+                        if (run != null && run.isCancelled()) break;
+                        if (!seen.add(rh)) continue;
+                        MtpObjectInfo oi = mtp.getObjectInfo(rh);
+                        if (oi != null && oi.getFormat() == Catalog.FMT_FOLDER) {
+                            folders.add(new Catalog.Entry(rh, oi.getParent(), oi.getFormat(), oi.getCompressedSizeLong(), oi.getName(), sid));
+                            if ("DCIM".equalsIgnoreCase(oi.getName())) {
+                                int[] subHs = mtp.getObjectHandles(sid, 0, rh);
+                                if (subHs != null) {
+                                    for (int sh : subHs) {
+                                        if (run != null && run.isCancelled()) break;
+                                        if (!seen.add(sh)) continue;
+                                        MtpObjectInfo subOi = mtp.getObjectInfo(sh);
+                                        if (subOi != null && subOi.getFormat() == Catalog.FMT_FOLDER) {
+                                            folders.add(new Catalog.Entry(sh, subOi.getParent(), subOi.getFormat(), subOi.getCompressedSizeLong(), subOi.getName(), sid));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return folders;
     }
 
     /**
@@ -45,6 +117,18 @@ public final class CatalogScanner {
         // `getObjectHandles` / `getObjectInfo` 返回 null 时扫描不会抛异常，必须在这里显式记账。
         int dropped = 0;
         int missingHandles = 0;
+
+        // 优先快速探查文件夹（issue #372）：在耗时的全量照片枚举前建立目录骨架
+        List<Catalog.Entry> discoveredFolders = discoverFolders(mtp, storageIds, log, run);
+        for (Catalog.Entry fe : discoveredFolders) {
+            catalog.add(fe);
+        }
+        if (!discoveredFolders.isEmpty()) {
+            log.line("优先发现拍摄文件夹 " + discoveredFolders.size() + " 个");
+            if (progress != null) {
+                progress.onFoldersDiscovered(catalog.snapshot(), Collections.unmodifiableList(discoveredFolders));
+            }
+        }
 
         // 先数一遍总量，进度条才有分母（句柄数组已在本地，不额外碰相机）
         int[][] perStorage = new int[storageIds.length][];
@@ -65,17 +149,25 @@ public final class CatalogScanner {
         log.line("待扫描对象共 " + total + " 个（" + storageIds.length + " 个存储）");
 
         boolean published = false;
+        long lastProgressMs = 0L;
         for (int i = 0; i < storageIds.length; i++) {
             for (int handle : perStorage[i]) {
                 if (run != null && run.isCancelled()) {
                     log.line("扫描已取消：已枚举 " + scanned + "/" + total + " 个对象，提前结束");
                     return ScanResult.of(catalog.build(), scanned, dropped, missingHandles, true);
                 }
-                MtpObjectInfo oi = mtp.getObjectInfo(handle);
+                Catalog.Entry existing = catalog.get(handle);
                 scanned++;
-                if (progress != null && (scanned % 50 == 0 || scanned == total)) {
+                long now = System.currentTimeMillis();
+                if (progress != null && (scanned == 1 || scanned == total || now - lastProgressMs >= PROGRESS_INTERVAL_MS)) {
+                    lastProgressMs = now;
                     progress.onScan(scanned, total);
                 }
+                if (existing != null) {
+                    // 已在优先文件夹探查阶段解析过元数据，直接复用、免除重复的 MTP 调用
+                    continue;
+                }
+                MtpObjectInfo oi = mtp.getObjectInfo(handle);
                 if (oi == null) {
                     // 对象信息拿不到时目录里就没有它；保留集会缺这一项，按不完整处理。
                     dropped++;

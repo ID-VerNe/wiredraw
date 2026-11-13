@@ -48,6 +48,35 @@ final class CatalogCases {
                 "folder=" + c.folderCount() + " file=" + c.fileCount());
     }
 
+    // ---------------- 文件夹与日期目录快速发现（#372） ----------------
+
+    /**
+     * #372：在照片全量枚举完成前，快速获取相机内文件夹条目与拍摄日期目录列表。
+     */
+    static void folderDiscoveryCases() {
+        Catalog c = new Catalog();
+        c.add(new Catalog.Entry(1, 0, Catalog.FMT_FOLDER, 0, "DCIM"));
+        c.add(new Catalog.Entry(2, 1, Catalog.FMT_FOLDER, 0, "20261107"));
+        c.add(new Catalog.Entry(3, 1, Catalog.FMT_FOLDER, 0, "100MSDCF"));
+        c.add(new Catalog.Entry(4, 2, Catalog.FMT_ARW, 24_000_000L, "DSC00001.ARW"));
+        c.add(new Catalog.Entry(5, 3, Catalog.FMT_JPEG, 8_000_000L, "DSC00002.JPG"));
+        c.build();
+
+        List<Catalog.Entry> folders = c.folders();
+        check("Catalog.folders：返回全部文件夹条目（#372）",
+                folders.size() == 3, "实际 " + folders.size());
+
+        List<String> dates = c.dateFolders();
+        check("Catalog.dateFolders：排除 DCIM 并按字母排序拍摄日期文件夹（#372）",
+                dates.size() == 2 && dates.get(0).equals("100MSDCF") && dates.get(1).equals("20261107"),
+                "实际 " + dates);
+
+        Catalog snap = c.snapshot();
+        check("快照继承 folders 与 dateFolders（#372）",
+                snap.folders().size() == 3 && snap.dateFolders().size() == 2,
+                "snapshot folders=" + snap.folders().size() + " dates=" + snap.dateFolders().size());
+    }
+
     // ---------------- 渐进发布（#60） ----------------
 
     /**
