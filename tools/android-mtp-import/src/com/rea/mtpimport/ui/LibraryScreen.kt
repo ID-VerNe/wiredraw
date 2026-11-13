@@ -114,6 +114,7 @@ private fun PhotoGrid(model: AppModel) {
     val groups = model.visibleGroups
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
+        state = model.gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

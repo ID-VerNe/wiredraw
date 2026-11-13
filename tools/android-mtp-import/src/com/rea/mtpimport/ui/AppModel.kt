@@ -1,6 +1,7 @@
 package com.rea.mtpimport.ui
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -127,6 +128,19 @@ class AppModel {
 
     var openedPhoto by mutableStateOf<PhotoWall.Unit?>(null)
         private set
+
+    /**
+     * 照片墙滚动状态（issue #369）。
+     *
+     * 提升（hoist）至 AppModel：进出大图浏览（PhotoScreen）、开关详情抽屉或切状态时不丢失滚动偏移。
+     * 仅在重新挂载完整新目录（showCatalog）或丢弃扫描（discardPartialCatalog）时重置。
+     */
+    var gridState by mutableStateOf(LazyGridState())
+        private set
+
+    fun resetGridState() {
+        gridState = LazyGridState()
+    }
 
     /** 照片墙缩略图（issue #59）：由 Main 注入；demo 与真实 MTP 走同一个 store。 */
     var thumbnails by mutableStateOf<ThumbnailStore?>(null)
@@ -335,6 +349,7 @@ class AppModel {
         wall = null
         selection = null
         selectionVersion++
+        gridState = LazyGridState()
         transition(UiTransition.Action.DISCARD_PARTIAL)
     }
 
@@ -356,6 +371,7 @@ class AppModel {
         selection = s
         wall = PhotoWall.of(c)
         selectionVersion++
+        gridState = LazyGridState()
         transition(
             if (wall!!.photoCount() == 0) UiTransition.Action.EMPTY
             else UiTransition.Action.CATALOG_FULL
