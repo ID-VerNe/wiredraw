@@ -634,4 +634,50 @@ final class UiStateCases {
         check("无设备回落：UiTransition 表无状态守卫（Action.COLD 恒到 COLD，故守卫必须在 Main 调用点，#285）",
                 r.state == UiState.State.COLD, "实际 " + r.state);
     }
+
+    // ---------------- 照片墙滚动位置保持（issue #369） ----------------
+
+    /**
+     * 墓碑（#369）：大图浏览返回后照片墙滚动位置丢失重置回顶部。
+     * 根因有两个：
+     * 1. LibraryScreen 的 PhotoGrid 中 LazyVerticalGrid 未传 state 参数，默认使用局部的
+     *    rememberLazyGridState()，一旦重新进入组合立即归零；
+     * 2. ImportApp 根层在 model.openedPhoto != null 时排他渲染 PhotoScreen，将 LibraryScreen
+     *    完全从组合中卸载（Dispose），导致返回时重新 mount。
+     *
+     * 本断言钉住契约：
+     * - PhotoGrid 显式绑定提升到 AppModel 的 gridState（state = model.gridState）；
+     * - AppModel 声明并持有 gridState；
+     * - ImportApp 保持 LibraryScreen 常驻组合，将 PhotoScreen 作为浮层覆盖在其上方渲染；
+     * - PhotoScreen 底层画布拦截点击穿透。
+     */
+    static void photoGridScrollPositionCases() {
+        File libScreen = source("com/rea/mtpimport/ui/LibraryScreen.kt");
+        String libSrc = readSourceOrNull(libScreen);
+        check("PhotoGrid 显式绑定 model.gridState（#369）",
+                libSrc != null && libSrc.contains("state = model.gridState"),
+                libSrc == null ? "读不到 " + libScreen : "未找到 state = model.gridState");
+
+        File appModel = source("com/rea/mtpimport/ui/AppModel.kt");
+        String modelSrc = readSourceOrNull(appModel);
+        check("AppModel 声明并持有 gridState（#369）",
+                modelSrc != null && modelSrc.contains("gridState"),
+                modelSrc == null ? "读不到 " + appModel : "未在 AppModel 找到 gridState");
+
+        File importApp = source("com/rea/mtpimport/ui/ImportApp.kt");
+        String appSrc = readSourceOrNull(importApp);
+        check("ImportApp 不再排他卸载 LibraryScreen（#369）",
+                appSrc != null && !appSrc.contains("if (model.openedPhoto != null) {\n            PhotoScreen(model)\n        } else if (UiState.showsLibrary(state))"),
+                appSrc == null ? "读不到 " + importApp : "ImportApp 仍存在 openedPhoto 排他卸载 LibraryScreen 的分支");
+        check("ImportApp 包含 PhotoScreen 覆盖层（#369）",
+                appSrc != null && appSrc.contains("if (model.openedPhoto != null)")
+                        && appSrc.contains("PhotoScreen(model)"),
+                appSrc == null ? "读不到 " + importApp : "ImportApp 缺少 PhotoScreen 覆盖层");
+
+        File photoScreen = source("com/rea/mtpimport/ui/PhotoScreen.kt");
+        String photoSrc = readSourceOrNull(photoScreen);
+        check("PhotoScreen 底层画布消费点击防止击穿到照片墙（#369）",
+                photoSrc != null && photoSrc.contains(".tappable(onClick = {})"),
+                photoSrc == null ? "读不到 " + photoScreen : "PhotoScreen 未在画布层消费点击");
+    }
 }

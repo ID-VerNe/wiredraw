@@ -80,6 +80,7 @@ public final class SelfTest {
         detachCases();
         requestScanLogCases();
         noDeviceColdGuardCases();
+        photoGridScrollPositionCases();
         usbIdentityCases();
         colorTokensCases();
         backNavCases();

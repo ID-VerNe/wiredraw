@@ -22,12 +22,12 @@ import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.UiState
 
 /**
- * 根 composable：按 `UiState` 三屏分流。
+ * 根 composable：按 `UiState` 三屏分流与覆盖层渲染。
  *
- * - `photo` 页是详情视图，优先级最高（由 `CATALOG_READY` 的格子**长按**进入；
- *   `L-08` 规定点格切换已选，口径见 `UI-SPEC.md` §1.2）。
  * - `IMPORTING` / `PAUSED` → 传输屏；`CATALOG_READY` → 照片墙；其余 → 状态屏。
- * - 详情抽屉与过滤抽屉是覆盖层，不改变上面的内容（L-05 / L-09）。
+ * - `photo` 页（PhotoScreen）作为全屏覆盖层叠加在照片墙之上（issue #369），
+ *   使底层照片墙保持活跃挂载与滚动偏移量，返回时零重组延迟。
+ * - 详情抽屉、过滤抽屉与退出确认框均为覆盖层，不改变底层的页面结构（L-05 / L-09）。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -53,7 +53,7 @@ fun ImportApp(model: AppModel) {
         // 这一条以前是被遮罩「顺带」担保的：全屏 `clickable` 遮罩本身是一个语义节点，把未覆盖区域占满，
         // 底层子树根本没进 `getCurrentSemanticsNodes()`。遮罩改成零语义的 `pointerInput`（同 PR）之后，
         // 那个副作用消失，屏障就必须自己成立。
-        val overlayOpen = model.detailsOpen || model.filterOpen || model.exitConfirmOpen
+        val overlayOpen = model.detailsOpen || model.filterOpen || model.exitConfirmOpen || model.openedPhoto != null
         Box(
             Modifier
                 .fillMaxSize()
@@ -61,15 +61,17 @@ fun ImportApp(model: AppModel) {
                     if (overlayOpen) Modifier.clearAndSetSemantics { invisibleToUser() } else Modifier
                 )
         ) {
-            if (model.openedPhoto != null) {
-                PhotoScreen(model)
-            } else if (UiState.isTransfer(state)) {
+            if (UiState.isTransfer(state)) {
                 TransferScreen(model)
             } else if (UiState.showsLibrary(state)) {
                 LibraryScreen(model)
             } else {
                 StatusScreen(model)
             }
+        }
+
+        if (model.openedPhoto != null) {
+            PhotoScreen(model)
         }
 
         if (model.detailsOpen) DetailsDrawer(model)
