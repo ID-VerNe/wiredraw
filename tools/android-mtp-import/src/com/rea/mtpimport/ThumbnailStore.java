@@ -2,8 +2,11 @@ package com.rea.mtpimport;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.util.Log;
 import android.util.LruCache;
+import java.io.ByteArrayInputStream;
 
 
 /**
@@ -310,7 +313,73 @@ public final class ThumbnailStore {
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inSampleSize = sample;
         opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+        Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+        if (decoded == null) return null;
+        return applyExifOrientation(decoded, bytes);
+    }
+
+    /**
+     * 读取 EXIF Orientation 姿态并旋转纠偏（issue #367, #368）。
+     *
+     * 索尼 a7C 机身传感器原始点阵恒为横向（3:2），竖拍姿态记录在 EXIF TAG_ORIENTATION。
+     * 若非正常朝向，通过 Matrix 进行旋转/镜像变换；生成新位图后显式回收原位图，防止内存泄漏。
+     */
+    private static Bitmap applyExifOrientation(Bitmap decoded, byte[] bytes) {
+        if (decoded == null || bytes == null || bytes.length == 0) return decoded;
+        try {
+            int orientation = getExifOrientation(bytes);
+            Matrix matrix = orientationToMatrix(orientation);
+            if (matrix == null) return decoded;
+            Bitmap rotated = Bitmap.createBitmap(decoded, 0, 0, decoded.getWidth(), decoded.getHeight(), matrix, true);
+            if (rotated != decoded) {
+                decoded.recycle();
+            }
+            return rotated;
+        } catch (Throwable t) {
+            Log.w(TAG, "EXIF 旋转纠正失败：" + t);
+            return decoded;
+        }
+    }
+
+    private static int getExifOrientation(byte[] bytes) {
+        try {
+            ByteArrayInputStream in = new ByteArrayInputStream(bytes);
+            ExifInterface exif = new ExifInterface(in);
+            return exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+        } catch (Throwable t) {
+            return ExifInterface.ORIENTATION_NORMAL;
+        }
+    }
+
+    private static Matrix orientationToMatrix(int orientation) {
+        Matrix matrix = new Matrix();
+        switch (orientation) {
+            case ExifInterface.ORIENTATION_ROTATE_90:
+                matrix.postRotate(90);
+                return matrix;
+            case ExifInterface.ORIENTATION_ROTATE_180:
+                matrix.postRotate(180);
+                return matrix;
+            case ExifInterface.ORIENTATION_ROTATE_270:
+                matrix.postRotate(270);
+                return matrix;
+            case ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
+                matrix.postScale(-1, 1);
+                return matrix;
+            case ExifInterface.ORIENTATION_FLIP_VERTICAL:
+                matrix.postScale(1, -1);
+                return matrix;
+            case ExifInterface.ORIENTATION_TRANSPOSE:
+                matrix.postRotate(90);
+                matrix.postScale(-1, 1);
+                return matrix;
+            case ExifInterface.ORIENTATION_TRANSVERSE:
+                matrix.postRotate(270);
+                matrix.postScale(-1, 1);
+                return matrix;
+            default:
+                return null;
+        }
     }
 
     /** demo 素材是 1440 长边的整图，进网格前先降到 512，别把 5.5 MB/张原样塞进 24 MiB 缓存。 */
