@@ -120,6 +120,49 @@ public final class UiText {
         return count + " · " + capacity(bytes);
     }
 
+    // ---------------- 退出确认框（`T-EXIT` / `W-24`，issue #374 IA-8） ----------------
+
+    /**
+     * 返回键确认框的**提问**（`T-EXIT`）。
+     *
+     * 框里必须有一个问句：原先只有 `Pause & exit` / `Resume` 两个按钮，用户面对的是一个
+     * 「不知在问什么」的弹窗（#374 IA-8）。短句 ≤20 字符（`C-01`）。
+     */
+    public static String exitConfirmTitle() {
+        return "Pause import?";
+    }
+
+    /** 确认框里「继续导入」那一项（`W-24`）：关掉框，什么都不改。 */
+    public static String keepGoing() {
+        return "Keep going";
+    }
+
+    /**
+     * 确认框里「暂停并离开」那一项（`W-11`）。
+     *
+     * 与 `W-06` 的 `Resume` 分开：`Resume` 专指把**已暂停**的轮次继续下去，这个框里还没暂停。
+     */
+    public static String pauseExit() {
+        return "Pause & exit";
+    }
+
+    // ---------------- 状态播报（`UI-SPEC` §7 `A-08`，issue #374 IA-10） ----------------
+
+    /**
+     * 扫描完成播报：`Scanned 512 photos`。
+     *
+     * 只播报这三个时机（扫描完成 / 导入完成 / 出错），`A-08` 点名的那三个。
+     * 渐进发布（`CATALOG_PARTIAL`）不播报——每 200 个对象一次会念成复读机。
+     */
+    public static String announceScanDone(int photos) {
+        return "Scanned " + photos + " photos";
+    }
+
+    /** 导入完成播报：`Done, 36 photos`（`T-DONE` 的主文案 + 完成张数）。 */
+    public static String announceDone(int photos) {
+        return "Done, " + photos + " photos";
+    }
+
     /** 扫描进度分母：`320/1526`，`1526` 只作分母（C-09 / U-43）。 */
     public static String scanCounter(int scanned, int total) {
         return scanned + "/" + total;

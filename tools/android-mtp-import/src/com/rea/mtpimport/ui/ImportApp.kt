@@ -9,17 +9,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.UiState
+import com.rea.mtpimport.UiText
 
 /**
  * 根 composable：按 `UiState` 三屏分流与覆盖层渲染。
@@ -78,14 +88,51 @@ fun ImportApp(model: AppModel) {
         if (model.filterOpen) FilterDrawer(model)
         if (model.exitConfirmOpen) ExitConfirmDialog(model)
     }
+
+    StateAnnouncer(model)
 }
 
 /**
- * `IMPORTING` / `PAUSED` 下按系统返回键的拦截框（§1.3 / §4.5 词表）。
+ * 状态变化播报（`UI-SPEC` §7 `A-08` / #374 IA-10）。
  *
- * 两个选项的文案是定稿指定的：`Pause & exit`（暂停并退出应用，断点留在 Journal）
- * 与 `Resume`（收起框，继续留在当前状态/恢复导入）。不引 Material 的 `AlertDialog`，
- * 与抽屉共用一套遮罩和按钮组件，免得为一个框再拉一个依赖。
+ * 三件事必须播报：**扫描完成 / 导入完成 / 出错**。只改静态文本不算——读屏用户听到的会是
+ * 「页面内容变了」，而不是「扫描完成，512 张」。
+ *
+ * 为什么用 `announceForAccessibility` 而不是 `liveRegion`：三屏整个子树是**换掉**的，
+ * `liveRegion` 只在同一节点的文字变化时可靠；新子树里一条新节点不会被当成「变化」。
+ * 显式播报与视图替换解耦，也不依赖 TalkBack 的节点比对窗口。
+ *
+ * 首帧不播报：`demo_state` 可以直接把界面装进 `CATALOG_READY` / `DONE`，那不是「刚刚发生的变化」，
+ * 开机就念一句「扫描完成」纯属噪声。所以第一帧只记住状态，不发事件。
+ */
+@Composable
+private fun StateAnnouncer(model: AppModel) {
+    val view = LocalView.current
+    var last by remember { mutableStateOf<UiState.State?>(null) }
+    val state = model.state
+    LaunchedEffect(state) {
+        val prev = last
+        last = state
+        if (prev == null) return@LaunchedEffect
+        val text = when (state) {
+            UiState.State.CATALOG_READY -> UiText.announceScanDone(model.wall?.photoCount() ?: 0)
+            UiState.State.DONE -> UiText.announceDone(model.donePhotos)
+            UiState.State.ERROR -> model.errorReason
+            else -> null
+        }
+        if (!text.isNullOrBlank()) view.announceForAccessibility(text)
+    }
+}
+
+/**
+ * `IMPORTING` / `PAUSED` 下按系统返回键的拦截框（§1.3 / §4.5 `T-EXIT`）。
+ *
+ * 定稿给的是「提问 + 两个选项」，不是一个不知在问什么的双按钮框（#374 IA-8 / `V-33`）：
+ * 标题必须问出来（`Pause import?`），两个选项**等宽**，实心项是**保留导入**的那一个
+ * （`Keep going`），`Pause & exit` 退到描边——破坏性选项不做默认焦点，也不占唯一的主按钮额度（`V-09`）。
+ *
+ * `Resume` 在这里是错的词：`W-06` 的 `Resume` 专指「把已暂停的轮次继续下去」，
+ * 而这个框里还没有暂停，动作只是「关掉框」。两个意思用同一个词，用户会以为点下去会恢复什么。
  */
 @Composable
 private fun ExitConfirmDialog(model: AppModel) {
@@ -98,12 +145,27 @@ private fun ExitConfirmDialog(model: AppModel) {
                 .padding(horizontal = 32.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(UiColors.surfaceWhite)
+                // 读屏进框先报提问，否则焦点落在两个按钮上仍然不知道在问什么。
+                .semantics { paneTitle = UiText.exitConfirmTitle() }
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            PrimaryButton("Pause & exit", onClick = { model.callbacks?.onPauseExit() })
+            BasicText(
+                UiText.exitConfirmTitle(),
+                style = TextBody.copy(color = UiColors.onSurface, textAlign = TextAlign.Center),
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            PrimaryButton(
+                UiText.keepGoing(),
+                onClick = { model.callbacks?.onResumeExit() },
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(Modifier.height(8.dp))
-            SecondaryButton("Resume", onClick = { model.callbacks?.onResumeExit() })
+            SecondaryButton(
+                UiText.pauseExit(),
+                onClick = { model.callbacks?.onPauseExit() },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
