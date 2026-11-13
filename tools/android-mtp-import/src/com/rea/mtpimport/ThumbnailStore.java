@@ -7,6 +7,10 @@ import android.media.ExifInterface;
 import android.util.Log;
 import android.util.LruCache;
 import java.io.ByteArrayInputStream;
+import java.util.ArrayDeque;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.BooleanSupplier;
 
 
 /**
@@ -62,6 +66,35 @@ public final class ThumbnailStore {
         }
     }
 
+    public interface Callback {
+        void onLoaded(Bitmap bitmap);
+    }
+
+    private static final class LoadRequest {
+        final PhotoWall.Unit unit;
+        final BooleanSupplier isCancelled;
+        final Callback callback;
+
+        LoadRequest(PhotoWall.Unit unit, BooleanSupplier isCancelled, Callback callback) {
+            this.unit = unit;
+            this.isCancelled = isCancelled;
+            this.callback = callback;
+        }
+
+        boolean isCancelled() {
+            return isCancelled != null && isCancelled.getAsBoolean();
+        }
+    }
+
+    private final ArrayDeque<LoadRequest> queue = new ArrayDeque<>();
+    private final Object queueLock = new Object();
+    private boolean workerActive = false;
+    private final ExecutorService loaderExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ThumbnailLoader");
+        t.setDaemon(true);
+        return t;
+    });
+
     private final LruCache<Integer, Bitmap> cache = new ByteCountCache(CACHE_BYTES);
 
     private final LruCache<Integer, Bitmap> previewCache = new ByteCountCache(PREVIEW_BYTES);
@@ -98,6 +131,9 @@ public final class ThumbnailStore {
             cache.evictAll();
             previewCache.evictAll();
             fullCache.evictAll();
+        }
+        synchronized (queueLock) {
+            queue.clear();
         }
     }
 
@@ -144,6 +180,57 @@ public final class ThumbnailStore {
         }
         if (decoded == null) return null;
         return commit(startEpoch, key, cache, decoded);
+    }
+
+    /**
+     * 视口感知异步取图（issue #373）：支持生命周期感知、LIFO 优先队列与离屏取消。
+     * 若已命中缓存直接回调，否则入队；后入队的任务（最新进入视口）优先获取 USB 读图机会。
+     */
+    public void loadAsync(PhotoWall.Unit unit, BooleanSupplier isCancelled, Callback callback) {
+        if (unit == null || callback == null) return;
+        int key = unit.previewHandle();
+        Bitmap hit = cache.get(key);
+        if (hit != null) {
+            callback.onLoaded(hit);
+            return;
+        }
+        if (isCancelled != null && isCancelled.getAsBoolean()) {
+            callback.onLoaded(null);
+            return;
+        }
+        synchronized (queueLock) {
+            queue.removeIf(r -> r.unit.previewHandle() == key);
+            queue.addFirst(new LoadRequest(unit, isCancelled, callback));
+            if (!workerActive) {
+                workerActive = true;
+                loaderExecutor.execute(this::drainQueue);
+            }
+        }
+    }
+
+    private void drainQueue() {
+        while (true) {
+            LoadRequest req;
+            synchronized (queueLock) {
+                req = queue.pollFirst();
+                if (req == null) {
+                    workerActive = false;
+                    return;
+                }
+            }
+            if (req.isCancelled()) {
+                req.callback.onLoaded(null);
+                continue;
+            }
+            int key = req.unit.previewHandle();
+            Bitmap hit = cache.get(key);
+            if (hit != null) {
+                req.callback.onLoaded(hit);
+                continue;
+            }
+            Bitmap bmp = load(req.unit);
+            req.callback.onLoaded(bmp);
+        }
     }
 
     /**
