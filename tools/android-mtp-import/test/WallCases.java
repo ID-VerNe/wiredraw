@@ -235,6 +235,16 @@ final class WallCases {
                 writesUnit && writesGroup,
                 "单格 " + writesUnit + " / 组选 " + writesGroup);
 
+        // 真相源一侧也必须钉住（评审第 2 轮拦下）：只钉镜像会漏掉反方向的洞 ——
+        // 把 `sel.setChecked(...)` 删掉（只写镜像、不写 `Selection`），六条断言全绿，
+        // 而导出计划读的是 `Selection`，症状正是「点得动、导出不带」。
+        boolean writesTruth = hasStatement(src, 8, "val on = !unit.isChecked(sel)")
+                && hasStatement(src, 8, "for (handle in unit.handles()) sel.setChecked(handle, on)")
+                && hasStatement(src, 8, "val select = !sel.allCheckedHandles(handles)")
+                && hasStatement(src, 8, "sel.setCheckedAll(handles, select)");
+        check("真相源写入仍在原处：Selection 的勾选/组选判据没被镜像替代（#374 IA-6）",
+                writesTruth, "单格判据/写入、组选判据/写入四处任一缺失即失败");
+
         // 回读函数：必须是「遍历 allUnits → 写值」，且函数体内不得有 `return`（挡早返回的假实现）。
         String syncBody = slice(src, "private fun syncCheckedFromSelection() {", "\n    }\n");
         boolean loops = hasStatement(src, 8, "for (u in allUnits) {");

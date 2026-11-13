@@ -884,7 +884,7 @@ Next:    <一个可执行动作>
 | U-49 | `EMPTY_CATALOG` | `No photos`；`Connect camera` 可点 | 任何照片网格单元；`0 GB`；`0%` |
 | U-50 | `UNAVAILABLE` | `Not available` | `\d+%`、`Imported\s*\d+`、`Failed\s*\d+`、`NOT_IMPLEMENTED`、`Unimplemented`、`Not implemented`、`未实现`；进度控件存在 |
 
-### 8.3 页面级断言（新增，`U-51`～`U-55`）
+### 8.3 页面级断言（新增，`U-51`～`U-56`）
 
 | 编号 | 对象 | 断言 | 验证方法 |
 |---|---|---|---|
