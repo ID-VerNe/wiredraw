@@ -31,7 +31,7 @@ final class ResumeCases {
             FinishRecorder r1 = new FinishRecorder();
             new ImportService(Log.NOOP, t1, out).start(plan, r1);
             check("续传停用：部分残留一轮在 5 秒内结束",
-                    r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(r1.done), "等待超时");
             check("续传停用：编排层传给传输层的起点恒为 0（#177）",
                     t1.resumeFroms.size() == 1 && t1.resumeFroms.get(0) == 0L,
                     "实际 " + t1.resumeFroms);
@@ -50,7 +50,7 @@ final class ResumeCases {
             FinishRecorder r2 = new FinishRecorder();
             new ImportService(Log.NOOP, t2, fullOut).start(plan, r2);
             check("续传停用：满尺寸残留一轮在 5 秒内结束",
-                    r2.done.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(r2.done), "等待超时");
             check("续传停用：满尺寸残留同样从 0 重传（起点不为 size）",
                     t2.resumeFroms.size() == 1 && t2.resumeFroms.get(0) == 0L,
                     "实际 " + t2.resumeFroms);
@@ -65,13 +65,13 @@ final class ResumeCases {
             FinishRecorder r3 = new FinishRecorder();
             new ImportService(Log.NOOP, t3, doneOut).start(plan, r3);
             check("续传停用：正常一轮产出一个成品",
-                    r3.done.await(5, TimeUnit.SECONDS) && r3.ok == 1,
+                    awaitLatch(r3.done) && r3.ok == 1,
                     "ok=" + r3.ok + " failed=" + r3.failed);
             FakeTransfer t4 = new FakeTransfer();
             FinishRecorder r4 = new FinishRecorder();
             new ImportService(Log.NOOP, t4, doneOut).start(plan, r4);
             check("续传停用：成品与账本都在时按 Skipped 跳过",
-                    r4.done.await(5, TimeUnit.SECONDS) && r4.skipped == 1 && t4.calls.isEmpty(),
+                    awaitLatch(r4.done) && r4.skipped == 1 && t4.calls.isEmpty(),
                     "skipped=" + r4.skipped + " calls=" + t4.calls.size());
             File dest = new File(doneOut, rel);
             boolean removed = dest.delete();
@@ -80,7 +80,7 @@ final class ResumeCases {
             FinishRecorder r5 = new FinishRecorder();
             new ImportService(Log.NOOP, t5, doneOut).start(plan, r5);
             check("续传停用：账本记完成但成品缺失 → 重新导入，不静默跳过",
-                    r5.done.await(5, TimeUnit.SECONDS)
+                    awaitLatch(r5.done)
                             && r5.skipped == 0 && t5.calls.size() == 1,
                     "skipped=" + r5.skipped + " calls=" + t5.calls.size());
 
@@ -88,14 +88,14 @@ final class ResumeCases {
             FinishRecorder r6 = new FinishRecorder();
             new ImportService(Log.NOOP, new FakeTransfer(doneOut), doneOut).start(plan, r6);
             check("续传停用：重建成品以便覆盖成错误尺寸",
-                    r6.done.await(5, TimeUnit.SECONDS) && r6.ok == 1 && r6.skipped == 0,
+                    awaitLatch(r6.done) && r6.ok == 1 && r6.skipped == 0,
                     "ok=" + r6.ok + " skipped=" + r6.skipped);
             writeSizedBytes(dest, 299, (byte) 0x11);
             FakeTransfer t7 = new FakeTransfer();
             FinishRecorder r7 = new FinishRecorder();
             new ImportService(Log.NOOP, t7, doneOut).start(plan, r7);
             check("续传停用：成品尺寸不符 → 重新导入，不静默跳过",
-                    r7.done.await(5, TimeUnit.SECONDS)
+                    awaitLatch(r7.done)
                             && r7.skipped == 0 && t7.calls.size() == 1,
                     "skipped=" + r7.skipped + " calls=" + t7.calls.size());
         });
@@ -108,13 +108,13 @@ final class ResumeCases {
             FinishRecorder r8 = new FinishRecorder();
             new ImportService(Log.NOOP, t8, sameOut).start(plan, r8);
             check("续传停用：目标同尺寸命中时记 SKIPPED",
-                    r8.done.await(5, TimeUnit.SECONDS) && r8.skipped == 1 && t8.calls == 1,
+                    awaitLatch(r8.done) && r8.skipped == 1 && t8.calls == 1,
                     "skipped=" + r8.skipped + " calls=" + t8.calls);
             FakeTransfer t9 = new FakeTransfer();
             FinishRecorder r9 = new FinishRecorder();
             new ImportService(Log.NOOP, t9, sameOut).start(plan, r9);
             check("续传停用：SKIPPED 必须落账，第二轮不再重下同尺寸成品（#177 复审）",
-                    r9.done.await(5, TimeUnit.SECONDS) && r9.skipped == 1 && t9.calls.isEmpty(),
+                    awaitLatch(r9.done) && r9.skipped == 1 && t9.calls.isEmpty(),
                     "skipped=" + r9.skipped + " calls=" + t9.calls.size());
         });
     }
@@ -148,7 +148,7 @@ final class ResumeCases {
             ResumeReportingTransfer t1 = new ResumeReportingTransfer(false, 60);
             FinishRecorder r1 = new FinishRecorder();
             new ImportService(Log.NOOP, t1, out).start(resumePlan, r1);
-            check("文件内进度：续传一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("文件内进度：续传一轮在 5 秒内结束", awaitLatch(r1.done), "等待超时");
             check("文件内进度：旧半成品不抬起点，首个进度事件是 0（#177）",
                     !r1.progressBytes.isEmpty() && r1.progressBytes.get(0) == 0L,
                     "实际 " + r1.progressBytes);
@@ -179,12 +179,12 @@ final class ResumeCases {
             FinishRecorder r2 = new FinishRecorder();
             new ImportService(Log.NOOP, t2, out2).start(retryPlan, r2);
             check("文件内进度：重试的文件刚进入第二次尝试",
-                    t2.retryEntered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(t2.retryEntered), "等待超时");
             long atRetry = r2.lastProgress == null ? -1L : r2.lastProgress.bytesDone();
             check("文件内进度：重试不得双计（第二次尝试刚上报起点 0 时总字节仍是 0）",
                     atRetry == 0L, "实际 " + atRetry);
             t2.releaseRetry.countDown();
-            check("文件内进度：重试一轮在 5 秒内结束", r2.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("文件内进度：重试一轮在 5 秒内结束", awaitLatch(r2.done), "等待超时");
             check("文件内进度：首次失败后重试仍算完成",
                     r2.ok == 2 && r2.failed == 0, "ok=" + r2.ok + " failed=" + r2.failed);
             check("文件内进度：重试的第二次尝试从 0 重传（续传停用，#177）",

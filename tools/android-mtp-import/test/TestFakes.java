@@ -111,11 +111,7 @@ final class TestFakes {
             calls.add(item.relPath);
             if (mode == Mode.HANGING) {
                 entered.countDown();
-                try {
-                    release.await(10, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                awaitLatch(release, 10000L);
                 return writeFakePart(item, partPath);
             }
             resumeFroms.add(resumeFrom);
@@ -139,13 +135,8 @@ final class TestFakes {
                 int n = calls.size();
                 if (n == 1) {
                     firstEntered.countDown();
-                    try {
-                        if (!releaseFirst.await(5, TimeUnit.SECONDS)) {
-                            return new Result(Kind.FAILED, "测试未放行第一个文件");
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return new Result(Kind.FAILED, "测试线程被中断");
+                    if (!awaitLatch(releaseFirst)) {
+                        return new Result(Kind.FAILED, "测试未放行第一个文件");
                     }
                 } else if (n == 2) {
                     secondEntered.countDown();
@@ -251,7 +242,7 @@ final class TestFakes {
                     progress.accept(offset);
                     if (failFirst && index == 2) {
                         retryEntered.countDown();
-                        if (!releaseRetry.await(5, TimeUnit.SECONDS)) {
+                        if (!awaitLatch(releaseRetry)) {
                             return new Result(Kind.FAILED, "重试闸门超时");
                         }
                     }
@@ -272,9 +263,6 @@ final class TestFakes {
                 return Result.of(Kind.OK);
             } catch (IOException e) {
                 return new Result(Kind.FAILED, e.toString());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new Result(Kind.FAILED, "被中断");
             }
         }
     }
@@ -350,15 +338,9 @@ final class TestFakes {
             calls.add(item.relPath);
             token.setOnCancel(tokenCancelled::countDown);
             entered.countDown();
-            try {
-                if (!tokenCancelled.await(5, TimeUnit.SECONDS)) {
-                    token.clearOnCancel();
-                    return new Result(Kind.FAILED, "取消动作未触发，传输无法被中断");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            if (!awaitLatch(tokenCancelled)) {
                 token.clearOnCancel();
-                return new Result(Kind.FAILED, "测试线程被中断");
+                return new Result(Kind.FAILED, "取消动作未触发，传输无法被中断");
             }
             token.clearOnCancel();
             return new Result(Kind.CANCELLED, "已取消，本次半成品已删除");
@@ -377,11 +359,7 @@ final class TestFakes {
         public Result transfer(ImportPlan.Item item, String partPath, long resumeFrom,
                                CancelToken token, LongConsumer progress) {
             entered.countDown();
-            try {
-                release.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            awaitLatch(release, 10000L);
             return new Result(Kind.FAILED, "测试放行");
         }
     }
@@ -441,13 +419,8 @@ final class TestFakes {
             CountDownLatch entered = n == 1 ? firstEntered : secondEntered;
             CountDownLatch release = n == 1 ? releaseFirst : releaseSecond;
             entered.countDown();
-            try {
-                if (!release.await(5, TimeUnit.SECONDS)) {
-                    return new Result(Kind.FAILED, "测试未放行第 " + n + " 个文件");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new Result(Kind.FAILED, "测试线程被中断");
+            if (!awaitLatch(release)) {
+                return new Result(Kind.FAILED, "测试未放行第 " + n + " 个文件");
             }
             return writeFakePart(item, partPath);
         }
