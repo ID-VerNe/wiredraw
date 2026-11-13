@@ -124,13 +124,22 @@ final class MotionCases {
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
         hits.clear();
         scanSourceText(srcRoot, "HapticFeedbackType.LongPress", null, hits);
-        boolean allInWidgets = true;
+        int tapHaptics = 0;
+        boolean othersAreDragOnly = true;
         for (String h : hits) {
-            if (!h.contains("Widgets.kt")) allInWidgets = false;
+            if (h.contains("Widgets.kt")) {
+                tapHaptics++;
+            } else if (!h.contains("FastScroller.kt")) {
+                othersAreDragOnly = false;
+            }
         }
-        check("V-35：三条长按路径共用恰好 2 处触觉调用（tapOrHold / longPressOnly）",
-                hits.size() == 2 && allInWidgets,
-                "命中 " + hits.size() + " 处：\n" + String.join("\n", hits));
+        // `V-35` 只管 `L-08` 的 ≥500 ms 长按动作。`FastScroller` 的两次是「拖拽跨过日期组
+        // 边界」的触觉（`detectVerticalDragGestures`），属另一手势族，不该被这条护栏误杀；
+        // 但它俩必须在且只在 FastScroller.kt —— 冒出第三处就有可能是漏进来的内联长按。
+        check("V-35：长按手势入口的触觉恰 2 处，其余只许是 FastScroller 的拖拽触觉",
+                tapHaptics == 2 && othersAreDragOnly,
+                "入口触觉 " + tapHaptics + " 处 / 其它文件合规=" + othersAreDragOnly
+                        + "\n命中：\n" + String.join("\n", hits));
         check("V-35：按压生命周期有 Release/Cancel 复位",
                 widgets != null
                         && widgets.contains("PressInteraction.Press(offset)")

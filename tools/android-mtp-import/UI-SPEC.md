@@ -656,6 +656,8 @@
   **必须**在动作生效**之前**触发一次 `HapticFeedbackType.LongPress`；真实触摸的手势入口**只有一个**
   （`Widgets.tapOrHold` / `Widgets.longPressOnly`），**不得**在任何页面内联
   `detectTapGestures(onLongPress = ...)` 各写一遍。读屏动作（`onClick` / `onLongClick` 语义）不触发触觉。
+  `FastScroller` 拖拽跨过日期组边界的触觉走 `detectVerticalDragGestures`，是另一手势族、
+  不受本条约束；但也不得借它新增第二个 `detectTapGestures` 入口。
 - **V-36（入场与退场、时长上限）** 三屏切换（§1.2 的 `library` / `transfer` / `status`）只做
   **120 ms 交叉淡入**、**不位移**；`photo` 页是覆盖层，走同一条交叉淡入。
   抽屉面板 `slideInVertically + fadeIn`、遮罩 `fadeIn`、确认框 `scaleIn(0.96→1.0) + fadeIn`，
@@ -939,7 +941,7 @@ Next:    <一个可执行动作>
 | U-57 | `T-EXIT` 确认框 | `IMPORTING` 下按返回键：框内恰好 1 个问句 `Pause import?`；两个选项文案 ∈ {`Keep going`, `Pause & exit`} 且 **bounds 宽度相等**（差 ≤2 dp）；实心项是 `Keep going`（`V-33`）；框开着时底层节点不可聚焦（`IA-12` 屏障） | dump：`--es demo_state IMPORTING` → `input keyevent KEYCODE_BACK` → dump；数 `Pause import?` 文本节点 = 1；量两个可点兄弟节点 bounds 宽度差 ≤2 dp；底层 `Photo` / CTA 节点数 = 0 |
 | U-58 | 状态播报（`A-08`） | 扫描完成 / 导入完成 / 出错三个时机各播报**一次**，文案分别形如 `Scanned 512 photos` / `Done, 36 photos` / `T-ERROR` 的原因句；首帧不播报；渐进发布不播报 | `adb shell uiautomator events` 后台跑着，逐个切态，数 `TYPE_ANNOUNCEMENT` 行的 `PackageName: com.rea.mtpimport` 与 `Text`；三个时机各 1 条 = 通过；冷启动直接 `--es demo_state READY` 时 0 条（不需要装 TalkBack，`uiautomator` 自带无障碍服务即可收到事件） |
 | U-59 | 按压态（`V-34`） | 任意可点目标在 `pointerdown` **当帧**出现形态响应（缩放 0.97 或压深底色），松手恢复；禁用态无响应；按压动画不新增重组（只在 draw phase 读值）；临界阻尼、无过冲 | 真机：`--es demo_state READY` → `input swipe x y x y 400` 保持按下，第 2 帧起 `screencap` 与常态比对该节点区域像素；松手后再截一帧应与常态一致。JVM：`motionBudgetCases` 钉 `PRESS_SHRINK` 与临界阻尼、`motionSourceCases` 钉 `tappable` 消费 `collectIsPressedAsState` 与 `graphicsLayer` / `drawBehind` 的 draw phase 读法 |
-| U-60 | 长按触觉统一（`V-35`） | 组头组选、单格进 `photo`、顶栏进 `Details` 三条 ≥500 ms 动作都经同一个手势入口，且都在动作生效前触发 `HapticFeedbackType.LongPress`；读屏动作不触发 | JVM：`motionSourceCases` 钉「`detectTapGestures(` 全 src 只出现在 `Widgets.kt`」「触觉调用恰 2 处（tapOrHold / longPressOnly）」「两个 tapOrHold + 一个 longPressOnly 调用点」。真机：三条路径各长按一次，手感一致（无「一次有、一次没有」） |
+| U-60 | 长按触觉统一（`V-35`） | 组头组选、单格进 `photo`、顶栏进 `Details` 三条 ≥500 ms 动作都经同一个手势入口，且都在动作生效前触发 `HapticFeedbackType.LongPress`；读屏动作不触发 | JVM：`motionSourceCases` 钉「`detectTapGestures(` 全 src 只出现在 `Widgets.kt`」「手势入口内的触觉恰 2 处（tapOrHold / longPressOnly）」「两个 tapOrHold + 一个 longPressOnly 调用点」，并单列豁免 `FastScroller` 的拖拽触觉。真机：三条路径各长按一次，手感一致（无「一次有、一次没有」） |
 | U-61 | 过场与减少动效（`V-36` / `V-37`） | 三屏切换 120 ms 交叉淡入、无位移；抽屉面板滑入 + 遮罩淡入、确认框缩入；三者都有退出动画；单段 ≤200 ms；新状态首帧立即可见；`animator_duration_scale 0` 下全部瞬时且**终态 dump 完全一致**；动画中途再输入可打断 | JVM：`motionBudgetCases` 钉 `MOTION_MAX_MS`、`duration(0)`、`ringTarget`；`motionSourceCases` 钉「所有动画 spec 只由 `MotionSpecs` 产出」「三个浮层共用 `OverlayHost`」。真机：demo 态切屏 / 开关抽屉录屏逐帧数；`settings put global animator_duration_scale 0` 前后各 dump 一次比对节点树；动画中途再次点开抽屉确认不被锁 |
 | U-62 | 环与选中态插值（`V-36`） | 传输环弧长逐帧插值，**未完成时任意帧 ≤99%**（`U-45` / #282）；选中态底色 / 描边 / 饱和度由**同一个** 0..1 进度派生，120 ms 内到终态；过渡只重组该格，**不得**拖入整墙 | JVM：`Motion.ringTarget(0.998f) == 0.99f`、`ringTarget(1f) == 1f`；源码护栏钉 `ProgressRing` 用 `Motion.ringTarget` 且 `PhotoCell` 的选中态三处视觉都读同一个 `animateFloatAsState` 值。真机：导入态截帧看弧长连续、未完成不满环 |
 
