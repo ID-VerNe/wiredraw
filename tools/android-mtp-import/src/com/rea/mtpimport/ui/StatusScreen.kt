@@ -59,8 +59,10 @@ fun StatusScreen(model: AppModel) {
             icon = {},
             actions = {
                 // `Cancel` 是扫描态唯一的动作，必须走 `StatusActionRow`（#374 / IA-9）：
-                // 裸放 `SecondaryButton` 会按内容宽度贴到屏幕左边缘（dump 实测 x=0），
-                // 违反 §2.1 的 16 dp 页边距与 L-06 的「与手势条间隔 ≥8 dp」。
+                // 裸放 `SecondaryButton` 会按内容宽度被 `Column` 排到起点，贴着屏幕左边缘（dump 实测 x=0）。
+                // 不贴边的保证来自这一行的 `fillMaxWidth` + `Arrangement.Center`（居中由行给，
+                // 不是按钮自己带的）；左右留白仍走 `StatusActionRow` 的默认 8 dp，与 `EMPTY_CATALOG`
+                // / `UNAVAILABLE` / `ERROR` 同口径。`§2.1` 的 16 dp 是页面水平内边距，不是底部动作行。
                 StatusActionRow {
                     SecondaryButton("Cancel", onClick = { cb?.onCancel() })
                 }
@@ -180,7 +182,8 @@ private fun NoCameraStatus(model: AppModel) {
 
 /**
  * 状态屏动作行（F-18 / issue #217）：全宽、水平居中、上下 8 dp。
- * 唯一允许的差异是水平内边距：`EMPTY_CATALOG` / `UNAVAILABLE` / `ERROR` 为 8 dp，`DONE` 为 16 dp。
+ * 唯一允许的差异是水平内边距：`SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `ERROR` 用默认 8 dp，
+ * `DONE` 为 16 dp。居中由本行的 `Arrangement.Center` 保证 —— 裸放的按钮会被 `Column` 排到起点。
  */
 @Composable
 private fun StatusActionRow(

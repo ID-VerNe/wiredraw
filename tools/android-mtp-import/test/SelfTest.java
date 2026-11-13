@@ -74,6 +74,7 @@ public final class SelfTest {
         topBarSpecCases();
         detailsEntryCases();
         groupHeaderGestureCases();
+        overlayBarrierCases();
         ringTrackCases();
         scanLineCases();
         detachCases();

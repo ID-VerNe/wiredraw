@@ -403,6 +403,57 @@ final class UiStateCases {
                 "按 key 复用=" + keyedByKey + "；读最新值=" + readsLatest + "\nGroupHeader 切片：\n" + body);
     }
 
+    /**
+     * 墓碑（#374 / IA-12）：浮层打开时底层对读屏不可见，靠的是**清空后代语义**，不是标记自己。
+     *
+     * 三个反向回退都要挡：
+     * 1. 屏障退回 `Modifier.semantics { invisibleToUser() }` —— 该属性只描述当前节点，
+     *    KDoc 明确「要隐藏后代请用 `clearAndSetSemantics`」；底层子节点仍各自 `isVisibleToUser`，
+     *    读屏滑动两下就跑到浮层背后；
+     * 2. 屏障被整个删掉 —— 以前是遮罩「顺带」担保的（全屏 `clickable` 把未覆盖区域占满），
+     *    遮罩改成零语义 `pointerInput` 后这个副作用没了，删屏障等于裸奔；
+     * 3. 遮罩退回 `tappable` / `clickable` —— 全屏无名可点节点重新出现，读屏第一焦点落在它上面。
+     *
+     * 为什么不用 dump 断言：`AccessibilityNodeInfoDumper` 只在 `child.isVisibleToUser()` 为真时递归，
+     * 遇到不可见父节点整棵子树直接剪掉。屏障写错也照样「底层 0 节点」，dump 看不见这个 bug。
+     */
+    static void overlayBarrierCases() {
+        File importApp = source("com/rea/mtpimport/ui/ImportApp.kt");
+        File widgets = source("com/rea/mtpimport/ui/Widgets.kt");
+        String appSrc = readSourceOrNull(importApp);
+        String widgetSrc = readSourceOrNull(widgets);
+        if (appSrc == null || widgetSrc == null) {
+            check("浮层屏障：能读到 ImportApp.kt / Widgets.kt 源码（#374）", false,
+                    "读不到 " + (appSrc == null ? importApp : widgets));
+            return;
+        }
+
+        int clears = hits(appSrc, ".clearAndSetSemantics { invisibleToUser() }");
+        int marks = hits(appSrc, ".semantics { invisibleToUser() }");
+        boolean gated = appSrc.contains("val overlayOpen = model.detailsOpen || model.filterOpen"
+                + " || model.exitConfirmOpen");
+        check("浮层屏障清空后代语义且只在浮层打开时生效（#374 IA-12）",
+                clears == 1 && marks == 0 && gated,
+                "clearAndSetSemantics " + clears + " / semantics " + marks + " / 门控 " + gated);
+
+        String scrim = between(widgetSrc, "fun Scrim(onDismiss: () -> Unit)", "fun DrawerSkeleton(");
+        boolean fingerOnly = scrim != null
+                && scrim.contains(".pointerInput(Unit) { detectTapGestures")
+                && scrim.contains("rememberUpdatedState(onDismiss)")
+                && !scrim.contains("tappable(")
+                && !scrim.contains(".clickable(");
+        check("遮罩是无语义的触摸面：pointerInput 承担关闭、不落 tappable/clickable（#374 IA-12）",
+                fingerOnly, "Scrim 切片：\n" + scrim);
+
+        String drawer = between(widgetSrc, "fun DrawerSkeleton(", "fun Pill(");
+        boolean pane = drawer != null
+                && drawer.contains("paneTitle = title")
+                && drawer.contains("dismiss {");
+        check("抽屉骨架给读屏层名与关闭动作（#374 IA-12）", pane,
+                "paneTitle " + (drawer != null && drawer.contains("paneTitle = title"))
+                        + " / dismiss " + (drawer != null && drawer.contains("dismiss {")));
+    }
+
     /** 某段源码里含 `needle` 的行数（同一行多次只算一次，与 `scanSourceText` 口径一致）。 */
     private static int hits(String src, String needle) {
         int n = 0;
