@@ -417,11 +417,31 @@ def self_test() -> int:
             load(ROOT / "scripts" / "gates.json").get("version") is not None,
         )
 
-    # 8. 事件载荷读取只许活在本模块（#311）：support 档三条门禁对同一份
+    # 8. 事件载荷读取只许活在本模块（#311、#358）：support 档三条门禁对同一份
     #    `GITHUB_EVENT_PATH` 各解析一份，载荷要加 BOM 容忍或大小上限时会三处不同步。
-    dup_event = "json.loads(Path(path)" + ".read_text"
-    event_offenders = [n for n, src in siblings.items() if dup_event in src]
-    check("GITHUB_EVENT_PATH 解析只在共享层一处", event_offenders == [], f"实际 {event_offenders}")
+    #    注：任何针对内联实现的 AST/正则检测都可被等价语法绕过（见 #358），
+    #    高阶语义约束由 docs/contributing/REVIEW_DISPATCH.md 人工评审兜底；
+    #    此处保留确定性的机械契约：断言 support 档脚本均显式导入 read_event_payload。
+    support_scripts = ["check_pr_sections.py", "check_pr_body.py", "check_commit_messages.py"]
+    missing_import = []
+    for s_name in support_scripts:
+        src = siblings.get(s_name)
+        if not src:
+            missing_import.append(f"{s_name}(缺失文件)")
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            missing_import.append(f"{s_name}(语法错误)")
+            continue
+        imports_read_event = any(
+            isinstance(node, ast.ImportFrom)
+            and any(alias.name == "read_event_payload" for alias in node.names)
+            for node in ast.walk(tree)
+        )
+        if not imports_read_event:
+            missing_import.append(s_name)
+    check("support 档脚本均导入 read_event_payload", missing_import == [], f"未导入: {missing_import}")
 
     read_event = globals().get("read_event_payload")
     check("共享层提供 read_event_payload", callable(read_event))

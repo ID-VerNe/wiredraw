@@ -58,12 +58,16 @@ python scripts/review_prompt.py --pr <PR 号>
    `scripts/run_gates.py`、`.github/workflows/ci.yml`、`.githooks/` 时，逐条查
    ——断言有没有被删弱或放宽、基线是不是真红、有没有为了变绿而改断言、
    `check_gates_manifest.py --write` 是否同步跑过。
-5. **正文结构**：分段齐全、有关闭关键词（默认 `Refs`；`Closes` 也接受，但带具体编号的
+5. **事件载荷与共享层单点（#358）**：涉及 `support` 档脚本（`check_pr_sections.py`、
+   `check_pr_body.py`、`check_commit_messages.py`）或共享层 `_common.py` 的改动时，
+   审查 diff 中 GitHub 事件载荷是否严格且唯一经由 `_common.read_event_payload()` 获取。
+   严禁在 support 脚本内自行内联解析 `GITHUB_EVENT_PATH`（如自行 `json.loads`、读取环境变量等）。
+6. **正文结构**：分段齐全、有关闭关键词（默认 `Refs`；`Closes` 也接受，但带具体编号的
    closing 短语是误关单，见 PR_GUIDE「硬规则」）、
    分支 / 标题 / commit 三处都带 issue 号。
-6. **行为类 PR**：核对验收是否真覆盖 issue 的复现路径，
+7. **行为类 PR**：核对验收是否真覆盖 issue 的复现路径，
    以及是否需要 `needs-live-verify` 而不是直接关单。
-7. **出结论**：`APPROVE` 或 `REQUEST_CHANGES`，附证据（门禁原始输出、`文件:行号`）。
+8. **出结论**：`APPROVE` 或 `REQUEST_CHANGES`，附证据（门禁原始输出、`文件:行号`）。
    **没有证据的结论无效。**
 
 ## 结论格式
