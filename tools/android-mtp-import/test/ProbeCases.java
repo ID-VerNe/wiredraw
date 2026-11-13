@@ -153,7 +153,7 @@ final class ProbeCases {
             FinishRecorder r = new FinishRecorder();
             ImportService svc = new ImportService(Log.NOOP, h, out, clock);
             svc.start(plan, r);
-            check("挂起：worker 已进入 importFile", h.entered.await(5, TimeUnit.SECONDS), "等待超时");
+            check("挂起：worker 已进入 importFile", awaitLatch(h.entered), "等待超时");
 
             check("挂起：一次传输进行 59.5 s 仍不判挂起",
                     !svc.isStalledAt(t0 + ImportService.NO_ACTIVITY_GRACE_NANOS - 500_000_000L),
@@ -171,7 +171,7 @@ final class ProbeCases {
                     !svc.isStalledAt(t0 + 10 * ImportService.NO_ACTIVITY_GRACE_NANOS), "实际 true");
 
             h.release.countDown();
-            check("挂起：放行后本轮 5 s 内收尾", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("挂起：放行后本轮 5 s 内收尾", awaitLatch(r.done), "等待超时");
         });
     }
 }

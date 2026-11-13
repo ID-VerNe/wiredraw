@@ -49,7 +49,7 @@ final class ConflictCases {
             FinishRecorder sr = new FinishRecorder();
             new ImportService(new RecordingLog(), st, singleOut).start(single, sr);
             check("多存储同名：只勾一个能正常导入（#54）",
-                    sr.done.await(5, TimeUnit.SECONDS) && sr.ok == 1 && sr.failed == 0
+                    awaitLatch(sr.done) && sr.ok == 1 && sr.failed == 0
                             && sr.skipped == 0 && st.calls.size() == 1,
                     "ok=" + sr.ok + " failed=" + sr.failed + " skipped=" + sr.skipped
                             + " calls=" + st.calls.size());
@@ -60,7 +60,7 @@ final class ConflictCases {
             RecordingLog logs = new RecordingLog();
             FinishRecorder r = new FinishRecorder();
             new ImportService(logs, t, out).start(p, r);
-            check("多存储同名：一轮在 5 秒内结束", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("多存储同名：一轮在 5 秒内结束", awaitLatch(r.done), "等待超时");
             check("多存储同名：两项都失败、不调 transfer、不冒充跳过",
                     r.ok == 0 && r.failed == 2 && r.skipped == 0 && t.calls.isEmpty(),
                     "ok=" + r.ok + " failed=" + r.failed + " skipped=" + r.skipped
@@ -164,7 +164,7 @@ final class ConflictCases {
             ImportService svc = new ImportService(Log.NOOP, g, out);
             svc.start(plan, r1);
             check("PB 暂停：第一个文件已进入传输",
-                    g.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(g.firstEntered), "等待超时");
             svc.pause();
             check("PB 暂停：service.isPaused() 为真", svc.isPaused(), "实际 false");
             g.releaseFirst.countDown();
@@ -173,8 +173,8 @@ final class ConflictCases {
                     "第二个文件在暂停期间启动了");
             svc.resume();
             check("PB 恢复：resume 后第二个文件开始",
-                    g.secondEntered.await(5, TimeUnit.SECONDS), "等待超时");
-            check("PB 恢复：本轮 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(g.secondEntered), "等待超时");
+            check("PB 恢复：本轮 5 秒内结束", awaitLatch(r1.done), "等待超时");
             check("PB 恢复：两个文件都完成，无跳过/失败",
                     r1.ok == 2 && r1.skipped == 0 && r1.failed == 0,
                     "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
@@ -187,7 +187,7 @@ final class ConflictCases {
             FinishRecorder r2 = new FinishRecorder();
             new ImportService(Log.NOOP, t2, out).start(plan, r2);
             check("PB 暂停：完成的文件下次按 Skipped 跳过",
-                    r2.done.await(5, TimeUnit.SECONDS) && r2.skipped == 2 && t2.calls.isEmpty(),
+                    awaitLatch(r2.done) && r2.skipped == 2 && t2.calls.isEmpty(),
                     "skipped=" + r2.skipped + " calls=" + t2.calls.size());
         });
 
@@ -200,11 +200,11 @@ final class ConflictCases {
             ImportService svc2 = new ImportService(cancelLogs::add, ct, out2);
             svc2.start(plan, r3);
             check("PB 取消：第一个文件已进入传输",
-                    ct.entered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(ct.entered), "等待超时");
             svc2.cancel();
             check("PB 取消：取消动作在传输中被触发（不是只停界面）",
-                    ct.tokenCancelled.await(5, TimeUnit.SECONDS), "取消动作未触发");
-            check("PB 取消：本轮 5 秒内结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(ct.tokenCancelled), "取消动作未触发");
+            check("PB 取消：本轮 5 秒内结束", awaitLatch(r3.done), "等待超时");
             // #65：关闭 fd 只是「尝试」中断原生调用；本机型实测约 0.6 s 返回，能否打断没有
             // 跨机型保证（见 ImportService 类注释与 README）。日志串不得写成已经打断。
             // 负向断言用 noneMatch 扫全部行，不能只对 anyMatch 命中的那一行生效。
@@ -225,7 +225,7 @@ final class ConflictCases {
             FinishRecorder r4 = new FinishRecorder();
             new ImportService(Log.NOOP, t4, out2).start(plan, r4);
             check("PB 取消：被取消的文件下次重传（不能留下假完成记录）",
-                    r4.done.await(5, TimeUnit.SECONDS) && r4.ok == 2 && t4.calls.size() == 2,
+                    awaitLatch(r4.done) && r4.ok == 2 && t4.calls.size() == 2,
                     "ok=" + r4.ok + " calls=" + t4.calls.size());
             check("PB 取消：重跑时 resumeFrom 仍为 0（不假装续传）",
                     t4.resumeFroms.size() == 2 && t4.resumeFroms.get(0) == 0 && t4.resumeFroms.get(1) == 0,
@@ -252,7 +252,7 @@ final class ConflictCases {
             FinishRecorder r5 = new FinishRecorder();
             ImportService svc3 = new ImportService(Log.NOOP, st, out3);
             svc3.start(plan, r5);
-            check("PB 卡死：worker 已进入传输", st.entered.await(5, TimeUnit.SECONDS), "等待超时");
+            check("PB 卡死：worker 已进入传输", awaitLatch(st.entered), "等待超时");
             svc3.cancel();
             long afterCancel = System.nanoTime();
             check("PB 卡死：取消后 worker 仍未退出（模拟 pfd.close 打不断原生调用）",
@@ -267,7 +267,7 @@ final class ConflictCases {
             // 三审 B-3：Main 判定卡死后会放弃该轮；旧轮迟到的 finally 不得覆写 journal。
             svc3.abandon();
             st.release.countDown();
-            check("PB 卡死：放行后本轮 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("PB 卡死：放行后本轮 5 秒内结束", awaitLatch(r5.done), "等待超时");
             check("PB 放弃：被放弃的轮次跳过导入日志保存（不覆盖磁盘上的现有记录）",
                     !new File(out3, "import-journal.txt").exists(), "日志仍被写出");
             check("PB 卡死：worker 退出后不再判定卡死", !svc3.isCancelStuck(), "实际 true");
@@ -284,7 +284,7 @@ final class ConflictCases {
             ImportService svc4 = new ImportService(pausedCancelLogs::add, g2, out4);
             svc4.start(plan, r6);
             check("PAUSED 取消：第一个文件已进入传输",
-                    g2.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(g2.firstEntered), "等待超时");
             svc4.pause();
             g2.releaseFirst.countDown();
             check("PAUSED 取消：暂停期间第二个文件不启动",
@@ -293,7 +293,7 @@ final class ConflictCases {
                     svc4.isPaused() && svc4.isRunning(),
                     "paused=" + svc4.isPaused() + " running=" + svc4.isRunning());
             svc4.cancel();
-            check("PAUSED 取消：本轮 5 秒内结束", r6.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("PAUSED 取消：本轮 5 秒内结束", awaitLatch(r6.done), "等待超时");
             check("PAUSED 取消：日志不声称正在传文件（#65）",
                     pausedCancelLogs.stream().noneMatch(l -> l.contains("会被中断"))
                             && pausedCancelLogs.stream().anyMatch(l -> l.contains("已请求取消")
@@ -329,7 +329,7 @@ final class ConflictCases {
             check("issue #57：start() 固化的清单可由 plan() 读出",
                     svc.plan() != null && svc.plan().count() == planA.count(),
                     "实际 " + (svc.plan() == null ? "null" : svc.plan().count()));
-            check("issue #57：第一个文件已进入传输", g.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+            check("issue #57：第一个文件已进入传输", awaitLatch(g.firstEntered), "等待超时");
             svc.pause();
             check("issue #57：暂停轮次可用同一清单恢复", svc.canResumeWith(planA), "实际 false");
             check("issue #57：暂停轮次不可用不同清单恢复", !svc.canResumeWith(planB), "实际 true");
@@ -339,7 +339,7 @@ final class ConflictCases {
             check("issue #57：取消后 worker 在 5 秒内退出", svc.awaitWorker(5000), "等待超时");
             check("issue #57：轮次结束后 canResumeWith 为 false",
                     !svc.canResumeWith(planA), "实际 true");
-            check("issue #57：取消轮次收尾回调到达", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("issue #57：取消轮次收尾回调到达", awaitLatch(r.done), "等待超时");
         });
     }
 
@@ -386,18 +386,18 @@ final class ConflictCases {
 
             svc.start(plan, r);
             check("B-1 暂停时钟：第一个文件已进入传输",
-                    g.firstEntered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(g.firstEntered), "等待超时");
             clock.set(pausedAt);
             svc.pause();
             g.releaseFirst.countDown();
-            boolean pauseRecorded = clock.pauseRead.await(5, TimeUnit.SECONDS);
+            boolean pauseRecorded = awaitLatch(clock.pauseRead);
             check("B-1 暂停时钟：worker 停在文件边界后调用了 progress.pause(...)",
                     pauseRecorded, "5 秒内没看到暂停记账（删掉 pause(...) 会在这里红）");
 
             clock.set(resumedAt);
             svc.resume();
             check("B-1 暂停时钟：resume 后第二个文件开始",
-                    g.secondEntered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(g.secondEntered), "等待超时");
 
             TransferProgress p = r.lastProgress;
             boolean firstDone = p != null && p.bytesDone() == 300 && p.filesDone() == 1;
@@ -412,7 +412,7 @@ final class ConflictCases {
 
             clock.set(finalAt);
             g.releaseSecond.countDown();
-            check("B-1 暂停时钟：本轮 5 秒内结束", r.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("B-1 暂停时钟：本轮 5 秒内结束", awaitLatch(r.done), "等待超时");
             check("B-1 暂停时钟：两个文件都完成",
                     r.ok == 2 && r.failed == 0, "ok=" + r.ok + " failed=" + r.failed);
             TransferProgress end = r.lastProgress;

@@ -346,7 +346,7 @@ final class SourceGuardCases {
             FakeTransfer hanging = new FakeTransfer(FakeTransfer.Mode.HANGING);
             ImportService stuck = new ImportService(Log.NOOP, hanging, abandonedOut);
             stuck.start(plan, new FinishRecorder());
-            check("OrphanRounds：卡住的 worker 已进入传输", hanging.entered.await(5, TimeUnit.SECONDS), "等待超时");
+            check("OrphanRounds：卡住的 worker 已进入传输", awaitLatch(hanging.entered), "等待超时");
 
             rounds.abandon(stuck);
             check("OrphanRounds：abandon 之后登记为被放弃轮次",
@@ -372,7 +372,7 @@ final class SourceGuardCases {
             ImportService adopted = new ImportService(Log.NOOP, hanging2, adoptedOut);
             adopted.start(plan, new FinishRecorder());
             check("OrphanRounds：adopt 用例 worker 已进入传输",
-                    hanging2.entered.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(hanging2.entered), "等待超时");
             rounds.adopt(adopted);
             check("OrphanRounds：adopt 只登记，不调 abandon()",
                     !new File(adoptedOut, "import-journal.txt").isFile(),

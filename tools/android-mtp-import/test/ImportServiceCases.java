@@ -30,7 +30,7 @@ final class ImportServiceCases {
             FinishRecorder r1 = new FinishRecorder();
             List<String> r1Log = new ArrayList<>();
             new ImportService(r1Log::add, t1, out).start(plan, r1);
-            check("ImportService：一轮在 5 秒内结束", r1.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("ImportService：一轮在 5 秒内结束", awaitLatch(r1.done), "等待超时");
             check("ImportService：2 个单元文件全部 OK（不再有「未实现」）",
                     r1.ok == 2 && r1.skipped == 0 && r1.failed == 0,
                     "ok=" + r1.ok + " skipped=" + r1.skipped + " failed=" + r1.failed);
@@ -67,7 +67,7 @@ final class ImportServiceCases {
             FakeTransfer t2 = new FakeTransfer();
             FinishRecorder r2 = new FinishRecorder();
             new ImportService(Log.NOOP, t2, out).start(plan, r2);
-            check("ImportService：第二轮 5 秒内结束", r2.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("ImportService：第二轮 5 秒内结束", awaitLatch(r2.done), "等待超时");
             check("ImportService：第二轮全部 SKIPPED 且不再调 transfer",
                     r2.ok == 0 && r2.skipped == 2 && r2.failed == 0 && t2.calls.isEmpty(),
                     "ok=" + r2.ok + " skipped=" + r2.skipped + " calls=" + t2.calls.size());
@@ -78,7 +78,7 @@ final class ImportServiceCases {
             t3.failAll = true;
             FinishRecorder r3 = new FinishRecorder();
             new ImportService(Log.NOOP, t3, badOut).start(plan, r3);
-            check("ImportService：全失败一轮结束", r3.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("ImportService：全失败一轮结束", awaitLatch(r3.done), "等待超时");
             check("ImportService：全失败时 ok=0 / failed=2，不冒充完成",
                     r3.ok == 0 && r3.failed == 2 && r3.skipped == 0,
                     "ok=" + r3.ok + " failed=" + r3.failed + " skipped=" + r3.skipped);
@@ -93,7 +93,7 @@ final class ImportServiceCases {
             FakeTransfer t4 = new FakeTransfer(FakeTransfer.Mode.FLUKY);
             FinishRecorder r4 = new FinishRecorder();
             new ImportService(Log.NOOP, t4, flakyOut).start(plan, r4);
-            check("PD 重试：偶发失败一轮在 5 秒内结束", r4.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("PD 重试：偶发失败一轮在 5 秒内结束", awaitLatch(r4.done), "等待超时");
             check("PD 重试：首次失败、第二次成功仍算完成",
                     r4.ok == 2 && r4.failed == 0 && r4.skipped == 0,
                     "ok=" + r4.ok + " failed=" + r4.failed);
@@ -108,7 +108,7 @@ final class ImportServiceCases {
             t5.firstFailureBytes = 40L;
             FinishRecorder r5 = new FinishRecorder();
             new ImportService(Log.NOOP, t5, partialOut).start(plan, r5);
-            check("PD 重试：落部分字节的一轮在 5 秒内结束", r5.done.await(5, TimeUnit.SECONDS), "等待超时");
+            check("PD 重试：落部分字节的一轮在 5 秒内结束", awaitLatch(r5.done), "等待超时");
             check("PD 重试：落部分字节后第二次仍算完成",
                     r5.ok == 2 && r5.failed == 0 && r5.skipped == 0,
                     "ok=" + r5.ok + " failed=" + r5.failed + " skipped=" + r5.skipped);
@@ -127,7 +127,7 @@ final class ImportServiceCases {
             FinishRecorder r6 = new FinishRecorder();
             svc6.start(plan, r6);
             check("PD 重试：取消与失败竞态一轮在 5 秒内结束",
-                    r6.done.await(5, TimeUnit.SECONDS), "等待超时");
+                    awaitLatch(r6.done), "等待超时");
             check("PD 重试：FAILED 同时已请求取消归为 CANCELLED，failed 不增",
                     r6.cancelled && r6.failed == 0 && r6.ok == 0,
                     "cancelled=" + r6.cancelled + " failed=" + r6.failed + " ok=" + r6.ok);

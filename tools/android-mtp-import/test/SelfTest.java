@@ -17,6 +17,7 @@ import static com.rea.mtpimport.SourceGuardCases.*;
 import static com.rea.mtpimport.RepoCases.*;
 import static com.rea.mtpimport.TempDirCases.*;
 import static com.rea.mtpimport.DestCases.*;
+import static com.rea.mtpimport.TestSupportCases.*;
 
 /**
  * JVM 纯逻辑自检入口（不需要真机；Gradle 配置阶段仍要能定位 Android SDK）。
@@ -108,6 +109,7 @@ public final class SelfTest {
         locationChoiceCases();
         productDestinationCases();
         tempDirCases();
+        testSupportCases();
 
         System.out.println();
         if (failed == 0) {
