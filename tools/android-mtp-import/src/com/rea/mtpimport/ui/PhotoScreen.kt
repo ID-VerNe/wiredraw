@@ -83,7 +83,12 @@ fun PhotoScreen(model: AppModel) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(UiColors.canvas)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(UiColors.canvas)
+            .tappable(onClick = {})
+    ) {
         val bitmap = preview
         if (bitmap != null) {
             Image(

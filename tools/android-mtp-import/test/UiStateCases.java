@@ -280,8 +280,12 @@ final class UiStateCases {
 
     /**
      * 墓碑（#310）：库页顶栏与 `ERROR` 顶栏的「长按进 Details」曾是手势行 + 语义动作行各写一遍。
-     * #336 把两段抽成 `Modifier.detailsLongPress` 与 `detailsLongClick`，本组钉住「两个顶栏都
+     * #336 把两段抽成 `Modifier.detailsLongPress` 与 `detailsActions`，本组钉住「两个顶栏都
      * 真的走这个骨架」，以及「长按入口范围仍受 `W-23` 限制」。
+     *
+     * #374 / IA-11 把语义动作从「只有 onLongClick」扩成「onClick + onLongClick 同源」：
+     * 两个节点声明了 `role = Role.Button`，读屏双击走 `ACTION_CLICK`，此前没有该动作，
+     * 于是「念作按钮、双击无反应」。断言随契约一起改口径，仍钉住「label 与写入口径各一份」。
      *
      * 本组是**源码断言**，不是渲染断言：自检是纯 JDK（不许 `import android`），起不了 Compose，
      * 所以按仓库既有口径（对照 `topBarSpecCases` 的「守卫行 + 调用行」）读源码判定。
@@ -316,14 +320,28 @@ final class UiStateCases {
                 "定义 " + dragDefs + " / 调用 " + dragCalls + " / `detectTapGestures` " + gestures);
 
         // 2. 读屏动作同口径。调用点 2 处（定义行写的是 `(model: AppModel)`，不含闭合括号，
-        //    不会被 `detailsLongClick(model)` 命中）；
-        //    `onLongClick(label = "Details")` 全文件 1 处，即只由 `detailsLongClick` 产出。
-        int clickDefs = hits(src, "fun SemanticsPropertyReceiver.detailsLongClick(");
-        int clickCalls = hits(src, "detailsLongClick(model)");
-        int labels = hits(src, "onLongClick(label = \"Details\")");
-        check("长按语义动作只有一份 label 与写入口径：定义 1 / 调用 2 / label 1（#310）",
-                clickDefs == 1 && clickCalls == 2 && labels == 1,
-                "定义 " + clickDefs + " / 调用 " + clickCalls + " / label " + labels);
+        //    不会被 `detailsActions(model)` 命中）；
+        //    `onClick` / `onLongClick` 各 1 处 label，即两条动作都只由 `detailsActions` 产出。
+        //    #374 / IA-11 起点击动作与长按同源：两个节点都声明了 `role = Role.Button`，
+        //    只挂 `onLongClick` 会让读屏朗读「按钮」而双击无动作（`ACTION_CLICK` 不存在）。
+        int clickDefs = hits(src, "fun SemanticsPropertyReceiver.detailsActions(");
+        int clickCalls = hits(src, "detailsActions(model)");
+        int clickLabels = hits(src, "onClick(label = \"Details\")");
+        int longLabels = hits(src, "onLongClick(label = \"Details\")");
+        check("长按/点击语义动作只有一份 label 与写入口径：定义 1 / 调用 2 / 两个 label 各 1（#310 / #374）",
+                clickDefs == 1 && clickCalls == 2 && clickLabels == 1 && longLabels == 1,
+                "定义 " + clickDefs + " / 调用 " + clickCalls
+                        + " / onClick label " + clickLabels + " / onLongClick label " + longLabels);
+
+        // 2b. 两条动作必须在同一个 helper 体内 —— 挡「把 onClick 内联回某一处顶栏」：
+        //     调用点总数仍会是 2，但点击语义只会覆盖一个顶栏，另一处退回「读作按钮、双击无反应」。
+        String actionBody = between(src, "private fun SemanticsPropertyReceiver.detailsActions(",
+                "fun TopBarLabel(");
+        boolean bothInHelper = actionBody != null
+                && actionBody.contains("onClick(label = \"Details\")")
+                && actionBody.contains("onLongClick(label = \"Details\")");
+        check("点击与长按动作同源：两个 label 都只出现在 detailsActions 体内（#374）",
+                bothInHelper, "detailsActions 切片：\n" + actionBody);
 
         // 3. 按函数切片，钉住「谁挂了入口」与门控条件。
         String labelBody = between(src, "private fun TopBarLabel(", "fun LibraryTopBar(model: AppModel)");
@@ -331,12 +349,12 @@ final class UiStateCases {
         boolean gated = labelBody != null
                 && labelBody.contains("if (detailsEntry)")
                 && labelBody.contains(".detailsLongPress(model)")
-                && labelBody.contains("detailsLongClick(model)")
+                && labelBody.contains("detailsActions(model)")
                 // 手势行在 `if (detailsEntry)` 之后 —— 即长按入口受门控，不是无条件挂上。
                 && labelBody.indexOf("if (detailsEntry)") < labelBody.indexOf(".detailsLongPress(model)");
         boolean unconditional = errorBody != null
                 && errorBody.contains(".detailsLongPress(model)")
-                && errorBody.contains("detailsLongClick(model)")
+                && errorBody.contains("detailsActions(model)")
                 && !errorBody.contains("detailsEntry");
         check("库页顶栏长按受 detailsEntry 门控、ERROR 顶栏整簇无条件长按（#310）",
                 gated && unconditional,
@@ -355,6 +373,85 @@ final class UiStateCases {
                         + (libraryBody != null && libraryBody.contains("detailsEntry = true"))
                         + "；状态页含 ErrorIdentity="
                         + (statusBody != null && statusBody.contains("ErrorIdentity(model)")));
+    }
+
+    /**
+     * 墓碑（#374 / IA-13）：组头的单击/长按手势挂在 `pointerInput(group.key)` 上。
+     *
+     * 两个反向回退都要挡，它们症状相反：
+     * 1. key 换回 `group`（对象身份）—— filter 档每次重组都新建 `Group`（`restrict` 的结果，
+     *    类里没有 `equals`），检测器随每次重组取消重建，长按 500 ms 中途被吞；
+     * 2. key 对了、闭包却直接捕 `group` —— key 不变时 `pointerInput` 不重启，闭包冻结在首次组合
+     *    那一版快照上；渐进扫描每 200 个对象发布一次（`CatalogScanner.PARTIAL_EVERY`），
+     *    冻结后长按只选中旧规模的那几张，而同节点的读屏动作每次重组都读新值 —— 同一入口两个集合。
+     *
+     * 源码断言，不是渲染断言：自检是纯 JDK，起不了 Compose（同 `detailsEntryCases` 的口径）。
+     */
+    static void groupHeaderGestureCases() {
+        String src = readSourceOrNull(source("com/rea/mtpimport/ui/LibraryScreen.kt"));
+        if (src == null) {
+            check("组头手势：能读到 LibraryScreen.kt 源码（#374）", false, "读不到 LibraryScreen.kt");
+            return;
+        }
+        String body = between(src, "private fun GroupHeader(", "private fun PhotoCell(");
+        boolean keyedByKey = body != null && body.contains(".pointerInput(group.key)");
+        boolean readsLatest = body != null
+                && body.contains("val currentGroup = rememberUpdatedState(group)")
+                && body.contains("model.toggleGroupSelection(currentGroup.value)");
+        check("组头手势 key 跟 group.key、闭包读 rememberUpdatedState 的最新 group（#374 IA-13）",
+                keyedByKey && readsLatest,
+                "按 key 复用=" + keyedByKey + "；读最新值=" + readsLatest + "\nGroupHeader 切片：\n" + body);
+    }
+
+    /**
+     * 墓碑（#374 / IA-12）：浮层打开时底层对读屏不可见，靠的是**清空后代语义**，不是标记自己。
+     *
+     * 三个反向回退都要挡：
+     * 1. 屏障退回 `Modifier.semantics { invisibleToUser() }` —— 该属性只描述当前节点，
+     *    KDoc 明确「要隐藏后代请用 `clearAndSetSemantics`」；底层子节点仍各自 `isVisibleToUser`，
+     *    读屏滑动两下就跑到浮层背后；
+     * 2. 屏障被整个删掉 —— 以前是遮罩「顺带」担保的（全屏 `clickable` 把未覆盖区域占满），
+     *    遮罩改成零语义 `pointerInput` 后这个副作用没了，删屏障等于裸奔；
+     * 3. 遮罩退回 `tappable` / `clickable` —— 全屏无名可点节点重新出现，读屏第一焦点落在它上面。
+     *
+     * 为什么不用 dump 断言：`AccessibilityNodeInfoDumper` 只在 `child.isVisibleToUser()` 为真时递归，
+     * 遇到不可见父节点整棵子树直接剪掉。屏障写错也照样「底层 0 节点」，dump 看不见这个 bug。
+     */
+    static void overlayBarrierCases() {
+        File importApp = source("com/rea/mtpimport/ui/ImportApp.kt");
+        File widgets = source("com/rea/mtpimport/ui/Widgets.kt");
+        String appSrc = readSourceOrNull(importApp);
+        String widgetSrc = readSourceOrNull(widgets);
+        if (appSrc == null || widgetSrc == null) {
+            check("浮层屏障：能读到 ImportApp.kt / Widgets.kt 源码（#374）", false,
+                    "读不到 " + (appSrc == null ? importApp : widgets));
+            return;
+        }
+
+        int clears = hits(appSrc, ".clearAndSetSemantics { invisibleToUser() }");
+        int marks = hits(appSrc, ".semantics { invisibleToUser() }");
+        boolean gated = appSrc.contains("val overlayOpen = model.detailsOpen || model.filterOpen"
+                + " || model.exitConfirmOpen");
+        check("浮层屏障清空后代语义且只在浮层打开时生效（#374 IA-12）",
+                clears == 1 && marks == 0 && gated,
+                "clearAndSetSemantics " + clears + " / semantics " + marks + " / 门控 " + gated);
+
+        String scrim = between(widgetSrc, "fun Scrim(onDismiss: () -> Unit)", "fun DrawerSkeleton(");
+        boolean fingerOnly = scrim != null
+                && scrim.contains(".pointerInput(Unit) { detectTapGestures")
+                && scrim.contains("rememberUpdatedState(onDismiss)")
+                && !scrim.contains("tappable(")
+                && !scrim.contains(".clickable(");
+        check("遮罩是无语义的触摸面：pointerInput 承担关闭、不落 tappable/clickable（#374 IA-12）",
+                fingerOnly, "Scrim 切片：\n" + scrim);
+
+        String drawer = between(widgetSrc, "fun DrawerSkeleton(", "fun Pill(");
+        boolean pane = drawer != null
+                && drawer.contains("paneTitle = title")
+                && drawer.contains("dismiss {");
+        check("抽屉骨架给读屏层名与关闭动作（#374 IA-12）", pane,
+                "paneTitle " + (drawer != null && drawer.contains("paneTitle = title"))
+                        + " / dismiss " + (drawer != null && drawer.contains("dismiss {")));
     }
 
     /** 某段源码里含 `needle` 的行数（同一行多次只算一次，与 `scanSourceText` 口径一致）。 */
@@ -536,5 +633,51 @@ final class UiStateCases {
         UiTransition.Result r = UiTransition.resolve(UiTransition.Action.COLD, false, false, false);
         check("无设备回落：UiTransition 表无状态守卫（Action.COLD 恒到 COLD，故守卫必须在 Main 调用点，#285）",
                 r.state == UiState.State.COLD, "实际 " + r.state);
+    }
+
+    // ---------------- 照片墙滚动位置保持（issue #369） ----------------
+
+    /**
+     * 墓碑（#369）：大图浏览返回后照片墙滚动位置丢失重置回顶部。
+     * 根因有两个：
+     * 1. LibraryScreen 的 PhotoGrid 中 LazyVerticalGrid 未传 state 参数，默认使用局部的
+     *    rememberLazyGridState()，一旦重新进入组合立即归零；
+     * 2. ImportApp 根层在 model.openedPhoto != null 时排他渲染 PhotoScreen，将 LibraryScreen
+     *    完全从组合中卸载（Dispose），导致返回时重新 mount。
+     *
+     * 本断言钉住契约：
+     * - PhotoGrid 显式绑定提升到 AppModel 的 gridState（state = model.gridState）；
+     * - AppModel 声明并持有 gridState；
+     * - ImportApp 保持 LibraryScreen 常驻组合，将 PhotoScreen 作为浮层覆盖在其上方渲染；
+     * - PhotoScreen 底层画布拦截点击穿透。
+     */
+    static void photoGridScrollPositionCases() {
+        File libScreen = source("com/rea/mtpimport/ui/LibraryScreen.kt");
+        String libSrc = readSourceOrNull(libScreen);
+        check("PhotoGrid 显式绑定 model.gridState（#369）",
+                libSrc != null && libSrc.contains("state = model.gridState"),
+                libSrc == null ? "读不到 " + libScreen : "未找到 state = model.gridState");
+
+        File appModel = source("com/rea/mtpimport/ui/AppModel.kt");
+        String modelSrc = readSourceOrNull(appModel);
+        check("AppModel 声明并持有 gridState（#369）",
+                modelSrc != null && modelSrc.contains("gridState"),
+                modelSrc == null ? "读不到 " + appModel : "未在 AppModel 找到 gridState");
+
+        File importApp = source("com/rea/mtpimport/ui/ImportApp.kt");
+        String appSrc = readSourceOrNull(importApp);
+        check("ImportApp 不再排他卸载 LibraryScreen（#369）",
+                appSrc != null && !appSrc.contains("if (model.openedPhoto != null) {\n            PhotoScreen(model)\n        } else if (UiState.showsLibrary(state))"),
+                appSrc == null ? "读不到 " + importApp : "ImportApp 仍存在 openedPhoto 排他卸载 LibraryScreen 的分支");
+        check("ImportApp 包含 PhotoScreen 覆盖层（#369）",
+                appSrc != null && appSrc.contains("if (model.openedPhoto != null)")
+                        && appSrc.contains("PhotoScreen(model)"),
+                appSrc == null ? "读不到 " + importApp : "ImportApp 缺少 PhotoScreen 覆盖层");
+
+        File photoScreen = source("com/rea/mtpimport/ui/PhotoScreen.kt");
+        String photoSrc = readSourceOrNull(photoScreen);
+        check("PhotoScreen 底层画布消费点击防止击穿到照片墙（#369）",
+                photoSrc != null && photoSrc.contains(".tappable(onClick = {})"),
+                photoSrc == null ? "读不到 " + photoScreen : "PhotoScreen 未在画布层消费点击");
     }
 }
