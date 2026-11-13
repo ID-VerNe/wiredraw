@@ -646,12 +646,15 @@
 > 按 §10 第 2 条先补本节，再落实现。时长、缩放、上限等数值**只在** `Motion.java` 定义一次，
 > 本节只写约束与验收口径；页面**不得**另立一套常量或裸写 `tween(200)`（§10 第 6 / 10 条）。
 
-- **V-34（按压态）** 所有可点目标（`tappable` 与长按入口）**必须**在 `pointerdown` 当帧给出形态响应：
-  缩放到 `0.97`（不得更小）或压深一档底色，按下态与常态肉眼可辨；**不得**依赖 `onClick` 回调之后的状态变化，
-  **不得**用涟漪替代（`LocalIndication` 在本工程不可用），**不得**因按压触发整格/整墙重组
-  ——动画值只允许在 draw phase 读（`graphicsLayer {}` / `drawBehind {}`）。
-  按下与抬起都走**临界阻尼**（`dampingRatio = 1f`），**不得**回弹或过冲；按下即生效、松手即回，
-  不设最小展示时长。禁用态（`V-10`）不产生按压响应。
+- **V-34（按压态）** 所有可点目标（`tappable` 与长按入口）**必须**在 `pointerdown` **当帧**给出形态响应：
+  在已有底色上叠一层 10% 的 wash（浅底用 `onSurface` 压深、实心墨底用 `surfaceWhite` 提亮），
+  按下态与常态肉眼可辨；**不得**依赖 `onClick` 回调之后的状态变化，**不得**用涟漪替代
+  （`LocalIndication` 在本工程不可用），**不得**因按压触发整格/整墙重组
+  ——动画值只允许在 `drawBehind {}` 的 draw phase 读。
+  **不得**用「缩放到 0.97」的假反馈：`graphicsLayer` 排在 `.background()` 之后只变换其后绘制的内容，
+  实底按钮的形状压根不缩（真机扫描线：按下 600 ms 内墨色区间恒为 40..1039），最终只会「缩文字不缩按钮」。
+  按下用 `snap()` 当帧到位，松手走 ≤90 ms 回落；**不得**用弹簧把按下反馈拖到几百毫秒后再出现，
+  **不得**回弹或过冲，不设最小展示时长。禁用态（`V-10`）不产生按压响应。
 - **V-35（长按触觉统一）** `L-08` 定义的全部 ≥500 ms 确定性动作（组头组选、单格进 `photo`、顶栏进 `Details`）
   **必须**在动作生效**之前**触发一次 `HapticFeedbackType.LongPress`；真实触摸的手势入口**只有一个**
   （`Widgets.tapOrHold` / `Widgets.longPressOnly`），**不得**在任何页面内联
@@ -937,10 +940,10 @@ Next:    <一个可执行动作>
 | U-53 | 总量口径 | `Import all N` 的 N = 当前 filter 可见集合的导出文件数；`CATALOG_READY` 顶栏计数胶囊的数字 = 同一可见总量（可见总量分母，`V-27`），可见已选 0 时与 CTA 同值；可见已选数 ≥1 时 `Import N` 的 N = 可见已选数（同一可见集合下的子集，不是第二个总量分母），胶囊**不改**、仍等于可见集合的导出文件数；同屏不出现第二个**不同口径**的总量分母。假数据各档：`All` 512、`RAW` 511、`JPG` 512（假数据无 ARW-only 单元，`JPG` 档与 `All` 等价：都 512 单元、都导出 512 张 JPG；仅在存在 ARW-only 单元时才与 `All` 有差异）；日期组 `Jun 7` 43 | 读 catalog 与 `PhotoWall` 的可见导出文件数；dump CTA 文本、顶栏胶囊与顶栏全部纯数字节点（设备短名 `a7C` 里的数字与 filter 芯片的日期数字不算）；比对 N |
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 1023 文件 / 511 ARW / 512 JPEG / 512 照片单元；ARW 12,766,800,000 字节 / JPEG 923,408,256 字节 | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列数字一致（`demo_state` 入口在 `src/debug` 源集实现，release 无实现） |
 | U-55 | filter 芯片 | 非 `All` 档顶栏出现恰好 1 个非计数芯片，字面量 ∈ {`RAW`, `JPG`, 日期标签}；日期标签形如 `Jun 7`，**不得**含张数与容量（`· 43 · 74.0 MB`）；`All` 档不出现；芯片不含计数语义、不形成第二个纯数字节点 | dump：切三个非 `All` 档（`RAW` / `JPG` / 任一日期）各一次，按 `V-31` 判定；`All` 档顶栏纯数字节点数 = 1 |
-| U-56 | `CATALOG_READY` 点选响应 | 连续 10 次格子点选（间隔 0.8 s，坐标见 `#374` 复现步骤）时，**每次点选取该次输入之后 UI 线程段最大的那一帧**（`DrawStart − HandleInputStart`，`dumpsys gfxinfo framestats`）；10 次点选的逐次峰值取中位为一轮、3 轮再取中位：中位 ≤ 10 ms；逐次峰值最长 ≤ 25 ms | `reset` 后脚本化 10 次 `input tap` 采样，按上述口径**逐次取峰值**：不把无绘制帧混进样本 —— 一次点选通常产生 1 个重绘帧 + 1 个近零的输入事件帧，近零帧有几个由系统合帧决定，不由应用层决定，混在一起取中位会让比值一变数字就漂。E2 基线（`main` @ `72aea49`，与修复分支背靠背测）：逐次峰值中位 16.72–17.81 ms、最长 42.4–44.4 ms。本机噪声：**同一构建**两次会话的逐次峰值中位相差约 1.3 ms（7.67 / 8.93），预算因此取 10 ms，不贴着实测值定。**不判** `Janky frames` —— 该指标含 GPU 段，本机整屏重绘的 GPU 下限约 10–11 ms（关抽屉这种更简单的画面同样如此），应用层代码改不动它，帧率本身由 `#379` 负责 |
+| U-56 | `CATALOG_READY` 点选响应 | 连续 10 次格子点选（间隔 0.8 s，坐标见 `#374` 复现步骤）时，**每次点选取该次输入之后 UI 线程段最大的那一帧**（`DrawStart − HandleInputStart`，`dumpsys gfxinfo framestats`）；10 次点选的逐次峰值取中位为一轮、3 轮再取中位：中位 ≤ 10 ms；逐次峰值最长 ≤ 25 ms | `reset` 后脚本化 10 次 `input tap` 采样，按上述口径**逐次取峰值**：不把无绘制帧混进样本 —— 一次点选通常产生 1 个重绘帧 + 1 个近零的输入事件帧，近零帧有几个由系统合帧决定，不由应用层决定，混在一起取中位会让比值一变数字就漂。E2 基线（`main` @ `72aea49`，与修复分支背靠背测）：逐次峰值中位 16.72–17.81 ms、最长 42.4–44.4 ms。本机噪声：**同一构建**两次会话的逐次峰值中位相差约 1.3 ms（7.67 / 8.93），预算因此取 10 ms，不贴着实测值定。**不判** `Janky frames` —— 该指标含 GPU 段，本机整屏重绘的 GPU 下限约 10–11 ms（关抽屉这种更简单的画面同样如此），应用层代码改不动它，帧率本身由 `#379` 负责。**采样口径补正（`#374` PA+PB）**：每轮正式采样前先做 2 次预热点选（同一格，选中再取消，回到 0 已选），再 `reset` 计数，warm-up 不计入样本；**阈值不变**（中位 ≤ 10 ms、最长 ≤ 25 ms）。理由是冷启动后的前两次点选还含一次性的类加载 / JIT / 首次组合，不含 PA+PB 的对照构建同样出现 16–24 ms 峰值；PC 当时按同构建会话噪声给「中位」留了余量，却没有给「最长」留同样余量，于是「最长」会随 APK 体积与会话漂移。E2 同窗口背靠背 A/B（对照 = 不含 PA+PB 的 `main` 内容）：不预热时对照 8.12 / 18.64 ms、PA+PB 7.96 / 23.47 ms（中位 / 最长），第二组 PA+PB 25.32 ms 在边界抖动；预热后对照 6.02 / 15.56 ms、PA+PB 6.30 / 9.39 ms，两组都达标且 PA+PB 稳态不劣于对照。归因：把 `animator_duration_scale` 置 0 后 PA+PB 每次点选的帧数从 88 降到 20，但前两次峰值仍 24–27 ms，证明该一次性成本与动画帧无关；正式采样第 3 次及以后的逐次峰值，开关动效两种情况都在 5–12 ms。这是采样单位补正，不是放宽预算；旧口径原始数据随 PR 正文一并留存 |
 | U-57 | `T-EXIT` 确认框 | `IMPORTING` 下按返回键：框内恰好 1 个问句 `Pause import?`；两个选项文案 ∈ {`Keep going`, `Pause & exit`} 且 **bounds 宽度相等**（差 ≤2 dp）；实心项是 `Keep going`（`V-33`）；框开着时底层节点不可聚焦（`IA-12` 屏障） | dump：`--es demo_state IMPORTING` → `input keyevent KEYCODE_BACK` → dump；数 `Pause import?` 文本节点 = 1；量两个可点兄弟节点 bounds 宽度差 ≤2 dp；底层 `Photo` / CTA 节点数 = 0 |
 | U-58 | 状态播报（`A-08`） | 扫描完成 / 导入完成 / 出错三个时机各播报**一次**，文案分别形如 `Scanned 512 photos` / `Done, 36 photos` / `T-ERROR` 的原因句；首帧不播报；渐进发布不播报 | `adb shell uiautomator events` 后台跑着，逐个切态，数 `TYPE_ANNOUNCEMENT` 行的 `PackageName: com.rea.mtpimport` 与 `Text`；三个时机各 1 条 = 通过；冷启动直接 `--es demo_state READY` 时 0 条（不需要装 TalkBack，`uiautomator` 自带无障碍服务即可收到事件） |
-| U-59 | 按压态（`V-34`） | 任意可点目标在 `pointerdown` **当帧**出现形态响应（缩放 0.97 或压深底色），松手恢复；禁用态无响应；按压动画不新增重组（只在 draw phase 读值）；临界阻尼、无过冲 | 真机：`--es demo_state READY` → `input swipe x y x y 400` 保持按下，第 2 帧起 `screencap` 与常态比对该节点区域像素；松手后再截一帧应与常态一致。JVM：`motionBudgetCases` 钉 `PRESS_SHRINK` 与临界阻尼、`motionSourceCases` 钉 `tappable` 消费 `collectIsPressedAsState` 与 `graphicsLayer` / `drawBehind` 的 draw phase 读法 |
+| U-59 | 按压态（`V-34`） | 任意可点目标在 `pointerdown` **当帧**出现形态响应（10% 底色 wash：浅底压深 / 墨底提亮），松手 ≤90 ms 内恢复；禁用态无响应；按压动画不新增重组（只在 `drawBehind` 的 draw phase 读值）；无过冲、无最小展示时长 | 真机：`--es demo_state READY` → `input swipe x y x y 1200` 保持按下，逐帧 `screencap` 取 CTA 区域像素并与常态比对；松手后重启该态再截一帧应与常态一致。JVM：`motionBudgetCases` 钉 `PRESS_WASH_ALPHA` / `PRESS_MS`；`motionSourceCases` 钉「按下 `immediate()`、松手 `press()`」、`tappable` 消费 `collectIsPressedAsState`、以及 wash 只在 `drawBehind` 读 |
 | U-60 | 长按触觉统一（`V-35`） | 组头组选、单格进 `photo`、顶栏进 `Details` 三条 ≥500 ms 动作都经同一个手势入口，且都在动作生效前触发 `HapticFeedbackType.LongPress`；读屏动作不触发 | JVM：`motionSourceCases` 钉「`detectTapGestures(` 全 src 只出现在 `Widgets.kt`」「手势入口内的触觉恰 2 处（tapOrHold / longPressOnly）」「两个 tapOrHold + 一个 longPressOnly 调用点」，并单列豁免 `FastScroller` 的拖拽触觉。真机：三条路径各长按一次，手感一致（无「一次有、一次没有」） |
 | U-61 | 过场与减少动效（`V-36` / `V-37`） | 三屏切换 120 ms 交叉淡入、无位移；抽屉面板滑入 + 遮罩淡入、确认框缩入；三者都有退出动画；单段 ≤200 ms；新状态首帧立即可见；`animator_duration_scale 0` 下全部瞬时且**终态 dump 完全一致**；动画中途再输入可打断 | JVM：`motionBudgetCases` 钉 `MOTION_MAX_MS`、`duration(0)`、`ringTarget`；`motionSourceCases` 钉「所有动画 spec 只由 `MotionSpecs` 产出」「三个浮层共用 `OverlayHost`」。真机：demo 态切屏 / 开关抽屉录屏逐帧数；`settings put global animator_duration_scale 0` 前后各 dump 一次比对节点树；动画中途再次点开抽屉确认不被锁 |
 | U-62 | 环与选中态插值（`V-36`） | 传输环弧长逐帧插值，**未完成时任意帧 ≤99%**（`U-45` / #282）；选中态底色 / 描边 / 饱和度由**同一个** 0..1 进度派生，120 ms 内到终态；过渡只重组该格，**不得**拖入整墙 | JVM：`Motion.ringTarget(0.998f) == 0.99f`、`ringTarget(1f) == 1f`；源码护栏钉 `ProgressRing` 用 `Motion.ringTarget` 且 `PhotoCell` 的选中态三处视觉都读同一个 `animateFloatAsState` 值。真机：导入态截帧看弧长连续、未完成不满环 |
@@ -980,10 +983,10 @@ Next:    <一个可执行动作>
 | U-30 | 废止 | 首屏说明句删除，判定改由 `T-05` / `T-06` 承担 |
 | U-41～U-50 | 新增 | 10 态逐态首屏断言（8 态无设计稿，本版补齐） |
 | U-51～U-55 | 新增 | `photo` 页、过滤抽屉、总量分母、假数据模式、filter 芯片 |
-| U-56 | 新增 | `CATALOG_READY` 点选响应的 **UI 线程段**预算，口径为逐次点选峰值（`#374` PC / `#379` 划界） |
+| U-56 | 新增 / 改写 | `CATALOG_READY` 点选响应的 **UI 线程段**预算，口径为逐次点选峰值（`#374` PC / `#379` 划界）；PA+PB 补正采样单位（每轮 2 次预热点选后再 `reset`），阈值不变 |
 | U-57 | 新增 | `T-EXIT` 确认框的结构（提问 + 等宽选项 + 安全项为实心，`V-33` / `T-EXIT`） |
 | U-58 | 新增 | `A-08` 状态播报的可判定口径（三个时机、首帧不播、渐进发布不播） |
-| U-59 | 新增 | 按压态在 `pointerdown` 当帧生效、临界阻尼、不新增重组（`V-34` / `#374` PA） |
+| U-59 | 新增 | 按压态按下当帧生效、松手短回落、不新增重组；明确排除「只缩文字不缩按钮」的假缩放（`V-34` / `#374` PA） |
 | U-60 | 新增 | 三条长按路径共用单一手势入口并统一触觉（`V-35` / `#374` PA） |
 | U-61 | 新增 | 三屏 / 抽屉 / 确认框的入场退出、≤200 ms、可打断与减少动效降级（`V-36` / `V-37` / `#374` PB） |
 | U-62 | 新增 | 进度环与选中态插值的可判定口径，含 99% 上限不破（`V-36` / `#374` PB / #282） |
