@@ -84,6 +84,17 @@ public final class Selection {
         checked.clear();
     }
 
+    /**
+     * 只读快照（#374 / IA-7）：后台线程构造 `ImportPlan` 时用它，
+     * 不与 UI 线程的 `setChecked` / `retarget` 抢同一个 `LinkedHashSet`。
+     * `catalog` 引用不复制——构造计划只读它的 `storageConflicts`，对象本身在扫描收尾后不再变动。
+     */
+    public Selection snapshot() {
+        Selection copy = new Selection(catalog);
+        copy.checked.addAll(checked);
+        return copy;
+    }
+
     /** 真正要下载的文件句柄：排除文件夹自身、去重、按 relPath 排序。 */
     public List<Integer> fileHandles() {
         List<Catalog.Entry> hit = new ArrayList<>();

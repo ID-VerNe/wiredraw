@@ -20,7 +20,11 @@ import androidx.activity.ComponentActivity;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 导片工具（界面层）。
@@ -117,6 +121,20 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
      * 只在 `demoActive()` 分支使用；真实传输仍走 {@link ImportService}。
      */
     private DemoRun demoTransfer;
+
+    /**
+     * 空间预检（#374 / IA-7）：主线程合并同一帧的多次刷新，后台只算不可变快照，
+     * 结果按序号回主线程；可用字节由 `SpaceRefresh` 做 1.5 s TTL 缓存。
+     */
+    private final SpaceRefresh spaceRefresh = new SpaceRefresh(System::currentTimeMillis);
+    private final ExecutorService spaceWorker = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "space-refresh");
+        t.setDaemon(true);
+        return t;
+    });
+    private final Handler spaceHandler = new Handler(Looper.getMainLooper());
+    private final Runnable spaceTask = this::refreshSpaceCheck;
+
     private final Handler demoTicker = new Handler(Looper.getMainLooper());
     private final Runnable demoStep = new Runnable() {
         @Override
@@ -457,14 +475,14 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
         @Override
         public void onSelectionChanged() {
             // PD / P-09：勾选或 filter（#83）都会改变计划大小，空间预检必须跟着刷新
-            // （由 Compose 在主线程回调）。
-            refreshSpaceCheck();
+            // （由 Compose 在主线程回调）。IA-7：同一帧连发多次只留最后一次，计算不再占 UI 线程。
+            scheduleSpaceCheck();
         }
 
         @Override
         public void onBackToCatalog() {
             // PD / P-09：DONE / ERROR / 取消返回照片墙时同样重算，避免沿用上一轮的预检结果。
-            refreshSpaceCheck();
+            scheduleSpaceCheck();
         }
 
         @Override
@@ -563,6 +581,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             unregisterReceiver(receiver);
         } catch (Exception ignored) {
         }
+        // #374 / IA-7：先作废在飞的空间预检，销毁后不得再回写界面状态。
+        spaceRefresh.cancel();
+        spaceHandler.removeCallbacksAndMessages(null);
+        spaceWorker.shutdownNow();
         // PD（issue #50）：先请求停止，再在有限预算内 join。
         // worker 没退出前**不得**在 UI 线程 close 会话：那条原生调用可能还占着 MtpDevice。
         ImportService running = service;
@@ -860,7 +882,8 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
             else selection = new Selection(scan.catalog);
             model.showCatalog(scan.catalog, selection);
             // PD / P-09：照片墙出现后立刻做一次空间预检，主 CTA 该禁用就禁用。
-            refreshSpaceCheck();
+            // IA-7：和勾选变化一样走主线程合并，不在扫描收尾这一帧直接算。
+            scheduleSpaceCheck();
         });
     }
 
@@ -896,7 +919,8 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
     }
 
     /**
-     * 刷新空间预检（PD / P-09），只在 UI 线程调用。
+     * 刷新空间预检（PD / P-09 / #374 IA-7）。入口仍在主线程（`spaceTask`），
+     * 但 `ImportPlan.of` 与 `StatFs` 都搬到后台；只有最新序号的结果才回主线程落状态。
      *
      * 计划大小随勾选变化，所以照片墙显示后与每次勾选变化各算一次；不足时把
      * `lowSpace` 交给 AppModel（主 CTA 禁用 + 一行 `Low space`），差额进 Details。
@@ -904,14 +928,32 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
      * 计划为空（可见集合里没有可导出文件）时不做拦截。
      * 判据与文案收进纯 JDK 的 {@link SpaceGate#refresh}（G9a）。
      */
+    private void scheduleSpaceCheck() {
+        // 同一帧里组选 / filter 可能连发多次：合并成最后一次，别重复投递后台任务。
+        spaceHandler.removeCallbacks(spaceTask);
+        spaceHandler.post(spaceTask);
+    }
+
     private void refreshSpaceCheck() {
         if (demoActive() || catalog == null || selection == null) {
             model.setSpaceStatus(false, "");
             return;
         }
-        ImportPlan plan = ImportPlan.of(catalog, selection,
-                model.getVisibleUnits(), model.getExportMode());
-        SpaceGate.refresh(spaceSink, plan, this::freeBytes);
+        // IA-7：后台线程只能读不可变快照。Selection 的 checked 集合由 UI 线程写，
+        // visibleUnits 每次 getter 都可能新建列表，两者都必须在投递前复制一次。
+        final Catalog snapCatalog = catalog;
+        final Selection snapSelection = selection.snapshot();
+        final List<PhotoWall.Unit> snapVisible = new ArrayList<>(model.getVisibleUnits());
+        final PhotoWall.Export snapExport = model.getExportMode();
+        final long seq = spaceRefresh.submit();
+        spaceWorker.execute(() -> {
+            ImportPlan plan = ImportPlan.of(snapCatalog, snapSelection, snapVisible, snapExport);
+            long free = spaceRefresh.freeBytes(this::freeBytes);
+            runOnUiThread(() -> {
+                if (!spaceRefresh.isCurrent(seq)) return;
+                SpaceGate.refresh(spaceSink, plan, () -> free);
+            });
+        });
     }
 
     /**
@@ -948,6 +990,10 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
      * 两处共用：清单变化时、取消旧暂停轮**之前**（空间不足就不取消，保留暂停轮次），
      * 以及新建一轮之前（防「预检之后、点击之前」空间被别的应用吃掉）。
      * 不足时落 `Low space` 并返回 false，调用方直接 return。判据收进 {@link SpaceGate#precheck}。
+     *
+     * IA-7：这里仍取**实时**可用字节，不走 `SpaceRefresh` 的 TTL 缓存。
+     * 这一道就是为了抓住「预检之后、点击之前」空间被别的应用吃掉，缓存会让它失效；
+     * 它只在主 CTA 被点时走一次，不是每次勾选的热路径。
      */
     private boolean precheckSpace(ImportPlan plan) {
         return SpaceGate.precheck(spaceSink, plan, freeBytes());

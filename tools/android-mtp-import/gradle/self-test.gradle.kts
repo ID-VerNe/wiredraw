@@ -46,6 +46,7 @@ val pureJdkClasses = listOf(
     "SkipRule.java",
     "SpaceCheck.java",
     "SpaceGate.java",
+    "SpaceRefresh.java",
     "StorageRetry.java",
     "StuckError.java",
     "TopBarSpec.java",

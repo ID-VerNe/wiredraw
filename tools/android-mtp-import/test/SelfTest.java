@@ -15,6 +15,7 @@ import static com.rea.mtpimport.WallCases.*;
 import static com.rea.mtpimport.DemoCases.*;
 import static com.rea.mtpimport.SourceGuardCases.*;
 import static com.rea.mtpimport.MotionCases.*;
+import static com.rea.mtpimport.SpaceRefreshCases.*;
 import static com.rea.mtpimport.RepoCases.*;
 import static com.rea.mtpimport.TempDirCases.*;
 import static com.rea.mtpimport.DestCases.*;
@@ -126,6 +127,8 @@ public final class SelfTest {
         scannerGuardCases();
         motionBudgetCases();
         motionSourceCases();
+        spaceRefreshCases();
+        spaceRefreshSourceCases();
 
         System.out.println();
         if (failed == 0) {
