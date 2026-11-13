@@ -1,7 +1,9 @@
 package com.rea.mtpimport;
 
+import java.io.File;
 
 import static com.rea.mtpimport.TestSupport.*;
+import static com.rea.mtpimport.SourceGuard.*;
 
 /** 颜色 token、返回键路由与短文案的断言组（#318 从 SelfTest.java 拆出）。 */
 final class UiTextCases {
@@ -259,5 +261,100 @@ final class UiTextCases {
                 "Camera".equals(UiText.deviceName(null)) && "Camera".equals(UiText.deviceName("  "))
                         && "a7C".equals(UiText.deviceName("a7C")),
                 "实际 " + UiText.deviceName(null));
+    }
+
+    // ---------------- 返回键确认框（#374 IA-8 / `T-EXIT` / `V-33`） ----------------
+
+    /**
+     * 框里必须问出来、两个选项等宽、实心项是「继续导入」。
+     *
+     * 文案在这一层直接判；结构只能按源文本判 —— 自检是纯 JDK，起不了 Compose、也拿不到布局结果，
+     * 宽度与主次由真机 dump 判（`U-57`）。这里钉的是「有人把标题删了 / 把两个按钮换回一宽一窄」。
+     */
+    static void exitDialogCases() {
+        String title = UiText.exitConfirmTitle();
+        check("T-EXIT 有问句且 ≤20 字符（C-01）",
+                title.endsWith("?") && title.length() <= 20, "实际 " + title);
+        check("T-EXIT 两项与词表一致（W-24 / W-11）",
+                "Keep going".equals(UiText.keepGoing()) && "Pause & exit".equals(UiText.pauseExit()),
+                "实际 " + UiText.keepGoing() + " / " + UiText.pauseExit());
+
+        File app = source("com/rea/mtpimport/ui/ImportApp.kt");
+        String src = readSourceOrNull(app);
+        if (src == null) {
+            check("确认框：能读到 ImportApp.kt（#374 IA-8）", false, "读不到 " + app);
+            return;
+        }
+        String dialog = slice(src, "private fun ExitConfirmDialog(model: AppModel) {", "\n}\n");
+        boolean hasDialog = dialog != null;
+        // 标题：既是可见文本，也是读屏进框的第一句话（paneTitle）。
+        boolean hasTitle = hasDialog && countLines(dialog, "UiText.exitConfirmTitle()") == 2;
+        boolean titleProperty = hasDialog && dialog.contains("paneTitle = UiText.exitConfirmTitle()");
+        // 等宽：两个按钮都吃 `Modifier.fillMaxWidth()`，不能再让次选项缩成 94 dp（IA-8 实测 340 vs 94）。
+        boolean bothFullWidth = hasDialog
+                && countLines(dialog, "modifier = Modifier.fillMaxWidth()") == 2;
+        // 主次：实心（PrimaryButton）挂 keepGoing，描边（SecondaryButton）挂 pauseExit。
+        boolean keepIsSolid = hasDialog
+                && dialog.indexOf("PrimaryButton(\n                UiText.keepGoing()") > 0
+                && dialog.indexOf("SecondaryButton(\n                UiText.pauseExit()") > 0;
+        check("确认框：提问 + 两个等宽选项 + 实心项是 Keep going（#374 IA-8 / V-33）",
+                hasDialog && hasTitle && titleProperty && bothFullWidth && keepIsSolid,
+                "能切到函数体 " + hasDialog + " / 标题两处 " + hasTitle + " / paneTitle " + titleProperty
+                        + " / 等宽 " + bothFullWidth + " / 主次 " + keepIsSolid);
+        // 字面量只在 UiText：框里不许再出现 `"Pause & exit"` 这类内联文案（§4.5 唯一出处）。
+        check("确认框文案只在 UiText：ImportApp 内联字面量 0 命中（§4.5）",
+                countLines(src, "\"Pause & exit\"") == 0
+                        && countLines(src, "\"Keep going\"") == 0
+                        && countLines(src, "\"Resume\"") == 0,
+                "ImportApp 里仍有内联按钮文案");
+    }
+
+    // ---------------- 状态播报（#374 IA-10 / `A-08`） ----------------
+
+    /**
+     * 播报文案 + 三个时机 + 首帧不播。
+     *
+     * 「真的播出去了」只能靠 TalkBack 取证（`U-58`）；这里钉的是更容易悄悄丢的东西：
+     * 文案格式、三个 `when` 分支、以及**首帧早退**那行——删掉它，冷启动与 `demo_state`
+     * 会一进应用就念「扫描完成 512 张」。
+     */
+    static void announceCases() {
+        check("A-08 扫描完成播报：`Scanned 512 photos`",
+                "Scanned 512 photos".equals(UiText.announceScanDone(512)),
+                "实际 " + UiText.announceScanDone(512));
+        check("A-08 导入完成播报：`Done, 36 photos`",
+                "Done, 36 photos".equals(UiText.announceDone(36)),
+                "实际 " + UiText.announceDone(36));
+
+        File app = source("com/rea/mtpimport/ui/ImportApp.kt");
+        String src = readSourceOrNull(app);
+        if (src == null) {
+            check("播报：能读到 ImportApp.kt（#374 IA-10）", false, "读不到 " + app);
+            return;
+        }
+        String announcer = slice(src, "private fun StateAnnouncer(model: AppModel) {", "\n}\n");
+        boolean hasAnnouncer = announcer != null;
+        boolean announces = hasAnnouncer && announcer.contains("announceForAccessibility(");
+        boolean effectOnState = hasAnnouncer && announcer.contains("LaunchedEffect(state)");
+        boolean firstFrameSkipped = hasAnnouncer
+                && hasStatement(announcer, 8, "if (prev == null) return@LaunchedEffect");
+        boolean threeMoments = hasAnnouncer
+                && announcer.contains("UiState.State.CATALOG_READY -> UiText.announceScanDone(")
+                && announcer.contains("UiState.State.DONE -> UiText.announceDone(")
+                && announcer.contains("UiState.State.ERROR -> model.errorReason");
+        check("播报：三时机 + 首帧不播 + 显式 announce（#374 IA-10 / A-08）",
+                hasAnnouncer && announces && effectOnState && firstFrameSkipped && threeMoments,
+                "能切到函数体 " + hasAnnouncer + " / announce " + announces + " / LaunchedEffect "
+                        + effectOnState + " / 首帧早退 " + firstFrameSkipped + " / 三时机 " + threeMoments);
+        // 渐进发布不播报：`CATALOG_PARTIAL` 不在这三个分支里，也不许有人「顺手」加进去。
+        check("播报：渐进发布（CATALOG_PARTIAL）不播报（A-08）",
+                hasAnnouncer && !announcer.contains("CATALOG_PARTIAL"),
+                "StateAnnouncer 里出现了 CATALOG_PARTIAL：每 200 个对象会念一次");
+        // 挂在 `ImportApp` 的**根**上：放进 `overlayOpen` 那个分支里的话，开关一次抽屉就重挂一次，
+        // 每次都把 `last` 清成 null，下一次状态变化会被当成首帧吞掉。
+        int callSites = countLines(src, "StateAnnouncer(model)");
+        check("播报器挂在根 composable 上，且不随浮层开关重挂（#374 IA-10）",
+                callSites == 1 && src.contains("private fun StateAnnouncer(model: AppModel) {"),
+                "调用点 " + callSites + " 行（应为 1），且必须有函数定义");
     }
 }

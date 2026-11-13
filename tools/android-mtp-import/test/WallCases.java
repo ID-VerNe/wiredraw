@@ -352,40 +352,6 @@ final class WallCases {
                 "AppModel 里仍有 mutableStateMapOf：会退化成整墙失效");
     }
 
-    /**
-     * 源码里是否存在**整行等于** `text`、且缩进恰好 `indent` 个空格的语句。
-     *
-     * 比 `contains` 严格两处：① 行必须逐字相等（`x = on ` 之外的包装、注释掉、拼接都挡得住）；
-     * ② 缩进必须精确（被 `if (false) { … }` 包一层会多 4 格，判不出来就等于没守卫）。
-     */
-    private static boolean hasStatement(String src, int indent, String text) {
-        StringBuilder pad = new StringBuilder();
-        for (int i = 0; i < indent; i++) pad.append(' ');
-        String want = pad + text;
-        for (String line : src.split("\n", -1)) {
-            if (line.equals(want)) return true;
-        }
-        return false;
-    }
-
-    /** 源码切片：从 `from` 到 `to`（不含 `to`）；任一端缺失返回 null。 */
-    private static String slice(String src, String from, String to) {
-        int a = src.indexOf(from);
-        if (a < 0) return null;
-        int b = src.indexOf(to, a + from.length());
-        if (b < 0) return null;
-        return src.substring(a, b);
-    }
-
-    /** 含 `needle` 的行数（同一行多次只算一次）。 */
-    private static int countLines(String src, String needle) {
-        int n = 0;
-        for (String line : src.split("\n", -1)) {
-            if (line.contains(needle)) n++;
-        }
-        return n;
-    }
-
     // ---------------- 设计基线常量（G7a / issue #215） ----------------
 
     /**

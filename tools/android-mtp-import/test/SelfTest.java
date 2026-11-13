@@ -87,6 +87,8 @@ public final class SelfTest {
         colorTokensCases();
         backNavCases();
         uiTextCases();
+        exitDialogCases();
+        announceCases();
         photoWallCases();
         photoWallGridIndexCases();
         aggregateCases();

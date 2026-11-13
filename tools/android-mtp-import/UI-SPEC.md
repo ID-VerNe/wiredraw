@@ -285,7 +285,7 @@
 - **必须**先关闭模态浮层：`Filter` / `Details` / `Location`（落点选择对话框，#28/#352）/ `Pause & exit` 确认框开着时，或 `photo` 视图打开时，返回键只关闭当前浮层/视图（`photo` → `CLOSE_PHOTO`，即 `BackNav.java` 中 `if (photoOpen) return Action.CLOSE_PHOTO;` 那一行），**不得**退出应用或丢失选择；浮层全部关闭后才按下列规则处理。
 - **必须**在 `COLD` / `PERMISSION_PENDING` / `CATALOG_READY` / `SCANNING` / `EMPTY_CATALOG` 下按返回键直接退出应用，不得弹无意义确认。
 - **必须**把 `PAUSED` / `DONE` / `ERROR` / `UNAVAILABLE` 回退到照片墙（不再退出应用）；`PAUSED` / `ERROR` 不得因此丢失当前选择。
-- **必须**在 `IMPORTING` 下拦截返回键并给 `Pause & exit` / `Resume` 二选一；退出后必须保留断点。
+- **必须**在 `IMPORTING` 下拦截返回键并弹出 `T-EXIT` 确认框（`Pause & exit` / `Keep going` 二选一）；退出后必须保留断点。
   `transfer` 页顶部的 close/back 图标只关闭视图（回 `CATALOG_READY`），不取消任务；任务取消由 `Cancel` 承担。
   暂停轮次的恢复清单口径见 §1.2 状态表后的「暂停轮次与照片墙的 `Import`」注（issue #57）。
 
@@ -589,6 +589,10 @@
   已选格 = 恢复饱和度 + 1 px 深色描边。原型里的「右上角 tick 徽标 + 2 px inset」**不得**照抄。
   若降级形态使用复选框：视觉可 ≤20 dp，但**热区不得低于 48 dp**（原型 20 dp 的热区不达标，**不得**照抄）；
   选中/激活态也不改图标填充风格（统一线性 `FILL 0`）。
+- **V-33** 确认框**必须**具备三件事：① 一个**问句标题**（文案见 §4.5 `T-EXIT`），不得只给按钮；
+  ② 两个选项**等宽**（同一 `fillMaxWidth` 列内），不得让一项 340 dp、另一项 94 dp；
+  ③ 实心（主）项是**保留当前任务**的那一个，破坏性/中断性项退到描边——破坏性动作不做默认焦点，
+  也不占 `V-09` 的唯一主按钮额度。当前唯一实例：`IMPORTING` / `PAUSED` 的返回键确认框（`T-EXIT`）。
 - **V-17（挂起）** 破坏性操作**必须**可撤销（`Undo` 至少本次会话内有效）。定稿没有清空/删除入口，
   本版本**无触发入口**；条文保留，随清理类功能落地再启用（U-28 同步挂起）。**不得**以「二次确认」替代撤销。
   「取消导入」不属于破坏性操作，按 P-07 保留已选与断点，不要求撤销。
@@ -742,6 +746,7 @@ Next:    <一个可执行动作>
 | `T-ERROR` | `ERROR` | 环的位置换成错误标记 | 一行短中文原因（≤20 字） | `Reconnect` 图标（USB 插头 / 重连语义，`contentDescription` = `Reconnect`）；顶栏另有 12 sp `Reconnect` 可点标签（`V-29`）；三段式进 `Details`（内容 `Details` 按钮与顶栏左簇长按，`L-05`） | `Error`、异常类名、opcode、路径、`Retry` |
 | `T-EMPTY` | `EMPTY_CATALOG` | 居中相机图标 | `No photos` | `Connect camera` 图标 | 空网格、`0 GB`、`0%` |
 | `T-UNAVAILABLE` | `UNAVAILABLE` | 居中禁止图标 | `Not available` | `OK`，或返回（回退到照片墙） | `NOT_IMPLEMENTED`、`Unimplemented`、长句版本说明 |
+| `T-EXIT` | `IMPORTING` / `PAUSED` 的返回键确认框 | 居中对话框（`V-33`） | `Pause import?` | 实心主项 `Keep going`（关掉框，什么都不改）；描边次项 `Pause & exit`（暂停并离开传输视图，断点留在 Journal）；读屏进框先报 `paneTitle` = 同一问句 | 只有按钮没有问句、用 `Resume` 表示「关掉框」、两个选项不等宽、把 `Pause & exit` 做成唯一实心项 |
 
 - **`CATALOG_READY` 主 CTA 文案（本文件唯一出处）**：**可见已选数为 0** → `Import all N`，N = **当前 filter 可见集合的导出文件数**；可见已选数 ≥1 → `Import N`，N = **可见已选数**（已选 ∩ 当前 filter）。分支判据是**可见已选数**，不是总已选数：切 filter 后总已选 ≥1 但全部被隐藏时，仍走 `Import all N`（`C-10`）。两个分支的 N **不得**混用：`Import all` 的 N 不是已选数，`Import` 的 N 也不是可见总量（见 `C-08` / `C-10` / `U-12`）。已导入索引缺失时（§0.11 第 1 行），
   「新片」不可计算，CTA 同为 `Import all N`——这是唯一允许的降级写法，其余位置不得另造。
@@ -756,12 +761,12 @@ Next:    <一个可执行动作>
   | `W-03` | 允许 | `Allow` | `PERMISSION_PENDING` 主按钮 |
   | `W-04` | 取消（扫描/导入） | `Cancel` | `SCANNING` / `IMPORTING` / `PAUSED` |
   | `W-05` | 暂停 | `Pause` | `IMPORTING` |
-  | `W-06` | 继续 | `Resume` | `PAUSED` |
+  | `W-06` | 继续已暂停的轮次 | `Resume` | `PAUSED` 的继续按钮；**不得**用于 `T-EXIT` 确认框（那个框里还没有暂停，动作是「关掉框」，用 `W-24`） |
   | `W-07` | 导入（全部） | `Import all N` | `CATALOG_READY` 可见已选数为 0（含总已选 ≥1 但全被 filter 隐藏）；N = 当前 filter 可见集合的导出文件数（`C-08` / `C-10` / `U-12`） |
   | `W-08` | 导入（已选） | `Import N` | `CATALOG_READY` 可见已选数 ≥1；N = 可见已选数（已选 ∩ 当前 filter） |
   | `W-09` | 打开 | `Open` | `DONE` 次按钮 |
   | `W-10` | 知道了 | `OK` | `UNAVAILABLE` |
-  | `W-11` | 暂停并退出 | `Pause & exit` | `IMPORTING` 返回键对话框选项（§1.3）；是对话框选项，不占主按钮额度 |
+  | `W-11` | 暂停并退出 | `Pause & exit` | `T-EXIT` 确认框里**描边**的那一项（§1.3 / `V-33`）；是对话框选项，不占主按钮额度 |
   | `W-12` | 空间不足提示 | `Low space` | `CATALOG_READY` 主 CTA 上方一行 12 sp；仅在预检不足、CTA 被禁用时出现（`P-09`） |
   | `W-13` | 已存在的跳过数 | `Skipped N existing` | `Details` 抽屉（`P-07`）；主视觉不出现 |
   | `W-14` | 导入状态未知 | `Import state unknown` | `Location details` 内（§0.11 第 1 行降级） |
@@ -774,6 +779,7 @@ Next:    <一个可执行动作>
   | `W-21` | 位置 | 位置图标（`contentDescription` = `Location`） | `DONE` / `photo` |
   | `W-22` | 过滤 | 漏斗图标（`contentDescription` = `Filter`） | `CATALOG_READY` |
   | `W-23` | 详情 / 日志 | 长按顶栏设备名（`ERROR` 为「图标 + `Disconnected`」整簇），或 `Details` | 仅 `CATALOG_READY` / `COLD` / `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` 顶栏（有设备名，可长按）与 `ERROR` 顶栏左簇；`IMPORTING` / `PAUSED` 顶栏**有设备名但无长按入口**（连接指示只读，L-05）；`photo` 顶栏无设备名、无长按入口 |
+  | `W-24` | 关掉确认框、继续导入 | `Keep going` | `T-EXIT` 确认框里**实心**的那一项（`V-33`）；只关框，不改状态、不动断点 |
 
 - **过滤抽屉与 `Location details` 标记的用法（字面量登记在 §4.5 词表，本条只讲用在哪）**：过滤项写
   `All` / `RAW` / `JPG` / 日期标签（如 `Jun 7`，**不含**张数与容量）；未导入过滤在本版本不出现（§0.11 第 1 行）。`Location details` 里的单张
@@ -831,7 +837,13 @@ Next:    <一个可执行动作>
   网格单元的朗读模板**只有两态**，字面量按 §0.10 固定大小写。
 - **A-06** **必须**支持系统字号 1.3× 与 2.0×，不裁切、不重叠，按钮可换行（U-24）。
 - **A-07（暂不适用）** 深色模式随 `V-08` 暂不适用；「不得仅靠颜色表达已选/错误」由 V-11 与 A-02 承担。
-- **A-08** 状态变化**必须**通过无障碍事件播报（扫描完成、导入完成、错误），**不得**只改静态文本。
+- **A-08（改写）** 状态变化**必须**通过无障碍事件播报，**不得**只改静态文本。三个时机必播：
+  **扫描完成**（进入 `CATALOG_READY`）、**导入完成**（`DONE`）、**出错**（`ERROR`）。
+  播报文案取 `UiText`（`announceScanDone(512)` / `announceDone(36)` / `T-ERROR` 的原因句），
+  不在 Compose 里另造字面量（§4.5 唯一出处）。实现用显式 `announceForAccessibility`：三屏整棵子树是**换掉**的，
+  `liveRegion` 只在同一节点文字变化时可靠，新子树里的新节点不会被当成「变化」。
+  **首帧不播报**——`demo_state` 或冷启动直接落到终态，不是「刚刚发生的变化」；
+  **渐进发布**（`CATALOG_PARTIAL`，每 200 个对象一次）**不播报**，否则会念成复读机。
 
 ---
 
@@ -884,7 +896,7 @@ Next:    <一个可执行动作>
 | U-49 | `EMPTY_CATALOG` | `No photos`；`Connect camera` 可点 | 任何照片网格单元；`0 GB`；`0%` |
 | U-50 | `UNAVAILABLE` | `Not available` | `\d+%`、`Imported\s*\d+`、`Failed\s*\d+`、`NOT_IMPLEMENTED`、`Unimplemented`、`Not implemented`、`未实现`；进度控件存在 |
 
-### 8.3 页面级断言（新增，`U-51`～`U-56`）
+### 8.3 页面级断言（新增，`U-51`～`U-58`）
 
 | 编号 | 对象 | 断言 | 验证方法 |
 |---|---|---|---|
@@ -894,6 +906,8 @@ Next:    <一个可执行动作>
 | U-54 | 假数据模式 | debug 构建可经 `--es demo_state <STATE>` 进入 10 态之一；release 构建不含该入口；假数据树 = 1526 对象 / 503 文件夹 / 1023 文件 / 511 ARW / 512 JPEG / 512 照片单元；ARW 12,766,800,000 字节 / JPEG 923,408,256 字节 | `adb shell am start ... --es demo_state IMPORTING` 录屏；release APK 上 `aapt dump` / 字符串检查无 `demo_state`；扫描假数据的统计行与上列数字一致（`demo_state` 入口在 `src/debug` 源集实现，release 无实现） |
 | U-55 | filter 芯片 | 非 `All` 档顶栏出现恰好 1 个非计数芯片，字面量 ∈ {`RAW`, `JPG`, 日期标签}；日期标签形如 `Jun 7`，**不得**含张数与容量（`· 43 · 74.0 MB`）；`All` 档不出现；芯片不含计数语义、不形成第二个纯数字节点 | dump：切三个非 `All` 档（`RAW` / `JPG` / 任一日期）各一次，按 `V-31` 判定；`All` 档顶栏纯数字节点数 = 1 |
 | U-56 | `CATALOG_READY` 点选响应 | 连续 10 次格子点选（间隔 0.8 s，坐标见 `#374` 复现步骤）时，**每次点选取该次输入之后 UI 线程段最大的那一帧**（`DrawStart − HandleInputStart`，`dumpsys gfxinfo framestats`）；10 次点选的逐次峰值取中位为一轮、3 轮再取中位：中位 ≤ 10 ms；逐次峰值最长 ≤ 25 ms | `reset` 后脚本化 10 次 `input tap` 采样，按上述口径**逐次取峰值**：不把无绘制帧混进样本 —— 一次点选通常产生 1 个重绘帧 + 1 个近零的输入事件帧，近零帧有几个由系统合帧决定，不由应用层决定，混在一起取中位会让比值一变数字就漂。E2 基线（`main` @ `72aea49`，与修复分支背靠背测）：逐次峰值中位 16.72–17.81 ms、最长 42.4–44.4 ms。本机噪声：**同一构建**两次会话的逐次峰值中位相差约 1.3 ms（7.67 / 8.93），预算因此取 10 ms，不贴着实测值定。**不判** `Janky frames` —— 该指标含 GPU 段，本机整屏重绘的 GPU 下限约 10–11 ms（关抽屉这种更简单的画面同样如此），应用层代码改不动它，帧率本身由 `#379` 负责 |
+| U-57 | `T-EXIT` 确认框 | `IMPORTING` 下按返回键：框内恰好 1 个问句 `Pause import?`；两个选项文案 ∈ {`Keep going`, `Pause & exit`} 且 **bounds 宽度相等**（差 ≤2 dp）；实心项是 `Keep going`（`V-33`）；框开着时底层节点不可聚焦（`IA-12` 屏障） | dump：`--es demo_state IMPORTING` → `input keyevent KEYCODE_BACK` → dump；数 `Pause import?` 文本节点 = 1；量两个可点兄弟节点 bounds 宽度差 ≤2 dp；底层 `Photo` / CTA 节点数 = 0 |
+| U-58 | 状态播报（`A-08`） | 扫描完成 / 导入完成 / 出错三个时机各播报**一次**，文案分别形如 `Scanned 512 photos` / `Done, 36 photos` / `T-ERROR` 的原因句；首帧不播报；渐进发布不播报 | `adb shell uiautomator events` 后台跑着，逐个切态，数 `TYPE_ANNOUNCEMENT` 行的 `PackageName: com.rea.mtpimport` 与 `Text`；三个时机各 1 条 = 通过；冷启动直接 `--es demo_state READY` 时 0 条（不需要装 TalkBack，`uiautomator` 自带无障碍服务即可收到事件） |
 
 ### 8.4 `U-xx` 变更对照（改写 / 废止 / 挂起 / 新增）
 
@@ -931,6 +945,8 @@ Next:    <一个可执行动作>
 | U-41～U-50 | 新增 | 10 态逐态首屏断言（8 态无设计稿，本版补齐） |
 | U-51～U-55 | 新增 | `photo` 页、过滤抽屉、总量分母、假数据模式、filter 芯片 |
 | U-56 | 新增 | `CATALOG_READY` 点选响应的 **UI 线程段**预算，口径为逐次点选峰值（`#374` PC / `#379` 划界） |
+| U-57 | 新增 | `T-EXIT` 确认框的结构（提问 + 等宽选项 + 安全项为实心，`V-33` / `T-EXIT`） |
+| U-58 | 新增 | `A-08` 状态播报的可判定口径（三个时机、首帧不播、渐进发布不播） |
 
 ### 8.5 任务流验收（`T-01`～`T-06`，后续 UI PR 的主验收依据）
 
