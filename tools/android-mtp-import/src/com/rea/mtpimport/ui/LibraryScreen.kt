@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,18 +143,24 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
     val allSelected = model.isGroupChecked(group)
     val collapsed = model.isCollapsed(group.key)
     val haptic = LocalHapticFeedback.current
+    // 手势必须同时满足两件事（#374 / IA-13）：key 只跟 `group.key` 走（对象身份每次重组都变，
+    // 拿它当 key 会让检测器反复重启、长按被吞），而闭包读到的必须是**最新**的 `group`
+    // （key 不变时 `pointerInput` 不重启，直接捕获会冻结在首次组合的那一版快照上）。
+    // 渐进扫描每 200 个对象发布一次（`CatalogScanner.PARTIAL_EVERY`）、filter 档每次重组都重建
+    // `Group`，冻结快照会让长按只选中旧规模的那几张，且与同节点的读屏动作（始终读新值）不一致。
+    val currentGroup = rememberUpdatedState(group)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             // 单击折叠/展开（L-08），长按 ≥500 ms = 组选（#62）；滚动越界会取消手势，
             // 与单格长按进看图页互不冲突（作用在不同行/格）。
-            .pointerInput(group) {
+            .pointerInput(group.key) {
                 detectTapGestures(
                     onTap = { model.toggleCollapsed(group.key) },
                     onLongPress = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        model.toggleGroupSelection(group)
+                        model.toggleGroupSelection(currentGroup.value)
                     }
                 )
             }
@@ -193,7 +200,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
 }
 
 /**
- * 网格单元：整格可点（L-08），已选用**形态变化**表达（2 dp 墨色描边 + 去饱和解除），
+ * 网格单元：整格可点（L-08），已选用**形态变化**表达（1 dp 墨色描边 + 去饱和解除），
  * 不画勾选圈、不放徽标、不放大小（V-11 / V-15）。
  *
  * 点格 = 切换已选（L-08 的硬要求）；长按 = 进 `photo` 页（§1.2 的入口）。
@@ -263,7 +270,7 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
     ) {
         val bitmap = thumb
         if (bitmap != null) {
-            // 已选态沿用 V-11：外层 softOutline（2 dp 墨色）+ 未选去饱和、已选恢复饱和度。
+            // 已选态沿用 V-11：外层 softOutline（1 dp 墨色）+ 未选去饱和、已选恢复饱和度。
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = null,

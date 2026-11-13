@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -65,13 +66,22 @@ private fun Modifier.detailsLongPress(model: AppModel): Modifier =
     pointerInput(Unit) { detectTapGestures(onLongPress = { model.detailsOpen = true }) }
 
 /**
- * 「长按进 Details」的读屏动作（`L-05` / issue #310）：`label` 与写入口径只在这里定义一次。
+ * 「长按进 Details」的读屏动作（`L-05` / issue #310 / #374 IA-11）：`label` 与写入口径只在这里定义一次。
  *
  * 两个 `clearAndSetSemantics` 块的内容**不同**（`TopBarLabel` 的描述是设备名入参、
  * `role` 有条件；`ErrorIdentity` 的描述是字面量 `Disconnected`、`role` 无条件），
  * 所以只共用这一段动作，不合并整块语义。
+ *
+ * **点击动作与长按同源**：这两个节点声明了 `role = Role.Button`，读屏就会朗读「按钮」并把双击
+ * 映射到 `ACTION_CLICK`。此前只挂 `onLongClick`，于是「读作按钮、双击毫无反应」——手势语义
+ * 与角色声明互相矛盾。点击只是长按的无障碍等价物，**不改变** `L-05` 的「长按进 Details」口径，
+ * 真实触摸仍只吃长按（`detailsLongPress` 的 `detectTapGestures` 没有 `onTap`）。
  */
-private fun SemanticsPropertyReceiver.detailsLongClick(model: AppModel) {
+private fun SemanticsPropertyReceiver.detailsActions(model: AppModel) {
+    onClick(label = "Details") {
+        model.detailsOpen = true
+        true
+    }
     onLongClick(label = "Details") {
         model.detailsOpen = true
         true
@@ -98,7 +108,7 @@ private fun TopBarLabel(
             contentDescription = text
             if (detailsEntry) {
                 role = Role.Button
-                detailsLongClick(model)
+                detailsActions(model)
             }
         },
         contentAlignment = Alignment.CenterStart
@@ -213,7 +223,7 @@ private fun ErrorIdentity(model: AppModel) {
             .clearAndSetSemantics {
                 contentDescription = "Disconnected"
                 role = Role.Button
-                detailsLongClick(model)
+                detailsActions(model)
             },
         verticalAlignment = Alignment.CenterVertically
     ) {

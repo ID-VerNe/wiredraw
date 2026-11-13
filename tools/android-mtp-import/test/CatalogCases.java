@@ -284,6 +284,39 @@ final class CatalogCases {
         scanned = scanSourceText(srcRoot, "RangeRead.read(", null, hits);
         check("缩略图：整张 JPG 走 RangeRead 单一原语", hits.size() == 1,
                 "实际 " + hits.size() + " 处：\n" + String.join("\n", hits));
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "applyExifOrientation(decoded, bytes)", null, hits);
+        check("缩略图：decode 解码后统一经 applyExifOrientation 纠偏（issue #367, #368）",
+                hits.size() == 1, "命中处数：" + hits.size());
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "ExifInterface.TAG_ORIENTATION", null, hits);
+        check("缩略图：接入 EXIF TAG_ORIENTATION 姿态检测（issue #367, #368）",
+                hits.size() >= 1, "命中处数：" + hits.size());
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "matrix.postRotate(90)", null, hits);
+        int rot90 = hits.size();
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "matrix.postRotate(180)", null, hits);
+        int rot180 = hits.size();
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "matrix.postRotate(270)", null, hits);
+        int rot270 = hits.size();
+        check("缩略图：涵盖 90/180/270 三档旋转（issue #367, #368）",
+                rot90 >= 1 && rot180 >= 1 && rot270 >= 1,
+                "rot90=" + rot90 + " rot180=" + rot180 + " rot270=" + rot270);
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "Bitmap.createBitmap(decoded", null, hits);
+        check("缩略图：Matrix 纠偏生成新位图（issue #367, #368）",
+                hits.size() >= 1, "命中处数：" + hits.size());
+
+        hits.clear();
+        scanned = scanSourceText(srcRoot, "decoded.recycle()", null, hits);
+        check("缩略图：旋转后显式回收未旋转位图（issue #367, #368）",
+                hits.size() >= 1, "命中处数：" + hits.size());
     }
 
     /** 跑一次分块读，异常按失败（返回 null）处理，避免越界异常中断整个自检。 */
