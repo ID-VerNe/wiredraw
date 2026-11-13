@@ -201,8 +201,12 @@ final class WallCases {
      * #374 / IA-6：勾选状态的失效源改成「每单元一个 `MutableState`」的镜像。
      *
      * 这是**写坏就静默**的一类改动：漏同步不会崩，只会「点得动、计数不动」或「换 filter 后
-     * 勾选态回退」。`AppModel` 依赖 Compose 运行时，JVM 用例起不来，只能把结构钉在源码上：
-     * 字段形态、两个读入口、两条写路径、树装载/丢弃的三处回读。
+     * 勾选态回退」。`AppModel` 依赖 Compose 运行时，JVM 用例起不来，只能把结构钉在源码上。
+     *
+     * **为什么不是 `contains`**（评审第 1 轮拦下）：子串匹配挡不住「行还在、语义没了」——
+     * `if (false) checkedState(unit.key).value = on` 照样命中，`syncCheckedFromSelection` 顶部加一句
+     * 早返回也照样命中。这里改成**整行 + 缩进**匹配：行内容必须与期望逐字相等，缩进必须正好是
+     * 函数体内那一级（死代码包裹会多缩进 4 格），回读函数另外禁止出现 `return`（挡早返回）。
      */
     static void checkedMirrorCases() {
         File appModel = source("com/rea/mtpimport/ui/AppModel.kt");
@@ -212,28 +216,40 @@ final class WallCases {
             return;
         }
 
-        boolean field = src.contains("private val checkedStates = HashMap<String, MutableState<Boolean>>()")
-                && src.contains("private fun checkedState(key: String): MutableState<Boolean> =");
-        String unitRead = slice(src, "fun isUnitChecked(", "fun isGroupChecked(");
-        boolean readsCell = unitRead != null && unitRead.contains("checkedState(unit.key).value");
-        String groupRead = slice(src, "fun isGroupChecked(", "fun applyDeviceName(");
-        boolean readsGroup = groupRead != null && groupRead.contains("!checkedState(u.key).value");
+        boolean field = hasStatement(src, 4,
+                "private val checkedStates = HashMap<String, MutableState<Boolean>>()")
+                && hasStatement(src, 4,
+                "private fun checkedState(key: String): MutableState<Boolean> =")
+                && hasStatement(src, 8, "checkedStates.getOrPut(key) { mutableStateOf(false) }");
+        boolean readsCell = hasStatement(src, 4,
+                "fun isUnitChecked(unit: PhotoWall.Unit): Boolean = checkedState(unit.key).value");
+        boolean readsGroup = hasStatement(src, 12, "if (!checkedState(u.key).value) return false");
         check("勾选读取只走镜像表：单格读本格 key、组头逐单元短路（#374 IA-6）",
                 field && readsCell && readsGroup,
                 "字段 " + field + " / 单格 " + readsCell + " / 组头 " + readsGroup);
 
-        String unitWrite = slice(src, "fun toggleUnitSelection(", "fun toggleGroupSelection(");
-        String groupWrite = slice(src, "fun toggleGroupSelection(", "fun openPhoto(");
-        boolean writesUnit = unitWrite != null && unitWrite.contains("checkedState(unit.key).value = on");
-        boolean writesGroup = groupWrite != null && groupWrite.contains("checkedState(u.key).value = select");
+        boolean writesUnit = hasStatement(src, 8, "checkedState(unit.key).value = on");
+        boolean writesGroup = hasStatement(src, 8,
+                "for (u in group.photos) checkedState(u.key).value = select");
         check("两条写路径同处同步镜像：单格写 key、组选整组写（#374 IA-6）",
                 writesUnit && writesGroup,
                 "单格 " + writesUnit + " / 组选 " + writesGroup);
 
+        // 回读函数：必须是「遍历 allUnits → 写值」，且函数体内不得有 `return`（挡早返回的假实现）。
+        String syncBody = slice(src, "private fun syncCheckedFromSelection() {", "\n    }\n");
+        boolean loops = hasStatement(src, 8, "for (u in allUnits) {");
+        boolean writesFromSelection = hasStatement(src, 12,
+                "checkedState(u.key).value = sel != null && u.isChecked(sel)");
+        boolean noEarlyReturn = syncBody != null && countLines(syncBody, "return") == 0;
+        check("回读实现是真遍历：遍历 allUnits、按 Selection 写值、无早返回（#374 IA-6）",
+                loops && writesFromSelection && noEarlyReturn,
+                "遍历 " + loops + " / 写值 " + writesFromSelection + " / 无 return " + noEarlyReturn
+                        + "\nsync 切片：\n" + syncBody);
+
         int syncAll = countLines(src, "syncCheckedFromSelection()");
-        boolean defined = src.contains("private fun syncCheckedFromSelection()");
-        check("树装载/丢弃三处回读同一实现：定义 1 + 调用 3（#374 IA-6）",
-                defined && syncAll == 4, "命中 " + syncAll + " 行（定义 1 + 调用应为 4）");
+        boolean defined = hasStatement(src, 4, "private fun syncCheckedFromSelection() {");
+        check("树装载/丢弃四处回读同一实现：定义 1 + 调用 4（#374 IA-6）",
+                defined && syncAll == 5, "命中 " + syncAll + " 行（定义 1 + 调用应为 5）");
 
         check("旧的全墙失效源已移除：不再有 `var selectionVersion`（#374 IA-6）",
                 countLines(src, "var selectionVersion") == 0,
@@ -244,6 +260,22 @@ final class WallCases {
         check("细粒度状态不得退回 SnapshotStateMap（整表订阅，实测无效）",
                 countLines(src, "mutableStateMapOf") == 0,
                 "AppModel 里仍有 mutableStateMapOf：会退化成整墙失效");
+    }
+
+    /**
+     * 源码里是否存在**整行等于** `text`、且缩进恰好 `indent` 个空格的语句。
+     *
+     * 比 `contains` 严格两处：① 行必须逐字相等（`x = on ` 之外的包装、注释掉、拼接都挡得住）；
+     * ② 缩进必须精确（被 `if (false) { … }` 包一层会多 4 格，判不出来就等于没守卫）。
+     */
+    private static boolean hasStatement(String src, int indent, String text) {
+        StringBuilder pad = new StringBuilder();
+        for (int i = 0; i < indent; i++) pad.append(' ');
+        String want = pad + text;
+        for (String line : src.split("\n", -1)) {
+            if (line.equals(want)) return true;
+        }
+        return false;
     }
 
     /** 源码切片：从 `from` 到 `to`（不含 `to`）；任一端缺失返回 null。 */

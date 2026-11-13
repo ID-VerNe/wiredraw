@@ -429,8 +429,8 @@ class AppModel {
     /**
      * 把 [checkedStates] 与 `Selection` 对齐（#374 / IA-6）。
      *
-     * 调用点只有「树装进来/丢掉」这三处（`showCatalog` / `showPartialCatalog` / `discardPartialCatalog`），
-     * 都是每次扫描发布一次，不是每帧。**必须整表回读**而不是置空：渐进发布时
+     * 调用点只有「树装进来/丢掉」这四处（`showCatalog` / `showPartialCatalog` / `discardPartialCatalog`
+     * / `applyDemo` 的清空分支），都是每次扫描或切态一次，不是每帧。**必须整表回读**而不是置空：渐进发布时
      * `Main.publishPartial` 对同一个 `Selection` 走 `retarget`，用户的勾选是跨快照保留的。
      *
      * 不清空整张 map：已组合的格子还握着旧的 `MutableState` 引用，换对象等于让它们读到默认值；
@@ -663,6 +663,9 @@ class AppModel {
                 catalog = null
                 wall = null
                 selection = null
+                // demo 装载也会走到「把树丢掉」这条路径（评审第 1 轮建议）：与 `discardPartialCatalog`
+                // 同口径清一遍镜像，否则 `checkedStates` 里会留下上一棵树残留的 key。
+                syncCheckedFromSelection()
                 state = UiState.State.EMPTY_CATALOG
             }
             else -> state = p.state
