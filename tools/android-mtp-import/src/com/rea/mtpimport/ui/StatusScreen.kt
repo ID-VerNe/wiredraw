@@ -58,7 +58,12 @@ fun StatusScreen(model: AppModel) {
             model = model,
             icon = {},
             actions = {
-                SecondaryButton("Cancel", onClick = { cb?.onCancel() })
+                // `Cancel` 是扫描态唯一的动作，必须走 `StatusActionRow`（#374 / IA-9）：
+                // 裸放 `SecondaryButton` 会按内容宽度贴到屏幕左边缘（dump 实测 x=0），
+                // 违反 §2.1 的 16 dp 页边距与 L-06 的「与手势条间隔 ≥8 dp」。
+                StatusActionRow {
+                    SecondaryButton("Cancel", onClick = { cb?.onCancel() })
+                }
             },
             customCenter = {
                 ProgressRing(

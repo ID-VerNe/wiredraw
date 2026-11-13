@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,10 +34,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.dismiss
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -215,7 +219,13 @@ fun Scrim(onDismiss: () -> Unit) {
         Modifier
             .fillMaxSize()
             .background(UiColors.scrim)
-            .tappable(onClick = onDismiss)
+            // #374 / IA-12：遮罩是「点空白处关闭」的触摸面，不该进无障碍树。
+            // 这里刻意不用 `tappable`（= `clickable`）：`clickable` 会把「无名的可点节点」写进语义，
+            // dump 里就是 `NAF=true / clickable=true / 无 text 无 desc` 的全屏节点——读屏打开浮层后
+            // 第一个焦点落在它上面，念不出任何东西。`clearAndSetSemantics {}` 修不掉：清理只作用于
+            // 后代节点，同一布局节点上先合并进来的 `clickable` 动作仍在。
+            // 关闭仍有两条可达路径：抽屉标题行的 `Close`（A-03）与系统返回键（§1.3）。
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
     )
 }
 
@@ -242,6 +252,16 @@ fun DrawerSkeleton(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .heightIn(max = Dims.DRAWER_MAX_HEIGHT_DP.dp)
                 .verticalScroll(rememberScrollState())
+                // #374 / IA-12：抽屉是模态浮层（L-05）。`paneTitle` 让读屏在进入时先报
+                // 「Location details / Filter」，`dismiss` 给「下滑关闭」一个可派发的动作；
+                // 系统返回键仍是另一条路径（§1.3，由 `BackNav` 决定）。
+                .semantics {
+                    paneTitle = title
+                    dismiss {
+                        onClose()
+                        true
+                    }
+                }
         ) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 BasicText(title, style = TextBody)

@@ -280,8 +280,12 @@ final class UiStateCases {
 
     /**
      * 墓碑（#310）：库页顶栏与 `ERROR` 顶栏的「长按进 Details」曾是手势行 + 语义动作行各写一遍。
-     * #336 把两段抽成 `Modifier.detailsLongPress` 与 `detailsLongClick`，本组钉住「两个顶栏都
+     * #336 把两段抽成 `Modifier.detailsLongPress` 与 `detailsActions`，本组钉住「两个顶栏都
      * 真的走这个骨架」，以及「长按入口范围仍受 `W-23` 限制」。
+     *
+     * #374 / IA-11 把语义动作从「只有 onLongClick」扩成「onClick + onLongClick 同源」：
+     * 两个节点声明了 `role = Role.Button`，读屏双击走 `ACTION_CLICK`，此前没有该动作，
+     * 于是「念作按钮、双击无反应」。断言随契约一起改口径，仍钉住「label 与写入口径各一份」。
      *
      * 本组是**源码断言**，不是渲染断言：自检是纯 JDK（不许 `import android`），起不了 Compose，
      * 所以按仓库既有口径（对照 `topBarSpecCases` 的「守卫行 + 调用行」）读源码判定。
@@ -316,14 +320,28 @@ final class UiStateCases {
                 "定义 " + dragDefs + " / 调用 " + dragCalls + " / `detectTapGestures` " + gestures);
 
         // 2. 读屏动作同口径。调用点 2 处（定义行写的是 `(model: AppModel)`，不含闭合括号，
-        //    不会被 `detailsLongClick(model)` 命中）；
-        //    `onLongClick(label = "Details")` 全文件 1 处，即只由 `detailsLongClick` 产出。
-        int clickDefs = hits(src, "fun SemanticsPropertyReceiver.detailsLongClick(");
-        int clickCalls = hits(src, "detailsLongClick(model)");
-        int labels = hits(src, "onLongClick(label = \"Details\")");
-        check("长按语义动作只有一份 label 与写入口径：定义 1 / 调用 2 / label 1（#310）",
-                clickDefs == 1 && clickCalls == 2 && labels == 1,
-                "定义 " + clickDefs + " / 调用 " + clickCalls + " / label " + labels);
+        //    不会被 `detailsActions(model)` 命中）；
+        //    `onClick` / `onLongClick` 各 1 处 label，即两条动作都只由 `detailsActions` 产出。
+        //    #374 / IA-11 起点击动作与长按同源：两个节点都声明了 `role = Role.Button`，
+        //    只挂 `onLongClick` 会让读屏朗读「按钮」而双击无动作（`ACTION_CLICK` 不存在）。
+        int clickDefs = hits(src, "fun SemanticsPropertyReceiver.detailsActions(");
+        int clickCalls = hits(src, "detailsActions(model)");
+        int clickLabels = hits(src, "onClick(label = \"Details\")");
+        int longLabels = hits(src, "onLongClick(label = \"Details\")");
+        check("长按/点击语义动作只有一份 label 与写入口径：定义 1 / 调用 2 / 两个 label 各 1（#310 / #374）",
+                clickDefs == 1 && clickCalls == 2 && clickLabels == 1 && longLabels == 1,
+                "定义 " + clickDefs + " / 调用 " + clickCalls
+                        + " / onClick label " + clickLabels + " / onLongClick label " + longLabels);
+
+        // 2b. 两条动作必须在同一个 helper 体内 —— 挡「把 onClick 内联回某一处顶栏」：
+        //     调用点总数仍会是 2，但点击语义只会覆盖一个顶栏，另一处退回「读作按钮、双击无反应」。
+        String actionBody = between(src, "private fun SemanticsPropertyReceiver.detailsActions(",
+                "fun TopBarLabel(");
+        boolean bothInHelper = actionBody != null
+                && actionBody.contains("onClick(label = \"Details\")")
+                && actionBody.contains("onLongClick(label = \"Details\")");
+        check("点击与长按动作同源：两个 label 都只出现在 detailsActions 体内（#374）",
+                bothInHelper, "detailsActions 切片：\n" + actionBody);
 
         // 3. 按函数切片，钉住「谁挂了入口」与门控条件。
         String labelBody = between(src, "private fun TopBarLabel(", "fun LibraryTopBar(model: AppModel)");
@@ -331,12 +349,12 @@ final class UiStateCases {
         boolean gated = labelBody != null
                 && labelBody.contains("if (detailsEntry)")
                 && labelBody.contains(".detailsLongPress(model)")
-                && labelBody.contains("detailsLongClick(model)")
+                && labelBody.contains("detailsActions(model)")
                 // 手势行在 `if (detailsEntry)` 之后 —— 即长按入口受门控，不是无条件挂上。
                 && labelBody.indexOf("if (detailsEntry)") < labelBody.indexOf(".detailsLongPress(model)");
         boolean unconditional = errorBody != null
                 && errorBody.contains(".detailsLongPress(model)")
-                && errorBody.contains("detailsLongClick(model)")
+                && errorBody.contains("detailsActions(model)")
                 && !errorBody.contains("detailsEntry");
         check("库页顶栏长按受 detailsEntry 门控、ERROR 顶栏整簇无条件长按（#310）",
                 gated && unconditional,

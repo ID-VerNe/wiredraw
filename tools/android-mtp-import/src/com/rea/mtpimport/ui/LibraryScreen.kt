@@ -147,7 +147,10 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
             .heightIn(min = 48.dp)
             // 单击折叠/展开（L-08），长按 ≥500 ms = 组选（#62）；滚动越界会取消手势，
             // 与单格长按进看图页互不冲突（作用在不同行/格）。
-            .pointerInput(group) {
+            // key 必须是 `group.key` 而不是 `group`（#374 / IA-13）：filter 档下 `visibleGroups`
+            // 每次重组都新建 `PhotoWall.Group`（`restrict` 的结果，且该类无 `equals`），
+            // 拿对象身份当 key 会让手势检测器随每次重组取消重建，长按 500 ms 中途被吞。
+            .pointerInput(group.key) {
                 detectTapGestures(
                     onTap = { model.toggleCollapsed(group.key) },
                     onLongPress = {
@@ -192,7 +195,7 @@ private fun GroupHeader(model: AppModel, group: PhotoWall.Group) {
 }
 
 /**
- * 网格单元：整格可点（L-08），已选用**形态变化**表达（2 dp 墨色描边 + 去饱和解除），
+ * 网格单元：整格可点（L-08），已选用**形态变化**表达（1 dp 墨色描边 + 去饱和解除），
  * 不画勾选圈、不放徽标、不放大小（V-11 / V-15）。
  *
  * 点格 = 切换已选（L-08 的硬要求）；长按 = 进 `photo` 页（§1.2 的入口）。
@@ -262,7 +265,7 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
     ) {
         val bitmap = thumb
         if (bitmap != null) {
-            // 已选态沿用 V-11：外层 softOutline（2 dp 墨色）+ 未选去饱和、已选恢复饱和度。
+            // 已选态沿用 V-11：外层 softOutline（1 dp 墨色）+ 未选去饱和、已选恢复饱和度。
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = null,
