@@ -326,6 +326,9 @@
   任何区块**不得**因内容变多而挤占其他区块的固定高度。
 - **L-05** 日志不得占首屏。日志/明细**必须**收进可折叠抽屉，默认收起；入口是「长按顶栏设备名；`ERROR` 为『图标 + `Disconnected`』整簇」或 `Details` 按钮，
   默认不可见。展开时覆盖内容区，**不得**把主操作向下推。
+  两个长按入口**必须**同时提供与长按同源的 `onClick` 语义（读屏双击 = 长按，两者都进 `Details`）：
+  声明了 `role = Button` 却不给点击动作，等于让读屏朗读「按钮」而双击无任何反应。
+  这条只补无障碍等价动作，**不改**「真实触摸进 `Details` 只吃长按」的口径（#374 / IA-11）。
 - **L-06** 底部操作区避让手势条。底部按钮/进度区**必须**叠加 `navigationBars` inset 的 padding；
   按钮高度 ≥48 dp；与手势条之间视觉间隔 ≥8 dp。
 - **L-07** 横排按钮可换行。一行放 3 个及以上按钮时**必须**允许换行或收进溢出菜单；大字号下**不得**横向裁切。
@@ -395,7 +398,7 @@
 |---|---|---|---|
 | `CATALOG_READY` | 相机线稿 + `a7C`（14 sp `body-md`） | filter 芯片（仅非 `All` 档，`V-31`）+ 计数胶囊（12 sp `mono-data` 等宽数字，如 `512`（假树值；真机 `All` 为 511））+ `Filter`；渐进扫描时另有 `Cancel`（48 dp） | 方案 B：胶囊 = 可见集合的导出文件数（可见总量分母）；可见已选为 0 时与 `Import all N` 同值，可见已选 ≥1 时 CTA 转 `Import N`、胶囊不变（`V-27`）；设备名长按进 `Details`（`L-05`）；渐进态见 §1.2 与 `V-23` |
 | `COLD` | 相机线稿 + `a7C`（14 sp `body-md`） | `Disconnected`（12 sp `body-sm`） | 方案 A：相机线稿本身不变化；断开只由短词承担，**不**显示数量 |
-| `ERROR` | 断线图标（`V-28`：插头与插座分离）+ `Disconnected`（12 sp `body-sm`） | `Reconnect`（12 sp `body-sm` 可点标签，`V-29`） | 新图标要一眼读出「线没插上」；左侧「图标 + `Disconnected`」**整簇长按**进 `Details`（`L-05`），长按区与右侧 `Reconnect` 的 48 dp 点击区不重叠；`Reconnect` 复用内容区插头图标的同一重连入口（该图标无障碍名同为 `Reconnect`），是顶栏**唯一**的可点文字 |
+| `ERROR` | 断线图标（`V-28`：插头与插座分离）+ `Disconnected`（12 sp `body-sm`） | `Reconnect`（12 sp `body-sm` 可点标签，`V-29`） | 新图标要一眼读出「线没插上」；左侧「图标 + `Disconnected`」**整簇长按**进 `Details`（`L-05`），长按区与右侧 `Reconnect` 的 48 dp 点击区不重叠；`Reconnect` 复用内容区插头图标的同一重连入口（该图标无障碍名同为 `Reconnect`）。**真实触摸下可点的文字只有 `Reconnect`**；左侧整簇按 `L-05` 另带与长按同源的读屏点击动作（双击进 `Details`，触摸点击不响应），因此它在 dump 里也是 `clickable=true`——判「唯一可点文字」按触摸口径，不按 `clickable` 属性 |
 | `PERMISSION_PENDING` / `SCANNING` / `EMPTY_CATALOG` / `UNAVAILABLE` / `DONE` | 相机线稿 + `a7C` | — | 设备已物理连接；授权未完成也按在线画法 |
 | `IMPORTING` / `PAUSED` | `Back` | 相机线稿 + `a7C`（断线时切 `Disconnected`） | 任务视图的关闭入口在左；右端给常驻连接指示（断线由 `V-26` 的 USB 拔出事件置位）；环仍是内容区唯一焦点 |
 | `photo` | `Back` | `Location` | 详情视图，与状态无关 |
