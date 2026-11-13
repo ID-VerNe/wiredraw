@@ -63,6 +63,9 @@ DOWNGRADE_FLAGS = {"--warn", "--soft", "--dry-run"}
 # （例如 `--warn=x`、`-` 本身）一律判形态不对。短别名不能只看 `--`（#139）。
 FLAG_TOKEN = re.compile(r"--[a-z][a-z0-9-]*|-[A-Za-z]")
 
+# 高负载下放宽 --help 探测超时，避免解释器冷启动假红（#347）。
+HELP_PROBE_TIMEOUT = 30
+
 
 def load() -> dict:
     # 读不到 / 不是 JSON 都是「这次检查没做成」，由共享层抛 EnvProblem、main 映射成退出码 2（#204）。
@@ -177,7 +180,8 @@ def _script_flags(script: Path) -> tuple[set[str], list[set[str]]] | None:
     try:
         # 解释器收敛（issue #205）：探测别的脚本 --help 用的解释器与执行器同一源；
         # PATH 上一个都没有时退回当前解释器（探测目的只是打印用法，版本族不影响判定）。
-        proc = run([resolve_python() or sys.executable or "python", str(script), "--help"], timeout=15)
+        # 超时放宽至 HELP_PROBE_TIMEOUT（issue #347）。
+        proc = run([resolve_python() or sys.executable or "python", str(script), "--help"], timeout=HELP_PROBE_TIMEOUT)
     except EnvProblem as e:
         raise ProbeError(
             f"`{script.relative_to(ROOT)} --help` 跑不起来：{e}"
@@ -533,6 +537,7 @@ def self_test() -> int:
         green_exit = _self_test_result([], 1)
     check("#204：自检红退 2", red_exit == ENV_FAIL, f"实际 {red_exit!r}")
     check("#204：自检全绿退 0", green_exit == OK, f"实际 {green_exit!r}")
+    check("#347：--help 探测超时放宽到至少 30s", HELP_PROBE_TIMEOUT >= 30, f"实际 {HELP_PROBE_TIMEOUT}")
 
     return _self_test_result(failures, passed)
 

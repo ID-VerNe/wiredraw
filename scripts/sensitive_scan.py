@@ -12,12 +12,16 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import os
 import re
+import sys
+import threading
+import time
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
-from _common import EnvProblem, git_ls_files, run
+from _common import ENV_FAIL, EnvProblem, git_ls_files, run
 from sensitive_rules import (
     ALLOWLIST,
     ALLOW_RE,
@@ -311,20 +315,67 @@ def tracked_files() -> list[str]:
     return git_ls_files()
 
 
-def scan_repo(repo_slug: str | None) -> tuple[list[Hit], int, int]:
+class ScanWatchdog:
+    """进程内看门狗（#347）：单文件扫描耗时超限时向 stderr 打印告警并 os._exit(ENV_FAIL) 退 2。"""
+
+    def __init__(self, timeout_seconds: float = 30.0):
+        self.timeout = timeout_seconds
+        self._current_file: str | None = None
+        self._last_beat: float = time.monotonic()
+        self._running = False
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self.timeout <= 0:
+            return
+        self._running = True
+        self._last_beat = time.monotonic()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def heartbeat(self, rel_path: str) -> None:
+        self._current_file = rel_path
+        self._last_beat = time.monotonic()
+
+    def stop(self) -> None:
+        self._running = False
+
+    def _loop(self) -> None:
+        check_interval = min(0.05, max(0.01, self.timeout / 5))
+        while self._running:
+            time.sleep(check_interval)
+            if not self._running:
+                break
+            elapsed = time.monotonic() - self._last_beat
+            if elapsed > self.timeout:
+                cur = self._current_file or "未知文件"
+                print(
+                    f"[红] 敏感信息扫描看门狗超时：处理 '{cur}' 耗时超过 {self.timeout:.1f} 秒",
+                    file=sys.stderr,
+                )
+                os._exit(ENV_FAIL)
+
+
+def scan_repo(repo_slug: str | None, *, watchdog_timeout: float = 30.0) -> tuple[list[Hit], int, int]:
     hits: list[Hit] = []
     scanned = skipped = 0
-    for rel in tracked_files():
-        try:
-            text = _read_text(ROOT / rel)
-        except OSError as e:
-            # 读盘失败不是「内容不合格」而是「这次扫描没做成」：交给 main 映射成退出码 2（#204）。
-            raise EnvProblem(
-                f"被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）"
-            ) from e
-        if text is None:
-            skipped += 1
-            continue
-        scanned += 1
-        hits.extend(scan_text(text, rel, repo_slug))
+    watchdog = ScanWatchdog(watchdog_timeout)
+    watchdog.start()
+    try:
+        for rel in tracked_files():
+            watchdog.heartbeat(rel)
+            try:
+                text = _read_text(ROOT / rel)
+            except OSError as e:
+                # 读盘失败不是「内容不合格」而是「这次扫描没做成」：交给 main 映射成退出码 2（#204）。
+                raise EnvProblem(
+                    f"被跟踪文件读不到：{rel}（{e.strerror or '未知错误'}）"
+                ) from e
+            if text is None:
+                skipped += 1
+                continue
+            scanned += 1
+            hits.extend(scan_text(text, rel, repo_slug))
+    finally:
+        watchdog.stop()
     return hits, scanned, skipped
