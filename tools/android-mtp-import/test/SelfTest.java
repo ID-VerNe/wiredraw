@@ -82,15 +82,19 @@ public final class SelfTest {
         requestScanLogCases();
         noDeviceColdGuardCases();
         photoGridScrollPositionCases();
+        stickyDateAndFastScrollerCases();
         usbIdentityCases();
         colorTokensCases();
         backNavCases();
         uiTextCases();
         photoWallCases();
+        photoWallGridIndexCases();
         aggregateCases();
         rangeReadCases();
         derivedValueCases();
         derivedSourceCases();
+        groupBytesCases();
+        checkedMirrorCases();
         typeTokenCases();
         dimsCases();
         typeSourceCases();
@@ -114,6 +118,7 @@ public final class SelfTest {
         productDestinationCases();
         tempDirCases();
         testSupportCases();
+        sourceEolCases();
         thumbnailGuardCases();
         scannerGuardCases();
 

@@ -680,4 +680,27 @@ final class UiStateCases {
                 photoSrc != null && photoSrc.contains(".tappable(onClick = {})"),
                 photoSrc == null ? "读不到 " + photoScreen : "PhotoScreen 未在画布层消费点击");
     }
+
+    /**
+     * issue #365 / #366：照片墙吸顶日期指示与快速滚动拉手源码护栏。
+     */
+    static void stickyDateAndFastScrollerCases() {
+        File libScreen = source("com/rea/mtpimport/ui/LibraryScreen.kt");
+        String libSrc = readSourceOrNull(libScreen);
+        check("LibraryScreen 挂载吸顶日期指示 FloatingDateHeader（#365）",
+                libSrc != null && libSrc.contains("FloatingDateHeader(") && libSrc.contains("groupAtItemIndex"),
+                libSrc == null ? "读不到 " + libScreen : "未找到 FloatingDateHeader 或 groupAtItemIndex 联动");
+
+        check("LibraryScreen 挂载快速滚动条 FastScroller（#366）",
+                libSrc != null && libSrc.contains("FastScroller("),
+                libSrc == null ? "读不到 " + libScreen : "未挂载 FastScroller");
+
+        File fastScroller = source("com/rea/mtpimport/ui/FastScroller.kt");
+        String scrollerSrc = readSourceOrNull(fastScroller);
+        check("FastScroller 组件存在且包含拖动手柄与日期指示气泡（#366）",
+                scrollerSrc != null && scrollerSrc.contains("FastScroller")
+                        && scrollerSrc.contains("DateBubble")
+                        && scrollerSrc.contains("scrollToItem"),
+                scrollerSrc == null ? "读不到 " + fastScroller : "FastScroller 缺少 DateBubble 或 scrollToItem 调用");
+    }
 }

@@ -2,6 +2,7 @@ package com.rea.mtpimport;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -523,5 +524,55 @@ final class SourceGuardCases {
         check("文件夹优先发现：ScanTask.Host 声明 onFoldersDiscovered 回调（#372）",
                 taskSrc != null && taskSrc.contains("onFoldersDiscovered"),
                 taskSrc == null ? "读不到 " + task : "ScanTask.Host 未声明 onFoldersDiscovered");
+    }
+
+    // ---------------- 源码读取的换行归一（issue #374 评审第 3 轮） ----------------
+
+    /**
+     * 墓碑：`readSourceOrNull` 必须把 CRLF 折成 LF。
+     *
+     * 不是洁癖。`WallCases.checkedMirrorCases` 的断言是「整行与期望逐字相等 + 缩进精确」，
+     * 判定靠 `src.split("\n")`；CRLF 检出时每行尾部留一个 `\r`，`equals` 永远为假，
+     * 于是「代码完全正确、四条断言全红」。`slice(src, …, "\n    }\n")` 同理找不到落点，
+     * 连带「无早返回」也红。这类假红最贵：它逼人怀疑被测代码，而问题在检出的换行。
+     *
+     * 归一只能放在读取入口 —— 每条用例各自 `replace` 会漏，漏掉的那条恰好在别人的 CRLF 机器上红。
+     */
+    static void sourceEolCases() throws Exception {
+        withTempDir("wiredraw-eol", dir -> {
+            File crlf = new File(dir, "Crlf.kt");
+            Files.writeString(crlf.toPath(),
+                    "class A {\r\n    fun b() {\r\n        c()\r\n    }\r\n}\r\n",
+                    StandardCharsets.UTF_8);
+            String read = readSourceOrNull(crlf);
+            boolean hasCr = read != null && read.indexOf('\r') >= 0;
+            // 真正要保的是「逐行相等」这类断言能成立：缩进 8 格那一行必须原样取到。
+            boolean lineMatches = false;
+            if (read != null) {
+                for (String line : read.split("\n", -1)) {
+                    if (line.equals("        c()")) lineMatches = true;
+                }
+            }
+            check("读源码归一换行：CRLF 检出后整行比对仍成立（#374 IA-6）",
+                    read != null && !hasCr && lineMatches,
+                    read == null ? "读不到 " + crlf
+                            : "仍含 \\r=" + hasCr + "，整行相等=" + lineMatches
+                            + "，实际=" + (read == null ? "null" : read.replace("\r", "\\r")));
+
+            File cr = new File(dir, "Cr.java");
+            Files.writeString(cr.toPath(), "a\rb\rc\r", StandardCharsets.UTF_8);
+            String crRead = readSourceOrNull(cr);
+            check("读源码归一换行：孤立 CR（老 Mac 换行）也折成 LF（#374 IA-6）",
+                    "a\nb\nc\n".equals(crRead),
+                    "实际=" + (crRead == null ? "null" : crRead.replace("\r", "\\r")));
+
+            File lf = new File(dir, "Lf.kt");
+            Files.writeString(lf.toPath(), "a\nb\n", StandardCharsets.UTF_8);
+            String lfRead = readSourceOrNull(lf);
+            check("读源码归一换行：本来就是 LF 的内容原样返回（#374 IA-6）",
+                    "a\nb\n".equals(lfRead),
+                    "实际=" + (lfRead == null ? "null" : lfRead.replace("\r", "\\r")));
+        });
+    }
     }
 }

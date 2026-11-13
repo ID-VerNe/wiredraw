@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 照片墙：把 {@link Catalog} 里的 ARW / JPG 合成「照片单元」，再按「日期组」聚合。
@@ -125,21 +126,43 @@ public final class PhotoWall {
         public final String label;
         public final List<Unit> photos;
 
+        // 三种档位的字节数在**建组时**算一次（#374 / IA-6）：组头每次点选都会重算聚合，
+        // 而 `bytes(mode)` 原本每次都遍历组内全部单元。建组是 O(n) 一次性，读是 O(1)。
+        private final long bytesJpgFirst;
+        private final long bytesRaw;
+        private final long bytesJpg;
+
         Group(String key, String label, List<Unit> photos) {
             this.key = key;
             this.label = label;
             this.photos = Collections.unmodifiableList(photos);
+            long jpgFirst = 0;
+            long raw = 0;
+            long jpg = 0;
+            for (Unit u : photos) {
+                jpgFirst += u.exportBytes(Export.JPG_FIRST);
+                raw += u.exportBytes(Export.RAW);
+                jpg += u.exportBytes(Export.JPG);
+            }
+            this.bytesJpgFirst = jpgFirst;
+            this.bytesRaw = raw;
+            this.bytesJpg = jpg;
         }
 
         public int count() {
             return photos.size();
         }
 
-        /** 组内导出载荷字节：随当前档位变化（`V-16` / `V-32`）。 */
+        /** 组内导出载荷字节：随当前档位变化（`V-16` / `V-32`）；建组时已按三档预聚合。 */
         public long bytes(Export mode) {
-            long sum = 0;
-            for (Unit u : photos) sum += u.exportBytes(mode);
-            return sum;
+            switch (mode) {
+                case RAW:
+                    return bytesRaw;
+                case JPG:
+                    return bytesJpg;
+                default:
+                    return bytesJpgFirst;
+            }
         }
 
         /**
@@ -328,6 +351,52 @@ public final class PhotoWall {
         String label = UiText.monthDay(year, month, day);
         // 解析失败或月份越界时退回目录名，避免组头出现 `null`。
         return label == null ? folder : label;
+    }
+
+    /**
+     * 计算可见网格中的总项数（组头 + 展开的单张照片项数，issue #365 / #366）。
+     */
+    public static int gridTotalItems(List<Group> groups, Set<String> collapsedKeys) {
+        if (groups == null || groups.isEmpty()) return 0;
+        int total = 0;
+        for (Group g : groups) {
+            total++;
+            if (collapsedKeys == null || !collapsedKeys.contains(g.key)) {
+                total += g.photos.size();
+            }
+        }
+        return total;
+    }
+
+    /**
+     * 根据网格项绝对索引查找所属的 Group（issue #365 / #366）。
+     */
+    public static Group groupAtItemIndex(List<Group> groups, Set<String> collapsedKeys, int itemIndex) {
+        if (groups == null || groups.isEmpty()) return null;
+        if (itemIndex <= 0) return groups.get(0);
+        int current = 0;
+        for (Group g : groups) {
+            int groupSize = 1 + ((collapsedKeys == null || !collapsedKeys.contains(g.key)) ? g.photos.size() : 0);
+            if (itemIndex >= current && itemIndex < current + groupSize) {
+                return g;
+            }
+            current += groupSize;
+        }
+        return groups.get(groups.size() - 1);
+    }
+
+    /**
+     * 查找指定 Group 在网格中的起始项索引（issue #365 / #366）。
+     */
+    public static int groupStartIndex(List<Group> groups, Set<String> collapsedKeys, String groupKey) {
+        if (groups == null || groups.isEmpty() || groupKey == null) return 0;
+        int current = 0;
+        for (Group g : groups) {
+            if (groupKey.equals(g.key)) return current;
+            int groupSize = 1 + ((collapsedKeys == null || !collapsedKeys.contains(g.key)) ? g.photos.size() : 0);
+            current += groupSize;
+        }
+        return 0;
     }
 
     @Override
