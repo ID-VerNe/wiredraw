@@ -250,18 +250,18 @@ issue #67 在 ILCE-7C 上得到的「offset 是绝对偏移」结论不能作为
 （Compose 运行库 BOM `2024.12.01`）。工具链由 `gradle/wrapper/` 锁定，**不要**用本机全局
 安装的 Gradle。首次构建要联网下载 Gradle 依赖；本机代理链路会间歇断开，失败时原样重跑即可。
 
-一条命令验完（JVM 自检 + APK 构建）：
+一条命令验完（JVM 自检 + APK 构建，建议显式追加 `--no-daemon` 避免 daemon 进程被操作系统意外回收）：
 
 ```bash
 # Linux / macOS / Git Bash
-bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
+bash tools/android-mtp-import/gradlew -p tools/android-mtp-import --no-daemon selfTest assembleDebug
 ```
 
 Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOME` 与 SDK，
 `gradlew` 会报 `JAVA_HOME is not set`）：
 
 ```powershell
-.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest assembleDebug
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import --no-daemon selfTest assembleDebug
 ```
 
 只跑纯逻辑自检（仍需能定位 Android SDK —— 配置阶段即校验）。项数随用例增加，

@@ -59,7 +59,7 @@ python scripts/run_gates.py manual
 
 ```bash
 # Linux / macOS / Git Bash
-bash tools/android-mtp-import/gradlew -p tools/android-mtp-import selfTest assembleDebug
+bash tools/android-mtp-import/gradlew -p tools/android-mtp-import --no-daemon selfTest assembleDebug
 # 产物：tools/android-mtp-import/build/outputs/apk/debug/mtp-import-debug.apk
 ```
 
@@ -67,11 +67,12 @@ Windows PowerShell 用 `.bat` 包装脚本（WSL 里没有 Windows 的 `JAVA_HOM
 `gradlew` 会报 `JAVA_HOME is not set`）：
 
 ```powershell
-.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import selfTest assembleDebug
+.\tools\android-mtp-import\gradlew.bat -p tools/android-mtp-import --no-daemon selfTest assembleDebug
 ```
 
 - 纯逻辑自检不需要真机；只需定位 Android SDK（配置阶段即校验）。项数随用例增加，
   **以 `selfTest` 输出末行 `== 自检全绿：N 项 ==` 为准**。
+- 本机与 CI 运行 gradle 建议显式带 `--no-daemon`（避免常驻 daemon 进程在高负载或内存紧张时被系统意外 SIGKILL 导致 0 字节日志截断，见 #348）。
 - 纯 JDK 边界由编译期强制：`compilePureJdkJava` 编译这批文件时不给 `android.jar`，
   偷 `import android.*` 会直接编译失败。
 - `manual` 档还会跑 `verifyApk`，用 SDK 的 `apksigner` 实测验签。
@@ -106,3 +107,4 @@ python scripts/run_gates.py manual
 | SDK 版本不匹配 | `build-tools` / `platform` 不是构建常量里的版本 | 装对应版本，或改仓库根 `build-constants.properties` 的 `buildToolsVersion` / `platformApi` |
 | Windows 下 `javac` 失败但脚本继续 | 退出码被管道吞掉 | 构建脚本一律先落日志再判退出码，不要用 `cmd` 管道 |
 | PowerShell 里 `bash ...` 报「找不到 Android SDK」或 `JAVA_HOME is not set` | PowerShell 的 `bash` 是 WSL，看不到 Windows 的 SDK / JDK | 改用 `python scripts/run_gates.py manual`，或 Git for Windows 的 `bash.exe`（第三节）与 `gradlew.bat`（第四节） |
+| Gradle 退出 -1 且日志 0 字节 | 常驻 Gradle daemon 被系统意外回收（SIGKILL） | 命令行追加 `--no-daemon` 重跑；若首跑遇空日志，重跑一次再归因（#348） |
