@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 照片墙：把 {@link Catalog} 里的 ARW / JPG 合成「照片单元」，再按「日期组」聚合。
@@ -350,6 +351,52 @@ public final class PhotoWall {
         String label = UiText.monthDay(year, month, day);
         // 解析失败或月份越界时退回目录名，避免组头出现 `null`。
         return label == null ? folder : label;
+    }
+
+    /**
+     * 计算可见网格中的总项数（组头 + 展开的单张照片项数，issue #365 / #366）。
+     */
+    public static int gridTotalItems(List<Group> groups, Set<String> collapsedKeys) {
+        if (groups == null || groups.isEmpty()) return 0;
+        int total = 0;
+        for (Group g : groups) {
+            total++;
+            if (collapsedKeys == null || !collapsedKeys.contains(g.key)) {
+                total += g.photos.size();
+            }
+        }
+        return total;
+    }
+
+    /**
+     * 根据网格项绝对索引查找所属的 Group（issue #365 / #366）。
+     */
+    public static Group groupAtItemIndex(List<Group> groups, Set<String> collapsedKeys, int itemIndex) {
+        if (groups == null || groups.isEmpty()) return null;
+        if (itemIndex <= 0) return groups.get(0);
+        int current = 0;
+        for (Group g : groups) {
+            int groupSize = 1 + ((collapsedKeys == null || !collapsedKeys.contains(g.key)) ? g.photos.size() : 0);
+            if (itemIndex >= current && itemIndex < current + groupSize) {
+                return g;
+            }
+            current += groupSize;
+        }
+        return groups.get(groups.size() - 1);
+    }
+
+    /**
+     * 查找指定 Group 在网格中的起始项索引（issue #365 / #366）。
+     */
+    public static int groupStartIndex(List<Group> groups, Set<String> collapsedKeys, String groupKey) {
+        if (groups == null || groups.isEmpty() || groupKey == null) return 0;
+        int current = 0;
+        for (Group g : groups) {
+            if (groupKey.equals(g.key)) return current;
+            int groupSize = 1 + ((collapsedKeys == null || !collapsedKeys.contains(g.key)) ? g.photos.size() : 0);
+            current += groupSize;
+        }
+        return 0;
     }
 
     @Override

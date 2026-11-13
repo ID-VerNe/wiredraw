@@ -2,6 +2,7 @@ package com.rea.mtpimport.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,9 +25,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +51,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rea.mtpimport.Catalog
@@ -60,6 +64,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
@@ -73,6 +78,23 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun LibraryScreen(model: AppModel) {
+    val groups = model.visibleGroups
+    val collapsed = model.collapsed.toSet()
+    val coroutineScope = rememberCoroutineScope()
+
+    val currentGroup by remember(groups, collapsed) {
+        derivedStateOf {
+            val firstIndex = model.gridState.firstVisibleItemIndex
+            PhotoWall.groupAtItemIndex(groups, collapsed, firstIndex)
+        }
+    }
+
+    val showFloatingHeader by remember {
+        derivedStateOf {
+            model.gridState.firstVisibleItemIndex > 0 || model.gridState.firstVisibleItemScrollOffset > 32
+        }
+    }
+
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         // 顶栏在全部状态常驻（#44 决策 2）；内容按 §2.2 逐态分化，本页是 CATALOG_READY 形态。
         // 「哪些状态有顶栏」与 SelfTest 共用 `TopBarSpec.hasBar`（N-1）。
@@ -81,8 +103,65 @@ fun LibraryScreen(model: AppModel) {
         if (model.backgroundScanning) ScanLine(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PhotoGrid(model)
+            if (showFloatingHeader && currentGroup != null) {
+                FloatingDateHeader(
+                    currentGroup = currentGroup!!,
+                    onClick = {
+                        val targetIndex = PhotoWall.groupStartIndex(groups, collapsed, currentGroup!!.key)
+                        coroutineScope.launch {
+                            model.gridState.animateScrollToItem(targetIndex)
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                )
+            }
+            FastScroller(
+                model = model,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
         }
         ImportBar(model)
+    }
+}
+
+/**
+ * 悬浮吸顶日期指示胶囊（issue #365）。
+ *
+ * 随着照片墙滚动，当前视口所属的拍摄日期常驻显示于顶部；
+ * 点击胶囊可平滑回滚至该日期组起始位置。
+ */
+@Composable
+private fun FloatingDateHeader(
+    currentGroup: PhotoWall.Group,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(UiColors.surfaceWhite.copy(alpha = 0.95f))
+            .border(1.dp, UiColors.outlineSoft, RoundedCornerShape(16.dp))
+            .tappable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = "Current date: " + currentGroup.label
+                onClick(label = "Scroll to top of date group") {
+                    onClick()
+                    true
+                }
+            }
+            .testTag("floatingDateHeader")
+    ) {
+        BasicText(
+            text = currentGroup.label,
+            style = TextSmall.copy(
+                color = UiColors.onSurface,
+                fontWeight = FontWeight.Medium
+            )
+        )
     }
 }
 

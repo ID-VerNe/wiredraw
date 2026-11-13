@@ -2,7 +2,9 @@ package com.rea.mtpimport;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static com.rea.mtpimport.TestSupport.*;
 import static com.rea.mtpimport.Fixtures.*;
@@ -12,6 +14,63 @@ import static com.rea.mtpimport.SourceGuard.*;
 final class WallCases {
 
     // ---------------- 照片墙分组（PhotoWall） ----------------
+
+    /**
+     * issue #365 / #366：网格项绝对索引与日期组映射算法。
+     */
+    static void photoWallGridIndexCases() {
+        PhotoWall wall = PhotoWall.of(sample());
+        List<PhotoWall.Group> groups = wall.groups();
+        check("网格总项数：未折叠时 3 个组头 + 3 张照片 = 6 项（#365）",
+                PhotoWall.gridTotalItems(groups, Collections.emptySet()) == 6,
+                "实际 " + PhotoWall.gridTotalItems(groups, Collections.emptySet()));
+
+        String secondGroupKey = groups.get(1).key;
+        Set<String> collapsedSecond = Set.of(secondGroupKey);
+        check("网格总项数：折叠第 2 组后项数减为 5 项（#365）",
+                PhotoWall.gridTotalItems(groups, collapsedSecond) == 5,
+                "实际 " + PhotoWall.gridTotalItems(groups, collapsedSecond));
+
+        check("网格项索引映射：index 0 归属组 0 组头（#365）",
+                PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 0) == groups.get(0),
+                "实际 " + PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 0));
+
+        check("网格项索引映射：index 1 归属组 0 照片（#365）",
+                PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 1) == groups.get(0),
+                "实际 " + PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 1));
+
+        check("网格项索引映射：index 2 归属组 1（#365）",
+                PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 2) == groups.get(1),
+                "实际 " + PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 2));
+
+        check("网格项索引映射：折叠组 1 后 index 3 归属组 2（#365）",
+                PhotoWall.groupAtItemIndex(groups, collapsedSecond, 3) == groups.get(2),
+                "实际 " + PhotoWall.groupAtItemIndex(groups, collapsedSecond, 3));
+
+        check("网格项索引映射：负索引安全回退第一组（#365）",
+                PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), -5) == groups.get(0),
+                "实际 " + PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), -5));
+
+        check("网格项索引映射：越界大索引安全回退最后一组（#365）",
+                PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 999) == groups.get(2),
+                "实际 " + PhotoWall.groupAtItemIndex(groups, Collections.emptySet(), 999));
+
+        check("组起始索引：组 0 起始于 0（#365）",
+                PhotoWall.groupStartIndex(groups, Collections.emptySet(), groups.get(0).key) == 0,
+                "实际 " + PhotoWall.groupStartIndex(groups, Collections.emptySet(), groups.get(0).key));
+
+        check("组起始索引：未折叠时组 1 起始于 2（#365）",
+                PhotoWall.groupStartIndex(groups, Collections.emptySet(), groups.get(1).key) == 2,
+                "实际 " + PhotoWall.groupStartIndex(groups, Collections.emptySet(), groups.get(1).key));
+
+        check("组起始索引：未折叠时组 2 起始于 4（#365）",
+                PhotoWall.groupStartIndex(groups, Collections.emptySet(), groups.get(2).key) == 4,
+                "实际 " + PhotoWall.groupStartIndex(groups, Collections.emptySet(), groups.get(2).key));
+
+        check("组起始索引：折叠组 1 后组 2 起始于 3（#365）",
+                PhotoWall.groupStartIndex(groups, collapsedSecond, groups.get(2).key) == 3,
+                "实际 " + PhotoWall.groupStartIndex(groups, collapsedSecond, groups.get(2).key));
+    }
 
     static void photoWallCases() {
         PhotoWall wall = PhotoWall.of(sample());
