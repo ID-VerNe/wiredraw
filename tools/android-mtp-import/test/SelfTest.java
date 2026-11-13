@@ -90,6 +90,8 @@ public final class SelfTest {
         rangeReadCases();
         derivedValueCases();
         derivedSourceCases();
+        groupBytesCases();
+        checkedMirrorCases();
         typeTokenCases();
         dimsCases();
         typeSourceCases();
@@ -113,6 +115,7 @@ public final class SelfTest {
         productDestinationCases();
         tempDirCases();
         testSupportCases();
+        sourceEolCases();
         thumbnailGuardCases();
 
         System.out.println();

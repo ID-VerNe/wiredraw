@@ -2,6 +2,7 @@ package com.rea.mtpimport.ui
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -65,9 +66,26 @@ class AppModel {
     var selection by mutableStateOf<Selection?>(null)
         private set
 
-    /** Selection 不是 observable；每次勾选/清空后自增，Compose 靠它重绘。 */
-    var selectionVersion by mutableIntStateOf(0)
-        private set
+    /**
+     * 勾选状态的**细粒度失效源**（#374 / IA-6）：每个单元一个独立的 `MutableState<Boolean>`。
+     *
+     * `Selection` 是不可观察的 Java 集合，原先靠一个全局 `selectionVersion` 计数器让整面墙失效：
+     * 每格、每个组头都读它，于是点一格 = 全部可见格子与组头一起重组。
+     *
+     * **为什么不是 `SnapshotStateMap`**：那是整表订阅 —— 任何一次写入都会让所有读过这张表的
+     * 作用域失效，等于把「细粒度」又做回「整墙」。实测（E2，10 次点选）用 `SnapshotStateMap`
+     * 只把 p50 从 36 ms 压到 30 ms、janky 仍是 13/18；换成每 key 独立的 `MutableState` 后
+     * 只有被点的那一格与真正受影响的组头失效。
+     *
+     * 它只是**镜像/失效源**，不是真相源：真相仍在 `Selection`（Java 侧导出计划读的就是它）。
+     * 因此两条写路径（`toggleUnitSelection` / `toggleGroupSelection`）必须在写 `Selection` 的同一处同步，
+     * 树装载/丢弃时从 `Selection` 整表回读（[syncCheckedFromSelection]）——两边分叉就是「点得动、计数不动」。
+     */
+    private val checkedStates = HashMap<String, MutableState<Boolean>>()
+
+    /** 取某单元的状态格（缺省 false）；只在 UI 线程调用，`getOrPut` 只是建格，不是状态写入。 */
+    private fun checkedState(key: String): MutableState<Boolean> =
+        checkedStates.getOrPut(key) { mutableStateOf(false) }
 
     var scanDone by mutableIntStateOf(0)
     var scanTotal by mutableIntStateOf(0)
@@ -216,9 +234,15 @@ class AppModel {
     /** 可见集合的导出文件数（每单元恒 1 个文件）；顶栏胶囊与主 CTA 同分母（`C-08`）。 */
     val visibleExportCount: Int get() = visibleUnits.size
 
-    /** 可见已选数（CTA 的 `N`，`C-10`）；隐藏的已选项不计。读版本号订阅勾选变化（F-20）。 */
+    /**
+     * 可见已选数（CTA 的 `N`，`C-10`）；隐藏的已选项不计。
+     *
+     * 读每格的细粒度状态而不是版本号（#374 / IA-6）：原实现 `count { it.isChecked(selection) }` 里
+     * `isChecked` 每次都 `handles()` 新建 ArrayList，511 单元 = 511 个列表 + 1022 次装箱，**每点一次**。
+     * 现在退化成 511 次 map 读（约几十微秒），不再分配。
+     */
     val visibleSelectedCount: Int
-        get() = selectionVersion.let { visibleUnits.count { u -> u.isChecked(selection) } }
+        get() = visibleUnits.count { checkedState(it.key).value }
 
     val allGroups: List<PhotoWall.Group> get() = wall?.groups() ?: emptyList()
 
@@ -226,13 +250,27 @@ class AppModel {
      * 可见组：由 [visibleUnits] 的 key 集合从 [allGroups] 重建（#214 / F-02）。
      *
      * 组头计数因此恒等于条目数；没剪掉任何单元时（`All` 档）直接返回原组，不复制。
+     *
+     * 三档 filter 下的 `restrict` 结果按 (档位, 日期, 墙) 缓存（#374 / IA-6）：原先每次 getter 调用
+     * 都重建一遍 `Group` 与 `ArrayList`。读点在 `LibraryScreen.PhotoGrid` 顶部（每次重组读一次），
+     * 不是每个组头各读一次——组头的计数走 `Group.summary`，与本缓存无关。
+     * `PhotoWall` 没有 `equals`，缓存键按对象身份比对 —— 换墙必然重算，正是想要的口径。
      */
     val visibleGroups: List<PhotoWall.Group>
         get() {
             val units = visibleUnits
             if (units.size == allUnits.size) return allGroups
-            return PhotoWall.restrict(allGroups, units.map { it.key }.toSet())
+            val key = Triple(filterKind, filterDate, wall)
+            if (key == groupsCacheKey) return groupsCache
+            val built = PhotoWall.restrict(allGroups, units.map { it.key }.toSet())
+            groupsCacheKey = key
+            groupsCache = built
+            return built
         }
+
+    /** [visibleGroups] 的缓存（只在 filter 档位/日期/墙变化时失效）。 */
+    private var groupsCacheKey: Triple<FilterKind, String?, PhotoWall?>? = null
+    private var groupsCache: List<PhotoWall.Group> = emptyList()
 
     /** 顶栏 filter 芯片（`V-31`）：`All` 档不显示；日期档取组标签（如 `Jun 7`）。 */
     val filterChip: String?
@@ -244,15 +282,26 @@ class AppModel {
         }
 
     /**
-     * 单格勾选状态的唯一读取入口（#214 / F-20）：读版本号订阅变更，再给结果。
-     * 页面不再自己 `val version = model.selectionVersion`。
+     * 单格勾选状态的唯一读取入口（#214 / F-20）。
+     *
+     * 只读本格那一个 key（#374 / IA-6）：点一格只会让它自己失效，不再牵动整面墙。
+     * 页面不得自己去读镜像表，也不得再读版本号。
      */
-    fun isUnitChecked(unit: PhotoWall.Unit): Boolean =
-        selectionVersion.let { unit.isChecked(selection) }
+    fun isUnitChecked(unit: PhotoWall.Unit): Boolean = checkedState(unit.key).value
 
-    /** 日期组「是否已全选」的唯一读取入口（#214 / F-20），同样在内部读版本号。 */
-    fun isGroupChecked(group: PhotoWall.Group): Boolean = selectionVersion.let {
-        selection?.allCheckedHandles(group.photos.flatMap { u -> u.handles() }) == true
+    /**
+     * 日期组「是否已全选」的唯一读取入口（#214 / F-20）。
+     *
+     * 两件事（#374 / IA-6）：① 逐个单元短路，不再 `flatMap { it.handles() }` 现造列表 ——
+     * 一组几十到上百张，建列表本身比判断还贵，遇到未选还能提前返回；② 只订阅本组各单元的 key，
+     * 其它组被点时本组头不失效。
+     */
+    fun isGroupChecked(group: PhotoWall.Group): Boolean {
+        if (group.photos.isEmpty()) return false
+        for (u in group.photos) {
+            if (!checkedState(u.key).value) return false
+        }
+        return true
     }
 
     // 名字不能叫 `setDeviceName` / `setLocationPath`：这两个 property 的 setter 已经占用
@@ -334,7 +383,7 @@ class AppModel {
         wall = PhotoWall.of(c)
         scanDone = done
         scanTotal = total
-        selectionVersion++
+        syncCheckedFromSelection()
         if ((wall?.photoCount() ?: 0) == 0) {
             transition(UiTransition.Action.SCANNING)
             return
@@ -348,8 +397,8 @@ class AppModel {
         catalog = null
         wall = null
         selection = null
-        selectionVersion++
         gridState = LazyGridState()
+        syncCheckedFromSelection()
         transition(UiTransition.Action.DISCARD_PARTIAL)
     }
 
@@ -370,12 +419,37 @@ class AppModel {
         catalog = c
         selection = s
         wall = PhotoWall.of(c)
-        selectionVersion++
         gridState = LazyGridState()
+        syncCheckedFromSelection()
         transition(
             if (wall!!.photoCount() == 0) UiTransition.Action.EMPTY
             else UiTransition.Action.CATALOG_FULL
         )
+    }
+
+    /**
+     * 把 [checkedStates] 与 `Selection` 对齐（#374 / IA-6）。
+     *
+     * 调用点只有「树装进来/丢掉」这四处（`showCatalog` / `showPartialCatalog` / `discardPartialCatalog`
+     * / `applyDemo` 的清空分支），都是每次扫描或切态一次，不是每帧。**必须整表回读**而不是置空：渐进发布时
+     * `Main.publishPartial` 对同一个 `Selection` 走 `retarget`，用户的勾选是跨快照保留的。
+     *
+     * 不清空整张 map：已组合的格子还握着旧的 `MutableState` 引用，换对象等于让它们读到默认值；
+     * 只写「当前树里有的 key」，再把不在树里的 key 剪掉。
+     */
+    private fun syncCheckedFromSelection() {
+        val sel = selection
+        val live = HashSet<String>(allUnits.size * 2)
+        for (u in allUnits) {
+            live.add(u.key)
+            checkedState(u.key).value = sel != null && u.isChecked(sel)
+        }
+        if (checkedStates.size > live.size) {
+            val keys = checkedStates.keys.iterator()
+            while (keys.hasNext()) {
+                if (!live.contains(keys.next())) keys.remove()
+            }
+        }
     }
 
     fun showImport(doneFiles: Int, totalFiles: Int) {
@@ -460,7 +534,8 @@ class AppModel {
         val sel = selection ?: return
         val on = !unit.isChecked(sel)
         for (handle in unit.handles()) sel.setChecked(handle, on)
-        selectionVersion++
+        // 与写 `Selection` 同一处同步失效源（#374 / IA-6）：只有本格的 key 变，只有本格失效。
+        checkedState(unit.key).value = on
         // P-09：计划大小随勾选变化，交给 Main 重新预检空间（决定主 CTA 是否禁用）。
         callbacks?.onSelectionChanged()
     }
@@ -477,7 +552,8 @@ class AppModel {
         val handles = group.photos.flatMap { it.handles() }
         val select = !sel.allCheckedHandles(handles)
         sel.setCheckedAll(handles, select)
-        selectionVersion++
+        // 整组一起写失效源（#374 / IA-6）：组内每格与组头都失效，其它组不失效。
+        for (u in group.photos) checkedState(u.key).value = select
         if (select) collapsed.remove(group.key)
         callbacks?.onSelectionChanged()
     }
@@ -588,6 +664,9 @@ class AppModel {
                 catalog = null
                 wall = null
                 selection = null
+                // demo 装载也会走到「把树丢掉」这条路径（评审第 1 轮建议）：与 `discardPartialCatalog`
+                // 同口径清一遍镜像，否则 `checkedStates` 里会留下上一棵树残留的 key。
+                syncCheckedFromSelection()
                 state = UiState.State.EMPTY_CATALOG
             }
             else -> state = p.state

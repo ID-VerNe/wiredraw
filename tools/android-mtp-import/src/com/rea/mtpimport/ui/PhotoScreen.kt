@@ -91,8 +91,10 @@ fun PhotoScreen(model: AppModel) {
     ) {
         val bitmap = preview
         if (bitmap != null) {
+            // 与网格同款（#374 / IA-6）：`asImageBitmap()` 的包装进 `remember`，不在每次重组里重建。
+            val image = remember(bitmap) { bitmap.asImageBitmap() }
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = image,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
