@@ -141,9 +141,127 @@ final class WallCases {
         check("组头聚合只在 PhotoWall：src 里 group.count() 0 命中", scanned > 0 && hits.isEmpty(),
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
         hits.clear();
-        scanned = scanSourceText(srcRoot, "selectionVersion", "src/com/rea/mtpimport/ui/AppModel.kt", hits);
-        check("勾选订阅只在 AppModel：页面不得裸读 selectionVersion", scanned > 0 && hits.isEmpty(),
+        // #374 / IA-6：失效源从全局版本号换成按 key 的镜像表，守卫的口径随之改成「页面不得自己碰镜像」——
+        // 页面只能走 `isUnitChecked` / `isGroupChecked`，否则等于绕过唯一读取入口、把细粒度又摊平。
+        scanned = scanSourceText(srcRoot, "checkedState", "src/com/rea/mtpimport/ui/AppModel.kt", hits);
+        check("勾选失效源只在 AppModel：页面不得裸读 checkedState", scanned > 0 && hits.isEmpty(),
                 "扫描 " + scanned + " 个文件，命中：\n" + String.join("\n", hits));
+    }
+
+    /**
+     * #374 / IA-6：组头聚合从「每次遍历求和」改成「建组时按三档预聚合」。
+     *
+     * 预聚合最容易犯的错是三个累加器写串（比如 `bytesRaw` 累到 `bytesJpg` 上），而组头文案
+     * 只会在真机上「数字不对」，单测不盯就没人发现。这里对每档逐项对账，并确认 `select()` 出来的
+     * 子组同样按新的单元集合重算（不是沿用父组的数）。
+     */
+    static void groupBytesCases() {
+        PhotoWall wall = PhotoWall.of(sample());
+        boolean allMatch = true;
+        boolean summaryMatch = true;
+        String detail = "";
+        for (PhotoWall.Group g : wall.groups()) {
+            for (PhotoWall.Export mode : PhotoWall.Export.values()) {
+                long manual = 0;
+                for (PhotoWall.Unit u : g.photos) manual += u.exportBytes(mode);
+                if (g.bytes(mode) != manual) {
+                    allMatch = false;
+                    detail += g.key + "/" + mode + " 预聚合 " + g.bytes(mode) + " ≠ 逐项 " + manual + "\n";
+                }
+                if (g.summary(mode).bytes != manual) summaryMatch = false;
+            }
+        }
+        check("组内字节按三档预聚合 = 逐项累加（#374 IA-6）", allMatch, detail);
+        check("组头聚合快照与预聚合同源", summaryMatch, "summary.bytes 与 bytes(mode) 不一致");
+
+        // select() 出来的子组必须按**新集合**重算：`groupSample()` 的 20260607 组有 2 个单元
+        // （ARW+JPG 一个、纯 ARW 一个），只留 JPG 后聚合必然小于父组。
+        PhotoWall multi = PhotoWall.of(groupSample());
+        PhotoWall.Group big = null;
+        for (PhotoWall.Group g : multi.groups()) {
+            if (g.count() >= 2) big = g;
+        }
+        check("组选样本里有 ≥2 个单元的组", big != null, "groupSample() 分组异常");
+        if (big != null) {
+            PhotoWall.Group subset = big.select(PhotoWall.Unit::hasJpg);
+            long manual = 0;
+            if (subset != null) {
+                for (PhotoWall.Unit u : subset.photos) manual += u.exportBytes(PhotoWall.Export.JPG_FIRST);
+            }
+            check("select() 出的子组按新集合重算，不沿用父组聚合（#374 IA-6）",
+                    subset != null && subset.count() < big.count()
+                            && subset.bytes(PhotoWall.Export.JPG_FIRST) == manual
+                            && manual != big.bytes(PhotoWall.Export.JPG_FIRST),
+                    "子组 " + (subset == null ? "null" : subset.bytes(PhotoWall.Export.JPG_FIRST))
+                            + " / 逐项 " + manual + " / 父组 " + big.bytes(PhotoWall.Export.JPG_FIRST));
+        }
+    }
+
+    /**
+     * #374 / IA-6：勾选状态的失效源改成「每单元一个 `MutableState`」的镜像。
+     *
+     * 这是**写坏就静默**的一类改动：漏同步不会崩，只会「点得动、计数不动」或「换 filter 后
+     * 勾选态回退」。`AppModel` 依赖 Compose 运行时，JVM 用例起不来，只能把结构钉在源码上：
+     * 字段形态、两个读入口、两条写路径、树装载/丢弃的三处回读。
+     */
+    static void checkedMirrorCases() {
+        File appModel = source("com/rea/mtpimport/ui/AppModel.kt");
+        String src = readSourceOrNull(appModel);
+        if (src == null) {
+            check("勾选镜像：能读到 AppModel.kt 源码（#374 IA-6）", false, "读不到 " + appModel);
+            return;
+        }
+
+        boolean field = src.contains("private val checkedStates = HashMap<String, MutableState<Boolean>>()")
+                && src.contains("private fun checkedState(key: String): MutableState<Boolean> =");
+        String unitRead = slice(src, "fun isUnitChecked(", "fun isGroupChecked(");
+        boolean readsCell = unitRead != null && unitRead.contains("checkedState(unit.key).value");
+        String groupRead = slice(src, "fun isGroupChecked(", "fun applyDeviceName(");
+        boolean readsGroup = groupRead != null && groupRead.contains("!checkedState(u.key).value");
+        check("勾选读取只走镜像表：单格读本格 key、组头逐单元短路（#374 IA-6）",
+                field && readsCell && readsGroup,
+                "字段 " + field + " / 单格 " + readsCell + " / 组头 " + readsGroup);
+
+        String unitWrite = slice(src, "fun toggleUnitSelection(", "fun toggleGroupSelection(");
+        String groupWrite = slice(src, "fun toggleGroupSelection(", "fun openPhoto(");
+        boolean writesUnit = unitWrite != null && unitWrite.contains("checkedState(unit.key).value = on");
+        boolean writesGroup = groupWrite != null && groupWrite.contains("checkedState(u.key).value = select");
+        check("两条写路径同处同步镜像：单格写 key、组选整组写（#374 IA-6）",
+                writesUnit && writesGroup,
+                "单格 " + writesUnit + " / 组选 " + writesGroup);
+
+        int syncAll = countLines(src, "syncCheckedFromSelection()");
+        boolean defined = src.contains("private fun syncCheckedFromSelection()");
+        check("树装载/丢弃三处回读同一实现：定义 1 + 调用 3（#374 IA-6）",
+                defined && syncAll == 4, "命中 " + syncAll + " 行（定义 1 + 调用应为 4）");
+
+        check("旧的全墙失效源已移除：不再有 `var selectionVersion`（#374 IA-6）",
+                countLines(src, "var selectionVersion") == 0,
+                "仍存在 var selectionVersion 字段");
+
+        // 这一条是实测踩出来的：`SnapshotStateMap` 是**整表订阅**，任何写入都会让所有读过它的
+        // 作用域失效 —— 用它做细粒度等于没做（E2 上 p50 只从 36 ms 降到 30 ms、janky 仍 13/18）。
+        check("细粒度状态不得退回 SnapshotStateMap（整表订阅，实测无效）",
+                countLines(src, "mutableStateMapOf") == 0,
+                "AppModel 里仍有 mutableStateMapOf：会退化成整墙失效");
+    }
+
+    /** 源码切片：从 `from` 到 `to`（不含 `to`）；任一端缺失返回 null。 */
+    private static String slice(String src, String from, String to) {
+        int a = src.indexOf(from);
+        if (a < 0) return null;
+        int b = src.indexOf(to, a + from.length());
+        if (b < 0) return null;
+        return src.substring(a, b);
+    }
+
+    /** 含 `needle` 的行数（同一行多次只算一次）。 */
+    private static int countLines(String src, String needle) {
+        int n = 0;
+        for (String line : src.split("\n", -1)) {
+            if (line.contains(needle)) n++;
+        }
+        return n;
     }
 
     // ---------------- 设计基线常量（G7a / issue #215） ----------------

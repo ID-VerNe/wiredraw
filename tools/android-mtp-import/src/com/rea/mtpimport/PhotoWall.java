@@ -125,21 +125,43 @@ public final class PhotoWall {
         public final String label;
         public final List<Unit> photos;
 
+        // 三种档位的字节数在**建组时**算一次（#374 / IA-6）：组头每次点选都会重算聚合，
+        // 而 `bytes(mode)` 原本每次都遍历组内全部单元。建组是 O(n) 一次性，读是 O(1)。
+        private final long bytesJpgFirst;
+        private final long bytesRaw;
+        private final long bytesJpg;
+
         Group(String key, String label, List<Unit> photos) {
             this.key = key;
             this.label = label;
             this.photos = Collections.unmodifiableList(photos);
+            long jpgFirst = 0;
+            long raw = 0;
+            long jpg = 0;
+            for (Unit u : photos) {
+                jpgFirst += u.exportBytes(Export.JPG_FIRST);
+                raw += u.exportBytes(Export.RAW);
+                jpg += u.exportBytes(Export.JPG);
+            }
+            this.bytesJpgFirst = jpgFirst;
+            this.bytesRaw = raw;
+            this.bytesJpg = jpg;
         }
 
         public int count() {
             return photos.size();
         }
 
-        /** 组内导出载荷字节：随当前档位变化（`V-16` / `V-32`）。 */
+        /** 组内导出载荷字节：随当前档位变化（`V-16` / `V-32`）；建组时已按三档预聚合。 */
         public long bytes(Export mode) {
-            long sum = 0;
-            for (Unit u : photos) sum += u.exportBytes(mode);
-            return sum;
+            switch (mode) {
+                case RAW:
+                    return bytesRaw;
+                case JPG:
+                    return bytesJpg;
+                default:
+                    return bytesJpgFirst;
+            }
         }
 
         /**

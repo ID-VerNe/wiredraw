@@ -264,15 +264,17 @@ private fun PhotoCell(model: AppModel, unit: PhotoWall.Unit) {
         val bitmap = thumb
         if (bitmap != null) {
             // 已选态沿用 V-11：外层 softOutline（1 dp 墨色）+ 未选去饱和、已选恢复饱和度。
+            // 包装对象进 `remember`（#374 / IA-6）：`asImageBitmap()` 与 `ColorMatrix` 每次重组都会新建，
+            // 而格子会因为勾选态变化而重组 —— 没必要为此多分配一个 ImageBitmap 包装与一个 ColorMatrix。
+            val image = remember(bitmap) { bitmap.asImageBitmap() }
+            val desaturate = remember {
+                ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.55f) })
+            }
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = image,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                colorFilter = if (!checked) {
-                    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.55f) })
-                } else {
-                    null
-                },
+                colorFilter = if (!checked) desaturate else null,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
