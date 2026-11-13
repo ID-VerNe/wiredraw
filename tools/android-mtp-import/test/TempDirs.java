@@ -6,12 +6,15 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 
 /**
- * 临时目录的创建与清理（#318 从 SelfTest.java 抽出，清理口径在 #320 收口）。
+ * 临时目录的创建与清理（#318 从 SelfTest.java 抽出，清理口径在 #320 收口，Windows 重试见 #346）。
  *
  * 全仓唯一的临时目录创建点就在这里：用例只写 `withTempDir(前缀, dir -> { ... })`，
  * 不再各自建目录 + 手工清理。
  */
 final class TempDirs {
+
+    private static final int MAX_DELETE_RETRIES = 5;
+    private static final long RETRY_BACKOFF_MS = 15;
 
     /** 临时目录里的用例体；允许抛受检异常，调用方本来就大多声明了 `throws Exception`。 */
     @FunctionalInterface
@@ -45,13 +48,34 @@ final class TempDirs {
         }
     }
 
+    static boolean deleteWithRetry(File f) {
+        for (int i = 0; i < MAX_DELETE_RETRIES; i++) {
+            if (f.delete() || !f.exists()) {
+                return true;
+            }
+            try {
+                Thread.sleep(RETRY_BACKOFF_MS * (i + 1));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return f.delete() || !f.exists();
+    }
+
     static void deleteTree(File f) {
         File[] kids = f.listFiles();
         if (kids != null) {
             for (File k : kids) deleteTree(k);
         }
-        if (!f.delete()) {
-            System.err.println("清理临时文件失败：" + f);
+        if (!deleteWithRetry(f)) {
+            File[] remaining = f.listFiles();
+            if (remaining != null && remaining.length > 0) {
+                for (File k : remaining) deleteTree(k);
+            }
+            if (!deleteWithRetry(f)) {
+                System.err.println("清理临时文件失败：" + f);
+            }
         }
     }
 }

@@ -37,5 +37,22 @@ final class TempDirCases {
                     !thrown[0].exists() && "boom".equals(e.getMessage()),
                     "目录仍存在=" + thrown[0].exists() + "，异常=" + e);
         }
+
+        File[] delayed = new File[1];
+        withTempDir("wiredraw-tmp-retry", dir -> {
+            delayed[0] = dir;
+            File lockedFile = new File(dir, "locked.bin");
+            writeSizedFile(lockedFile, 4);
+            java.io.FileInputStream in = new java.io.FileInputStream(lockedFile);
+            new Thread(() -> {
+                try {
+                    Thread.sleep(40);
+                    in.close();
+                } catch (Exception ignored) {
+                }
+            }).start();
+        });
+        check("withTempDir：短暂停留占用的文件经重试后仍能成功清理（#346）",
+                !delayed[0].exists(), "目录仍残留=" + delayed[0]);
     }
 }
