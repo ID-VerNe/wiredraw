@@ -574,5 +574,4 @@ final class SourceGuardCases {
                     "实际=" + (lfRead == null ? "null" : lfRead.replace("\r", "\\r")));
         });
     }
-    }
 }
