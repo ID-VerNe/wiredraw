@@ -81,11 +81,13 @@ public final class SelfTest {
         requestScanLogCases();
         noDeviceColdGuardCases();
         photoGridScrollPositionCases();
+        stickyDateAndFastScrollerCases();
         usbIdentityCases();
         colorTokensCases();
         backNavCases();
         uiTextCases();
         photoWallCases();
+        photoWallGridIndexCases();
         aggregateCases();
         rangeReadCases();
         derivedValueCases();
