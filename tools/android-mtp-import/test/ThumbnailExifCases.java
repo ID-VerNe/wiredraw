@@ -175,10 +175,10 @@ final class ThumbnailExifCases {
 
         // 光有「取过代际」还不够：捕获点必须读头**之前**。挪到 fetchHead 之后就等于把竞态重开——
         // 读头期间换会话，拿旧代际去 commit 仍然通过（#395，第三轮评审变异 E 就是这么绕过护栏的）。
+        String unitBody = methodBody(src, "private int unitOrientation(");
         check("缩略图姿态：代际值在读头之前捕获（#395）",
-                capturedBeforeRead(unitOrientation),
-                unitOrientation == null ? "切片失败：unitOrientation 到 fetchHead"
-                        : "int startEpoch = epoch; 不在 fetchHead( 之前");
+                capturedBeforeRead(unitBody),
+                captureFailureDetail(unitBody));
 
         check("缩略图姿态：字节源自带 EXIF 时不再二次旋转（#367）",
                 src.contains("if (ExifOrientation.parse(bytes) != ExifOrientation.NO_EXIF) return decoded;"),
@@ -212,17 +212,54 @@ final class ThumbnailExifCases {
     }
 
     /**
-     * 某段方法体里「取代际」是否发生在读头**之前**（issue #395）。
+     * 取一个方法的**完整方法体**：从签名到与之配对的大括号。
      *
-     * 只断言「这行存在」挡不住顺序：把 `int startEpoch = epoch;` 挪到 `fetchHead(...)` 之后，
-     * 读到的是**读头之后**的代际，读头期间换了会话也照样判「同代」——竞态被原样重开。
-     * 这里比较位置，不做文本计数。
+     * 不能用「下一个方法签名」当终点：中间插入任何方法都会把它的内容并进切片，
+     * 于是 `indexOf("fetchHead(")` 可能命中插入方法自己内部的调用，判据就被静默绕过
+     * （#396 评审阻断项）。按大括号配对取的才是这个方法自己的语句。
+     */
+    private static String methodBody(String src, String signature) {
+        if (src == null) return null;
+        int start = src.indexOf(signature);
+        if (start < 0) return null;
+        int open = src.indexOf('{', start);
+        if (open < 0) return null;
+        int depth = 0;
+        for (int i = open; i < src.length(); i++) {
+            char c = src.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) return src.substring(start, i + 1);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * `unitOrientation` 方法体里「取代际」是否发生在读头**之前**（issue #395）。
+     *
+     * 只断言「这行存在」挡不住顺序：把 `int startEpoch = epoch;` 挪到读头之后，
+     * 读到的就是**读头之后**的代际，读头期间换了会话也照样判「同代」——竞态被原样重开。
      */
     private static boolean capturedBeforeRead(String body) {
         if (body == null) return false;
         int capture = body.indexOf("int startEpoch = epoch;");
         int read = body.indexOf("fetchHead(");
         return capture >= 0 && read > capture;
+    }
+
+    /** 失败文案要能区分「判据找不到锚点」与「捕获点真的在后面」——否则报错会与事实相反。 */
+    private static String captureFailureDetail(String body) {
+        if (body == null) return "切片失败：取不到 unitOrientation 的方法体";
+        if (!body.contains("fetchHead(")) {
+            return "unitOrientation 方法体里没有 fetchHead( 调用——若已把读头抽成辅助方法，请同步更新本判据";
+        }
+        if (!body.contains("int startEpoch = epoch;")) {
+            return "unitOrientation 方法体里没有 int startEpoch = epoch;（改名或挪走了）";
+        }
+        return "int startEpoch = epoch; 出现在 fetchHead( 之后";
     }
 
     // ---------------- 合成 JPEG 头 ----------------    /** 一个最小可解析的 JPEG 头：SOI + APP0 + APP1(Exif) + SOS 之前的停止点。 */
