@@ -173,6 +173,13 @@ final class ThumbnailExifCases {
                         && !unitOrientation.contains("orientationCache.put("),
                 unitOrientation == null ? "切片失败：unitOrientation 到 fetchHead" : "缺少代际校验或绕过了 commit");
 
+        // 光有「取过代际」还不够：捕获点必须读头**之前**。挪到 fetchHead 之后就等于把竞态重开——
+        // 读头期间换会话，拿旧代际去 commit 仍然通过（#395，第三轮评审变异 E 就是这么绕过护栏的）。
+        check("缩略图姿态：代际值在读头之前捕获（#395）",
+                capturedBeforeRead(unitOrientation),
+                unitOrientation == null ? "切片失败：unitOrientation 到 fetchHead"
+                        : "int startEpoch = epoch; 不在 fetchHead( 之前");
+
         check("缩略图姿态：字节源自带 EXIF 时不再二次旋转（#367）",
                 src.contains("if (ExifOrientation.parse(bytes) != ExifOrientation.NO_EXIF) return decoded;"),
                 "缺少「自带 EXIF 直接返回」的早退");
@@ -202,6 +209,20 @@ final class ThumbnailExifCases {
             seen = true;
         }
         return seen;
+    }
+
+    /**
+     * 某段方法体里「取代际」是否发生在读头**之前**（issue #395）。
+     *
+     * 只断言「这行存在」挡不住顺序：把 `int startEpoch = epoch;` 挪到 `fetchHead(...)` 之后，
+     * 读到的是**读头之后**的代际，读头期间换了会话也照样判「同代」——竞态被原样重开。
+     * 这里比较位置，不做文本计数。
+     */
+    private static boolean capturedBeforeRead(String body) {
+        if (body == null) return false;
+        int capture = body.indexOf("int startEpoch = epoch;");
+        int read = body.indexOf("fetchHead(");
+        return capture >= 0 && read > capture;
     }
 
     // ---------------- 合成 JPEG 头 ----------------    /** 一个最小可解析的 JPEG 头：SOI + APP0 + APP1(Exif) + SOS 之前的停止点。 */

@@ -40,6 +40,8 @@
 # wrapper 与版本锁入库；缓存、机器相关的 SDK 路径、堆转储不入库
 /tools/android-mtp-import/.gradle/
 /tools/android-mtp-import/local.properties
+# Kotlin 编译器把内部报错日志写到 .kotlin/errors/，机器相关且每次构建可能新建
+/tools/android-mtp-import/.kotlin/
 *.hprof
 
 # ---- demo 照片占位 ----
