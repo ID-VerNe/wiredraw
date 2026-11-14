@@ -208,6 +208,50 @@ final class WallCases {
     }
 
     /**
+     * issue #382：`visibleGroups` 的 (档位, 日期, 墙) 三键缓存是「写坏就静默」的一类 ——
+     * 漏失效（换档 / 日期 / 墙命中旧缓存）或过度失效（键里漏一维、每次重建）都不崩、也不红。
+     * `AppModel` 依赖 Compose 运行时，JVM 起不来实例，只能把 key 构造与命中 / 回写语句
+     * 钉在源码上（沿用 #374 IA-6 / `checkedMirrorCases` 的 `SourceGuard` 套件）。
+     *
+     * 判别力：对 `val key = Triple(...)` 那一行做「三要素齐全」的复合判定 ——
+     * 把 `filterKind` / `filterDate` / `wall` 任一从 key 里去掉，同一条护栏必须红。
+     */
+    static void visibleGroupsCacheCases() {
+        File appModel = source("com/rea/mtpimport/ui/AppModel.kt");
+        String src = readSourceOrNull(appModel);
+        if (src == null) {
+            check("visibleGroups 缓存：能读到 AppModel.kt 源码（#382）", false, "读不到 " + appModel);
+            return;
+        }
+        String body = slice(src, "val visibleGroups: List<PhotoWall.Group>",
+                "/** [visibleGroups] 的缓存");
+        boolean scoped = body != null;
+        String keyLine = null;
+        if (scoped) {
+            for (String line : body.split("\n", -1)) {
+                if (line.contains("val key = Triple(")) {
+                    keyLine = line;
+                    break;
+                }
+            }
+        }
+        check("visibleGroups 缓存 key 三要素齐全：档位 filterKind / 日期 filterDate / 墙 wall（#382）",
+                scoped && keyLine != null
+                        && keyLine.contains("filterKind")
+                        && keyLine.contains("filterDate")
+                        && keyLine.contains("wall"),
+                "缓存 key 行 = " + keyLine + "\nvisibleGroups 切片：\n" + body);
+        check("visibleGroups 命中缓存返回旧实例、失效后重建并回写 key（#382）",
+                scoped
+                        && hasStatement(body, 12, "if (units.size == allUnits.size) return allGroups")
+                        && hasStatement(body, 12, "if (key == groupsCacheKey) return groupsCache")
+                        && hasStatement(body, 12, "val built = PhotoWall.restrict(allGroups, units.map { it.key }.toSet())")
+                        && hasStatement(body, 12, "groupsCacheKey = key")
+                        && hasStatement(body, 12, "groupsCache = built"),
+                "缓存命中 / 重建 / 回写语句不齐");
+    }
+
+    /**
      * #374 / IA-6：组头聚合从「每次遍历求和」改成「建组时按三档预聚合」。
      *
      * 预聚合最容易犯的错是三个累加器写串（比如 `bytesRaw` 累到 `bytesJpg` 上），而组头文案
