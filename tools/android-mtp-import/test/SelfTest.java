@@ -99,6 +99,7 @@ public final class SelfTest {
         derivedSourceCases();
         groupBytesCases();
         checkedMirrorCases();
+        filterDateStateCases();
         typeTokenCases();
         dimsCases();
         typeSourceCases();

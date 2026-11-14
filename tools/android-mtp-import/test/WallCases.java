@@ -352,6 +352,28 @@ final class WallCases {
                 "AppModel 里仍有 mutableStateMapOf：会退化成整墙失效");
     }
 
+    /**
+     * issue #381：`filterDate` 必须是 Compose 可观察状态，否则 DATE 档内换日期时
+     * 「档位不变、只换日期」这条路径没有任何被订阅的状态变化，照片墙停留在上一组。
+     * 与 `filterKind` / `catalog` 等对齐的写法是 `by mutableStateOf<String?>(null)`。
+     * `AppModel` 依赖 Compose 运行时，JVM 起不来，只能把声明钉在源码上（#374 IA-6 同款护栏）。
+     */
+    static void filterDateStateCases() {
+        File appModel = source("com/rea/mtpimport/ui/AppModel.kt");
+        String src = readSourceOrNull(appModel);
+        if (src == null) {
+            check("filterDate 状态：能读到 AppModel.kt 源码（#381）", false, "读不到 " + appModel);
+            return;
+        }
+        // 整行 + 精确缩进匹配：注释里提到旧写法、`if (false)` 包裹一层都挡得住；
+        // 再叠加「不得出现普通 var 旧声明」，把「退回普通 var」直接判红。
+        boolean observable = hasStatement(src, 4, "var filterDate by mutableStateOf<String?>(null)")
+                && countLines(src, "var filterDate: String? = null") == 0;
+        check("filterDate 是 mutableStateOf 可观察状态，不得退回普通 var（#381）",
+                observable,
+                "filterDate 声明不是 by mutableStateOf<String?>(null)，或仍有普通 var 旧写法");
+    }
+
     // ---------------- 设计基线常量（G7a / issue #215） ----------------
 
     /**
