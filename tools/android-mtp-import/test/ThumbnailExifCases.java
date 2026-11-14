@@ -155,6 +155,15 @@ final class ThumbnailExifCases {
                 "orientationCache.evictAll() 出现 "
                         + countLines(src, "orientationCache.evictAll();") + " 次（应为 2：setSession / clear）");
 
+        // evictAll 只清「已经写进去的」，挡不住在飞的那一次；写入必须自己过代际校验（评审阻断项）。
+        String unitOrientation = slice(src, "private int unitOrientation(", "private byte[] fetchHead(");
+        check("缩略图姿态：姿态缓存写入过代际校验，挡住在飞写入（#367）",
+                unitOrientation != null
+                        && unitOrientation.contains("int startEpoch = epoch;")
+                        && unitOrientation.contains("commit(startEpoch, jpg.handle, orientationCache")
+                        && !unitOrientation.contains("orientationCache.put("),
+                unitOrientation == null ? "切片失败：unitOrientation 到 fetchHead" : "缺少代际校验或绕过了 commit");
+
         check("缩略图姿态：字节源自带 EXIF 时不再二次旋转（#367）",
                 src.contains("if (ExifOrientation.parse(bytes) != ExifOrientation.NO_EXIF) return decoded;"),
                 "缺少「自带 EXIF 直接返回」的早退");

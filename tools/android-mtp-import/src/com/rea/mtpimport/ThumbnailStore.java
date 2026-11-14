@@ -335,16 +335,20 @@ public final class ThumbnailStore {
     }
 
     /**
-     * 代际校验 + 落缓存（三档加载共用）。解码期间换了会话 / 清过缓存时返回 null：
-     * 旧句柄的位图不得写进新会话，否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2）。
+     * 代际校验 + 落缓存（三档位图加载与姿态缓存共用）。解码 / 读头期间换了会话或清过缓存时返回 null：
+     * 旧句柄的位图与姿态都不得写进新会话，否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2），
+     * 姿态还会把新会话的同号句柄转错方向。
+     *
+     * 之所以做成泛型而不是给姿态缓存再开一处 epochLock 同步块：
+     * 「epochLock 只在 setSession / clear / commit 三处使用」是既有护栏（`CatalogCases` 按文本钉住），
+     * 新开一处就得放宽那条护栏，等于把「所有缓存写入都过代际校验」这条约束拆掉。
      */
-    private Bitmap commit(int epochAtStart, Integer key,
-                          LruCache<Integer, Bitmap> cache, Bitmap bmp) {
+    private <T> T commit(int epochAtStart, Integer key, LruCache<Integer, T> cache, T value) {
         synchronized (epochLock) {
             if (epoch != epochAtStart) return null;
-            cache.put(key, bmp);
+            cache.put(key, value);
         }
-        return bmp;
+        return value;
     }
 
     /** 同名 JPG 优先、缺失/失败回退 ARW（`V-32`）；每次都单独兜异常，保证回退可达。 */
@@ -422,15 +426,21 @@ public final class ThumbnailStore {
      *
      * 读失败**不缓存**（下一次还能重试），读成功但没 EXIF 就按正常朝向缓存，
      * 避免每次滚到这张都再发一次 MTP 读。
+     *
+     * 写入必须过**代际校验**（走 {@link #commit}，与三档位图同一把守卫）：`fetchHead` 在锁外，
+     * 期间会话可能已经换掉，而句柄不跨会话稳定——不挡的话，上一会话的姿态会落到新会话的同号句柄上，
+     * 把正立的照片转歪。{@link #setSession} / {@link #clear} 里的 `evictAll` 只能清已写入的，
+     * 挡不住在飞的这一次。
      */
     private int unitOrientation(MtpSession s, Catalog.Entry jpg) {
         Integer hit = orientationCache.get(jpg.handle);
         if (hit != null) return hit;
+        int startEpoch = epoch;
         byte[] head = fetchHead(s, jpg);
         if (head == null) return ExifOrientation.NORMAL;
         int raw = ExifOrientation.parse(head);
         int orientation = raw == ExifOrientation.NO_EXIF ? ExifOrientation.NORMAL : raw;
-        orientationCache.put(jpg.handle, orientation);
+        commit(startEpoch, jpg.handle, orientationCache, orientation);   // 会话已换则不写缓存
         return orientation;
     }
 
