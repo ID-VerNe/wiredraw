@@ -192,7 +192,7 @@ class AppModel {
 
     var filterKind by mutableStateOf(FilterKind.ALL)
         private set
-    var filterDate: String? = null
+    var filterDate by mutableStateOf<String?>(null)
         private set
 
     /** 折叠的日期组 key（整行进 L-08 的可点范围）。 */
