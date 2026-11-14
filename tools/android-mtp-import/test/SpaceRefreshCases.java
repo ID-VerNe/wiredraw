@@ -125,6 +125,16 @@ final class SpaceRefreshCases {
 
         String body = main == null ? null : slice(main, "private void refreshSpaceCheck() {", "\n    }");
         check("IA-7：refreshSpaceCheck 函数体可切片", body != null, "找不到函数体");
+        // issue #390：早退分支清 lowSpace 之前必须先推进序号作废在飞结果；否则稍后
+        // runOnUiThread 落地的旧任务仍满足 isCurrent(seq)，可能用被丢弃的旧计划回写一次
+        // lowSpace。只切片「早退分支」本身，避免误命中正常路径里那个赋给 seq 的提交。
+        String early = body == null ? null
+                : slice(body, "if (demoActive() || catalog == null || selection == null) {", "\n        }");
+        check("IA-7/#390：早退分支清状态前必须 spaceRefresh.submit() 作废在飞结果",
+                has(early, "spaceRefresh.submit();")
+                        && has(early, "model.setSpaceStatus(false")
+                        && early.indexOf("spaceRefresh.submit();") < early.indexOf("model.setSpaceStatus(false"),
+                "早退分支没有先 submit() 再清状态，在飞旧序号仍可能回写 lowSpace");
         check("IA-7：勾选 / 组选 / filter 的快照在投递前复制",
                 has(body, "selection.snapshot()")
                         && has(body, "new ArrayList<>(model.getVisibleUnits())")
