@@ -97,6 +97,7 @@ public final class SelfTest {
         rangeReadCases();
         derivedValueCases();
         derivedSourceCases();
+        visibleGroupsCacheCases();
         groupBytesCases();
         checkedMirrorCases();
         typeTokenCases();
