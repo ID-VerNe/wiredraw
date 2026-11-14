@@ -936,6 +936,7 @@ public final class Main extends ComponentActivity implements ScanTask.Host {
 
     private void refreshSpaceCheck() {
         if (demoActive() || catalog == null || selection == null) {
+            spaceRefresh.submit();
             model.setSpaceStatus(false, "");
             return;
         }
