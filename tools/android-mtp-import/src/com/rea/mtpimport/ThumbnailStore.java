@@ -133,9 +133,12 @@ public final class ThumbnailStore {
         // 先换会话再自增代际：在飞请求若捕获到旧代际，put 会被代际检查挡下；
         // 捕获到新代际时看到的必然是已经换好的会话。
         this.session = s;
-        orientationCache.evictAll();   // 新会话的句柄与姿态没有对应关系
         synchronized (epochLock) {
+            // 清姿态缓存必须与自增代际在**同一个临界区**（与 clear 同构）：只清不锁会留一个窗口——
+            // 在飞请求带着旧 startEpoch 已经拿到头部字节时，只要它的 commit 落在
+            // 「清完 → 自增前」，代际检查仍通过，上一会话的姿态就写进新会话同号句柄且不会自愈。
             epoch++;
+            orientationCache.evictAll();
         }
     }
 

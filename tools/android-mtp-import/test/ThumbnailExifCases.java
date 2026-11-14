@@ -155,7 +155,16 @@ final class ThumbnailExifCases {
                 "orientationCache.evictAll() 出现 "
                         + countLines(src, "orientationCache.evictAll();") + " 次（应为 2：setSession / clear）");
 
-        // evictAll 只清「已经写进去的」，挡不住在飞的那一次；写入必须自己过代际校验（评审阻断项）。
+        // 顺序也重要：清理必须在临界区**内**且排在自增代际之后。只清不锁会留下「在飞写入」的窗口，
+        // 而 countLines 那类断言看不出顺序（评审第二轮阻断项就是这么漏掉的）。
+        check("缩略图姿态：setSession 的姿态清理在临界区内、排在自增代际之后（#367）",
+                insideLockAfterBump(slice(src, "public void setSession(", "public void setDemo(")),
+                "setSession 里 orientationCache.evictAll() 不在 epochLock 内或早于 epoch++");
+
+        check("缩略图姿态：clear 的姿态清理同样在临界区内（#367）",
+                insideLockAfterBump(slice(src, "public void clear()", "public void detachSession()")),
+                "clear 里 orientationCache.evictAll() 不在 epochLock 内");
+
         String unitOrientation = slice(src, "private int unitOrientation(", "private byte[] fetchHead(");
         check("缩略图姿态：姿态缓存写入过代际校验，挡住在飞写入（#367）",
                 unitOrientation != null
@@ -173,9 +182,29 @@ final class ThumbnailExifCases {
                 "decode 里的 applyExifOrientation 调用不在了");
     }
 
-    // ---------------- 合成 JPEG 头 ----------------
+    /**
+     * 某段方法体里「清姿态缓存」是否真的在 `epochLock` 临界区**内**。
+     *
+     * 只数「有几处 `evictAll`」看不出位置，只比较「有没有出现在 `epoch++` 之后」也不够——
+     * 把语句挪到同步块**之后**同样满足「在后面」（第一版这么写，变异验证时照样全绿，被抓出来了）。
+     * 所以按**精确缩进**判定：方法体一级缩进 8 空格，块内语句是 12 空格；这句必须恰好落在 12 空格，
+     * 且必须排在自增代际之后（与 `clear` 同构，评审第二轮阻断项）。
+     */
+    private static boolean insideLockAfterBump(String body) {
+        if (body == null) return false;
+        int bump = body.indexOf("epoch++;");
+        if (bump < 0) return false;
+        boolean seen = false;
+        for (String line : body.split("\n", -1)) {
+            if (!line.trim().equals("orientationCache.evictAll();")) continue;
+            if (!line.equals("            orientationCache.evictAll();")) return false;   // 缩进不在块内
+            if (body.indexOf(line) < bump) return false;                                   // 早于自增代际
+            seen = true;
+        }
+        return seen;
+    }
 
-    /** 一个最小可解析的 JPEG 头：SOI + APP0 + APP1(Exif) + SOS 之前的停止点。 */
+    // ---------------- 合成 JPEG 头 ----------------    /** 一个最小可解析的 JPEG 头：SOI + APP0 + APP1(Exif) + SOS 之前的停止点。 */
     private static byte[] jpeg(boolean little, int orientation, boolean withTag) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(0xFF);
