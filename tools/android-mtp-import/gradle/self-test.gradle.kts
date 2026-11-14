@@ -20,6 +20,7 @@ val pureJdkClasses = listOf(
     "DestPolicy.java",
     "Dims.java",
     "Dirs.java",
+    "ExifOrientation.java",
     "FinishOutcome.java",
     "ImportEntry.java",
     "ImportGate.java",

@@ -25,6 +25,11 @@ import java.util.function.BooleanSupplier;
  * 整张 JPG 只在 {@code photo} 页停留后由 {@link #loadFullJpeg} 取一次，失败保留缩略图；
  * 整张 ARW 任何场景都不下载。
  *
+ * 唯一的例外是**姿态**（issue #367 第二代）：MTP 内嵌缩略图不带 EXIF，网格要判断竖拍就只能看
+ * 同名 JPG 的文件头，因此每个单元允许**一次** {@link ExifOrientation#HEAD_BYTES} 的头部读
+ * （8 KiB，不到整张的 1%），结果按句柄进有界姿态缓存，重复滚动不再读相机。
+ * 头部读失败或读不出 EXIF 就退回「不旋转」，与修复前行为一致，不做任何猜测性旋转。
+ *
  * `getThumbnail` 对 ARW 的支持**未在真机验证**（2026-11-06 相机被另一会话探针占用）；
  * 因此这里把能力当成运行时可失败：任何 Throwable 都只记 logcat 并回退，不让界面崩。
  *
@@ -47,6 +52,8 @@ public final class ThumbnailStore {
     private static final int FULL_EDGE = 2048;
     /** 2 张整张 JPG 的缓存，够返回上一张再前进时直接命中，又不至于长期吃内存。 */
     private static final int FULL_BYTES = 24 << 20;
+    /** 姿态缓存的条目上限：一次完整浏览 671 单元也装得下，且不随照片尺寸变化。 */
+    private static final int ORIENTATION_ENTRIES = 4096;
 
     /**
      * 三档缓存共用的计量口径：一条位图占多少字节（issue #307）。
@@ -101,6 +108,20 @@ public final class ThumbnailStore {
 
     private final LruCache<Integer, Bitmap> fullCache = new ByteCountCache(FULL_BYTES);
 
+    /**
+     * 单元姿态缓存：句柄 → EXIF Orientation（1..8，issue #367 第二代修复）。
+     *
+     * 按**条目数**定容而不是字节数：一个值就是一个 int，没有「一张图多大」的计量问题。
+     * 句柄不跨会话稳定，所以 {@link #setSession} 与 {@link #clear} 都要清；
+     * 宁可多读一次 8 KiB 头，也不能把上一会话的姿态套到新会话的同号句柄上转错方向。
+     */
+    private final LruCache<Integer, Integer> orientationCache = new LruCache<Integer, Integer>(ORIENTATION_ENTRIES) {
+        @Override
+        protected int sizeOf(Integer key, Integer value) {
+            return 1;
+        }
+    };
+
     /** 缓存代际：清空 / 换会话时自增，挡住旧会话的在飞请求写进新会话缓存。 */
     private final Object epochLock = new Object();
     private volatile int epoch;
@@ -113,7 +134,11 @@ public final class ThumbnailStore {
         // 捕获到新代际时看到的必然是已经换好的会话。
         this.session = s;
         synchronized (epochLock) {
+            // 清姿态缓存必须与自增代际在**同一个临界区**（与 clear 同构）：只清不锁会留一个窗口——
+            // 在飞请求带着旧 startEpoch 已经拿到头部字节时，只要它的 commit 落在
+            // 「清完 → 自增前」，代际检查仍通过，上一会话的姿态就写进新会话同号句柄且不会自愈。
             epoch++;
+            orientationCache.evictAll();
         }
     }
 
@@ -131,6 +156,7 @@ public final class ThumbnailStore {
             cache.evictAll();
             previewCache.evictAll();
             fullCache.evictAll();
+            orientationCache.evictAll();
         }
         synchronized (queueLock) {
             queue.clear();
@@ -312,16 +338,20 @@ public final class ThumbnailStore {
     }
 
     /**
-     * 代际校验 + 落缓存（三档加载共用）。解码期间换了会话 / 清过缓存时返回 null：
-     * 旧句柄的位图不得写进新会话，否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2）。
+     * 代际校验 + 落缓存（三档位图加载与姿态缓存共用）。解码 / 读头期间换了会话或清过缓存时返回 null：
+     * 旧句柄的位图与姿态都不得写进新会话，否则重扫后会按 handle 取到上一会话的照片（评审阻断项 2），
+     * 姿态还会把新会话的同号句柄转错方向。
+     *
+     * 之所以做成泛型而不是给姿态缓存再开一处 epochLock 同步块：
+     * 「epochLock 只在 setSession / clear / commit 三处使用」是既有护栏（`CatalogCases` 按文本钉住），
+     * 新开一处就得放宽那条护栏，等于把「所有缓存写入都过代际校验」这条约束拆掉。
      */
-    private Bitmap commit(int epochAtStart, Integer key,
-                          LruCache<Integer, Bitmap> cache, Bitmap bmp) {
+    private <T> T commit(int epochAtStart, Integer key, LruCache<Integer, T> cache, T value) {
         synchronized (epochLock) {
             if (epoch != epochAtStart) return null;
-            cache.put(key, bmp);
+            cache.put(key, value);
         }
-        return bmp;
+        return value;
     }
 
     /** 同名 JPG 优先、缺失/失败回退 ARW（`V-32`）；每次都单独兜异常，保证回退可达。 */
@@ -331,7 +361,8 @@ public final class ThumbnailStore {
 
         if (unit.jpg != null) {
             try {
-                Bitmap b = thumbnail(s, unit.jpg.handle);
+                // 同名 JPG 既当像素源，也当姿态来源（issue #367 第二代）。
+                Bitmap b = thumbnail(s, unit.jpg, unit.jpg);
                 if (b != null) return b;
             } catch (Throwable t) {
                 Log.w(TAG, "同名 JPG 缩略图失败 handle=" + unit.jpg.handle + "：" + t);
@@ -339,7 +370,8 @@ public final class ThumbnailStore {
         }
         if (unit.arw != null) {
             try {
-                return thumbnail(s, unit.arw.handle);
+                // ARW 的内嵌缩略图同样不带 APP1：姿态仍从单元里的同名 JPG 取。
+                return thumbnail(s, unit.arw, unit.jpg);
             } catch (Throwable t) {
                 Log.w(TAG, "ARW 缩略图失败 handle=" + unit.arw.handle + "：" + t);
             }
@@ -347,10 +379,103 @@ public final class ThumbnailStore {
         return null;
     }
 
-    private Bitmap thumbnail(MtpSession s, int handle) {
+    /**
+     * 取一张缩略图并纠正姿态。
+     *
+     * @param entry           像素来源句柄
+     * @param orientationFrom 姿态来源（单元里的同名 JPG）；null 表示没有可用来源，不纠偏
+     */
+    private Bitmap thumbnail(MtpSession s, Catalog.Entry entry, Catalog.Entry orientationFrom) {
         // 锁内只做相机调用；解码放到锁外，不阻塞导入的 importFile。
-        byte[] bytes = fetch(s, handle);
-        return bytes == null ? null : decode(bytes, MAX_EDGE);
+        byte[] bytes = fetch(s, entry.handle);
+        if (bytes == null) return null;
+        return applyUnitOrientation(decode(bytes, MAX_EDGE), bytes, s, orientationFrom);
+    }
+
+    /**
+     * 网格 / 看图页缩略图的姿态补正（issue #367 第二代修复）。
+     *
+     * 第一代的错在**姿态来源**：`decode` 只读传入字节自身的 EXIF，而 MTP 内嵌缩略图不带 APP1，
+     * 于是 {@code getExifOrientation} 恒回落「正常」，竖拍照片在网格里一律横躺；
+     * 同一张图进大图又正立，是因为 `fetchFull` 拿的是带 `Orientation=8` 的完整 JPG。
+     *
+     * 这里按「谁说得出姿态」分两路：
+     * - 字节源**自带** EXIF → `decode` 已经按它转过，直接返回，绝不二次旋转；
+     * - 字节源没有 EXIF（`NO_EXIF`）→ 回到同名 JPG 的**文件头**取一次姿态（8 KiB，不是整张）。
+     */
+    private Bitmap applyUnitOrientation(Bitmap decoded, byte[] bytes,
+                                        MtpSession s, Catalog.Entry orientationFrom) {
+        if (decoded == null) return null;
+        if (ExifOrientation.parse(bytes) != ExifOrientation.NO_EXIF) return decoded;
+        if (orientationFrom == null) return decoded;
+        int orientation = unitOrientation(s, orientationFrom);
+        Matrix matrix = orientationToMatrix(orientation);
+        if (matrix == null) return decoded;
+        try {
+            Bitmap rotated = Bitmap.createBitmap(decoded, 0, 0,
+                    decoded.getWidth(), decoded.getHeight(), matrix, true);
+            if (rotated != decoded) {
+                decoded.recycle();
+            }
+            return rotated;
+        } catch (Throwable t) {
+            Log.w(TAG, "缩略图姿态纠偏失败 handle=" + orientationFrom.handle + "：" + t);
+            return decoded;
+        }
+    }
+
+    /**
+     * 单元的 EXIF Orientation：先查姿态缓存，再读一次同名 JPG 的头部。
+     *
+     * 读失败**不缓存**（下一次还能重试），读成功但没 EXIF 就按正常朝向缓存，
+     * 避免每次滚到这张都再发一次 MTP 读。
+     *
+     * 写入必须过**代际校验**（走 {@link #commit}，与三档位图同一把守卫）：`fetchHead` 在锁外，
+     * 期间会话可能已经换掉，而句柄不跨会话稳定——不挡的话，上一会话的姿态会落到新会话的同号句柄上，
+     * 把正立的照片转歪。{@link #setSession} / {@link #clear} 里的 `evictAll` 只能清已写入的，
+     * 挡不住在飞的这一次。
+     */
+    private int unitOrientation(MtpSession s, Catalog.Entry jpg) {
+        Integer hit = orientationCache.get(jpg.handle);
+        if (hit != null) return hit;
+        int startEpoch = epoch;
+        byte[] head = fetchHead(s, jpg);
+        if (head == null) return ExifOrientation.NORMAL;
+        int raw = ExifOrientation.parse(head);
+        int orientation = raw == ExifOrientation.NO_EXIF ? ExifOrientation.NORMAL : raw;
+        commit(startEpoch, jpg.handle, orientationCache, orientation);   // 会话已换则不写缓存
+        return orientation;
+    }
+
+    /**
+     * 只读同名 JPG 的文件头（{@link ExifOrientation#HEAD_BYTES}），用于取姿态。
+     *
+     * 与 {@link #fetchFull} 同一把 `ioLock`，一次调用即返回；`offset` 恒为 0——
+     * `getPartialObject` 的 offset 在真机上并非总是生效（续传停用已记该结论），
+     * 而 offset=0 在两种语义下都落在「从对象头开始」，因此不受影响。
+     */
+    private byte[] fetchHead(MtpSession s, Catalog.Entry entry) {
+        if (entry == null || entry.size <= 0) return null;
+        int want = (int) Math.min(ExifOrientation.HEAD_BYTES, entry.size);
+        if (want <= 0) return null;
+        s.ioLock().lock();
+        try {
+            if (session != s) return null;
+            byte[] buffer = new byte[want];
+            // getPartialObject 返回 long；超量返回按请求长度截断，防越界。
+            long got = s.device().getPartialObject(entry.handle, 0, want, buffer);
+            if (got <= 0) return null;
+            int n = (int) Math.min(got, (long) want);
+            if (n >= want) return buffer;
+            byte[] trimmed = new byte[n];
+            System.arraycopy(buffer, 0, trimmed, 0, n);
+            return trimmed;
+        } catch (Throwable t) {
+            Log.w(TAG, "头部读取失败 handle=" + entry.handle + "：" + t);
+            return null;
+        } finally {
+            s.ioLock().unlock();
+        }
     }
 
     private byte[] fetch(MtpSession s, int handle) {
